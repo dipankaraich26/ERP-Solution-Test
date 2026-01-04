@@ -291,3 +291,33 @@ select:focus {
     display: flex;
     gap: 10px;
 }
+
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    min-width: 900px; /* prevents button columns collapsing */
+}
+
+.app-container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+}
+
+/* Main page content */
+main {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}

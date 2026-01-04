@@ -1,4 +1,4 @@
-
+<html><head><link rel="stylesheet" href="/erp/ERP Solution/assets/style.css"></head></html>
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
@@ -36,11 +36,38 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     exit;
 }
 ?>
-<form method="post">
-    Name <input name="supplier_name" value="<?= htmlspecialchars($supplier['supplier_name']) ?>">
-    Contact <input name="contact_person" value="<?= htmlspecialchars($supplier['contact_person']) ?>">
-    Phone <input name="phone" value="<?= htmlspecialchars($supplier['phone']) ?>">
-    Email <input name="email" value="<?= htmlspecialchars($supplier['email']) ?>">
-    Address <input name="address" value="<?= htmlspecialchars($supplier['address']) ?>">
-    <button>Update</button>
-</form>
+
+<script>
+const toggle = document.getElementById("themeToggle");
+const body = document.body;
+
+if (toggle) {
+    if (localStorage.getItem("theme") === "dark") {
+        body.classList.add("dark");
+        toggle.textContent = "☀️ Light Mode";
+    }
+
+    toggle.addEventListener("click", () => {
+        body.classList.toggle("dark");
+
+        if (body.classList.contains("dark")) {
+            localStorage.setItem("theme", "dark");
+            toggle.textContent = "☀️ Light Mode";
+        } else {
+            localStorage.setItem("theme", "light");
+            toggle.textContent = "🌙 Dark Mode";
+        }
+    });
+}
+</script>
+<div class="content">
+    <h1>Edit Supplier</h1>
+    <form method="post">
+        Name <input name="supplier_name" value="<?= htmlspecialchars($supplier['supplier_name']) ?>">
+        Contact <input name="contact_person" value="<?= htmlspecialchars($supplier['contact_person']) ?>">
+        Phone <input name="phone" value="<?= htmlspecialchars($supplier['phone']) ?>">
+        Email <input name="email" value="<?= htmlspecialchars($supplier['email']) ?>">
+        Address <input name="address" value="<?= htmlspecialchars($supplier['address']) ?>">
+        <button>Update</button>
+    </form>
+</div>

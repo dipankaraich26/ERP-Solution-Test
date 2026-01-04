@@ -2,6 +2,7 @@
 
 <?php
 require '../db.php';
+require '../includes/sidebar.php';
 
 $errors = [];
 $success = false;
@@ -90,12 +91,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
+
+
 <!DOCTYPE html>
 <html>
 <head>
     <title>Add Part</title>
     <link rel="stylesheet" href="/erp/assets/style.css">
 </head>
+<script>
+const toggle = document.getElementById("themeToggle");
+const body = document.body;
+
+if (toggle) {
+    if (localStorage.getItem("theme") === "dark") {
+        body.classList.add("dark");
+        toggle.textContent = "☀️ Light Mode";
+    }
+
+    toggle.addEventListener("click", () => {
+        body.classList.toggle("dark");
+
+        if (body.classList.contains("dark")) {
+            localStorage.setItem("theme", "dark");
+            toggle.textContent = "☀️ Light Mode";
+        } else {
+            localStorage.setItem("theme", "light");
+            toggle.textContent = "🌙 Dark Mode";
+        }
+    });
+}
+</script>
 <body>
 
 <?php include '../includes/sidebar.php'; ?>
@@ -125,28 +151,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <form method="post">
         <label>Part No</label>
         <input type="text" name="part_no" required>
-
+        <br><br>
         <label>Part Name</label>
         <input type="text" name="part_name" required>
-
+        <br><br>
         <label>Part ID</label>
         <input type="text" name="part_id" required>
-
+        <br><br>
         <label>Description</label>
         <input type="text" name="description" required>
-
+        <br><br>
         <label>UOM</label>
         <input type="text" name="uom" required>
-
+        <br><br>
         <label>Category</label>
         <input type="text" name="category" required>
-
+        <br><br>
         <label>Rate</label>
         <input type="number" name="rate" step="0.01" min="0" required>
-
+        <br><br>
         <label>GST (%)</label>
         <input type="number" name="gst" step="0.01" min="0" required>
-
+        <br><br>
         <button type="submit">Add Part</button>
     </form>
 

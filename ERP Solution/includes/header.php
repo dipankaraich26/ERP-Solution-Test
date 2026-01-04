@@ -1,3 +1,10 @@
-<button id="themeToggle" class="btn btn-secondary">
-    🌙 Dark Mode
-</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ERP System</title>
+    <link rel="stylesheet" href="/erp/ERP Solution/assets/style.css">
+</head>
+
+<body>
+<div class="app-container">

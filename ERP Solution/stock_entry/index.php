@@ -1,18 +1,22 @@
-<html><head><link rel="stylesheet" href="/erp/ERP Solution/assets/style.css"></head></html>
-
-
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
 
-$inv = $pdo->query("
-    SELECT i.part_no, p.part_name, i.qty
-    FROM inventory i
-    JOIN part_master p ON p.part_no = i.part_no
-    ORDER BY p.part_name
+$pos = $pdo->query("
+    SELECT p.id, p.po_no, p.qty, p.status,
+           pm.part_name
+    FROM purchase_orders p
+    JOIN part_master pm ON p.part_no = pm.part_no
+    WHERE p.status != 'closed'
+    ORDER BY p.id DESC
 ");
 ?>
 
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
 <script>
 const toggle = document.getElementById("themeToggle");
 const body = document.body;
@@ -36,23 +40,33 @@ if (toggle) {
     });
 }
 </script>
+<body>
 
 <div class="content">
-<h1>Inventory</h1>
+<h1>Stock Entry (Goods Receipt)</h1>
 
-<table>
+<table border="1" cellpadding="8">
 <tr>
-    <th>Part No</th>
-    <th>Name</th>
-    <th>Qty</th>
+    <th>PO No</th>
+    <th>Part</th>
+    <th>Ordered Qty</th>
+    <th>Status</th>
+    <th>Action</th>
 </tr>
 
-<?php while ($r = $inv->fetch()): ?>
+<?php while ($p = $pos->fetch()): ?>
 <tr>
-    <td><?= htmlspecialchars($r['part_no']) ?></td>
-    <td><?= htmlspecialchars($r['part_name']) ?></td>
-    <td><?= $r['qty'] ?></td>
+    <td><?= $p['po_no'] ?></td>
+    <td><?= $p['part_name'] ?></td>
+    <td><?= $p['qty'] ?></td>
+    <td><?= $p['status'] ?></td>
+    <td>
+        <a href="add.php?po_id=<?= $p['id'] ?>">Receive</a>
+    </td>
 </tr>
 <?php endwhile; ?>
 </table>
 </div>
+
+</body>
+</html>
