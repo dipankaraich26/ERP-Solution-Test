@@ -65,8 +65,8 @@ if (toggle) {
             <td>
                 <a href="view.php?id=<?= $b['id'] ?>">View</a>
                 <?php if ($b['status'] === 'active'): ?>
-                    | <a href="edit.php?id=<?= $b['id'] ?>">Edit</a>
-                    | <a href="deactivate.php?id=<?= $b['id'] ?>"
+                    | <a class="btn btn-secondary" href="edit.php?id=<?= $b['id'] ?>">Edit</a>
+                    | <a class="btn btn-secondary" href="deactivate.php?id=<?= $b['id'] ?>"
                          onclick="return confirm('Deactivate BOM?')">Deactivate</a>
                 <?php endif; ?>
             </td>

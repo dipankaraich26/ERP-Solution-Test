@@ -2,6 +2,9 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
 
 $parts = $pdo->query("
     SELECT i.part_no, i.qty, p.part_name
@@ -69,7 +72,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $available = $stmt->fetchColumn();
 
     if ($available === false || $available < $qty)
-        die("Insufficient stock");
+        setModal("Failed to deplete", "Insufficient Stock");
+        header("Location: index.php"); 
 
     try {
         $pdo->beginTransaction();
@@ -80,7 +84,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         ")->execute([$qty, $part]);
 
         $pdo->prepare("
-            INSERT INTO depletion (part_no, qty, issue_date, reason, status, issue_no)
+            INSERT INTO depletion (part_no, qty, qissue_date, reason, status, issue_no)
             VALUES (?, ?, CURDATE(), ?, 'issued', CONCAT('ISS-', UNIX_TIMESTAMP()))
         ")->execute([$part, $qty, $reason]);
 
@@ -90,7 +94,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     } catch (Exception $e) {
         $pdo->rollBack();
-        die($e->getMessage());
+        setModal("Failed to deplete", $e->getMessage());
+        header("Location: index.php"); 
     }
 }
 ?>

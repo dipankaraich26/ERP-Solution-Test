@@ -3,6 +3,9 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
 
 /* =========================
    FETCH PARTS & SUPPLIERS
@@ -32,7 +35,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $date        = $_POST['purchase_date'];
 
     if ($qty <= 0) {
-        die("Quantity must be greater than zero");
+        setModal("Failed to add part", "Quantity must be more than 0");
+        header("Location: index.php"); 
     }
 
     try {
@@ -53,7 +57,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         exit;
 
     } catch (PDOException $e) {
-        die("PO Number must be unique");
+        setModal("Failed to add part", "Part number must be unique");
+        header("Location: index.php"); 
     }
 }
 

@@ -89,8 +89,9 @@ if (toggle) {
             <td><?= htmlspecialchars($row['rate']) ?></td>
             <td><?= htmlspecialchars($row['gst']) ?></td>
             <td>
-                <a href="edit.php?part_no=<?= $row['part_no'] ?>">Edit</a> |
-                <a href="deactivate.php?id=<?= $row['id'] ?>"
+                
+                <a class="btn btn-secondary" href="edit.php?part_no=<?= $row['part_no'] ?>">Edit</a> |
+                <a class="btn btn-secondary" href="deactivate.php?id=<?= $row['id'] ?>"
                     onclick="return confirm('Deactivate this part?')">
                     Deactivate
                 </a>

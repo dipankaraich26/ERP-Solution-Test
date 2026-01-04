@@ -67,11 +67,11 @@ if (toggle) {
     <td><?= $w['qty'] ?></td>
     <td><?= $w['status'] ?></td>
     <td>
-        <a href="view.php?id=<?= $w['id'] ?>">View</a>
+        <a class="btn btn-secondary" href="view.php?id=<?= $w['id'] ?>">View</a>
         <?php if ($w['status']==='created'): ?>
-            | <a href="release.php?id=<?= $w['id'] ?>"
+            | <a class="btn btn-secondary" href="release.php?id=<?= $w['id'] ?>"
                  onclick="return confirm('Issue materials?')">Release</a>
-            | <a href="cancel.php?id=<?= $w['id'] ?>">Cancel</a>
+            | <a class="btn btn-secondary" href="cancel.php?id=<?= $w['id'] ?>">Cancel</a>
         <?php endif; ?>
     </td>
 </tr>

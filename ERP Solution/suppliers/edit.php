@@ -64,10 +64,15 @@ if (toggle) {
     <h1>Edit Supplier</h1>
     <form method="post">
         Name <input name="supplier_name" value="<?= htmlspecialchars($supplier['supplier_name']) ?>">
+        <br><br>
         Contact <input name="contact_person" value="<?= htmlspecialchars($supplier['contact_person']) ?>">
+        <br><br>
         Phone <input name="phone" value="<?= htmlspecialchars($supplier['phone']) ?>">
+        <br><br>
         Email <input name="email" value="<?= htmlspecialchars($supplier['email']) ?>">
+        <br><br>
         Address <input name="address" value="<?= htmlspecialchars($supplier['address']) ?>">
+        <br><br>
         <button>Update</button>
     </form>
 </div>

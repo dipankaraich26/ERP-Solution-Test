@@ -1,6 +1,9 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
 
 $id = $_GET['id'] ?? 0;
 
@@ -10,7 +13,8 @@ $stmt->execute([$id]);
 $old = $stmt->fetch();
 
 if (!$old) {
-    die("Invalid depletion record");
+    setModal("Failed to add BOM", "Use at least one part");
+    header("Location: add.php"); 
 }
 
 $oldQty = (int)$old['qty'];

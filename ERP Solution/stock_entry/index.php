@@ -61,7 +61,7 @@ if (toggle) {
     <td><?= $p['qty'] ?></td>
     <td><?= $p['status'] ?></td>
     <td>
-        <a href="add.php?po_id=<?= $p['id'] ?>">Receive</a>
+        <a class="btn btn-secondary" href="add.php?po_id=<?= $p['id'] ?>">Receive</a>
     </td>
 </tr>
 <?php endwhile; ?>

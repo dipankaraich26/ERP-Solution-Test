@@ -1,6 +1,10 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
+
 
 $parts = $pdo->query("
     SELECT part_no, part_name
@@ -11,7 +15,8 @@ $parts = $pdo->query("
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     if (empty($_POST['component_part_no'])) {
-        die("At least one component required");
+        setModal("Failed to add BOM", "Use at least one part");
+        header("Location: add.php"); 
     }
 
     $pdo->beginTransaction();
@@ -35,7 +40,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     foreach ($_POST['component_part_no'] as $i => $part) {
         if ($part === $_POST['parent_part_no']) {
             $pdo->rollBack();
-            die("Parent part cannot be a component");
+            setModal("Failed to add BOM", "Parent Part cannot be a component");
+                header("Location: add.php"); 
         }
 
         $stmt->execute([
@@ -138,7 +144,7 @@ if (toggle) {
         }
     });
 }
-
+</script>
 </script>
 
 </body>

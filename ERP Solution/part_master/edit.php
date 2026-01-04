@@ -1,14 +1,19 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
 
 $part_no = $_GET['part_no'] ?? null;
-if (!$part_no) die("Part not specified");
+if (!$part_no) setModal("Failed to edit part", "Part not specified");
+        header("Location: edit.php"); 
 
 $stmt = $pdo->prepare("SELECT * FROM part_master WHERE part_no=?");
 $stmt->execute([$part_no]);
 $part = $stmt->fetch();
-if (!$part) die("Part not found");
+if (!$part) setModal("Failed to edit part", "Part not found");
+        header("Location: edit.php"); 
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 

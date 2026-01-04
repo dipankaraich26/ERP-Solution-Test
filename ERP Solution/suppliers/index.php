@@ -3,6 +3,9 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/dialog.php";
+
+showModal();
 $suppliers = $pdo->query("SELECT id, supplier_name FROM suppliers");
 
 /* =========================
@@ -89,7 +92,7 @@ if (toggle) {
         Phone <input name="phone">
         Email <input name="email">
         Address <input name="address">
-
+        <br><br>
         <button>Add Supplier</button>
     </form>
 
@@ -117,8 +120,8 @@ if (toggle) {
             <td><?= htmlspecialchars($s['address']) ?></td>
             <td><?= htmlspecialchars($s['email']) ?></td>
             <td>
-                <a href="edit.php?id=<?= $s['id'] ?>">Edit</a> |
-                <a href="delete.php?id=<?= $s['id'] ?>"
+                <a class="btn btn-secondary" href="edit.php?id=<?= $s['id'] ?>">Edit</a> |
+                <a class="btn btn-secondary" href="delete.php?id=<?= $s['id'] ?>"
                    onclick="return confirm('Delete supplier?')">Delete</a>
             </td>
         </tr>
