@@ -4,12 +4,15 @@ include "../includes/sidebar.php";
 
 $po_id = $_GET['po_id'];
 
-/* Fetch PO */
+/* Fetch PO with part name */
 $po = $pdo->prepare("
-    SELECT * FROM purchase_orders WHERE id=?
+    SELECT p.*, pm.part_name
+    FROM purchase_orders p
+    JOIN part_master pm ON p.part_no = pm.part_no
+    WHERE p.id = ?
 ");
 $po->execute([$po_id]);
-$po = $po->fetch();
+$po = $po->fetch(PDO::FETCH_ASSOC);
 
 if (!$po) die("Invalid PO");
 
@@ -101,10 +104,12 @@ if (toggle) {
 <div class="content">
 <h1>Receive Stock</h1>
 
-<p><strong>PO:</strong> <?= $po['po_no'] ?></p>
-<p><strong>Ordered:</strong> <?= $po['qty'] ?></p>
-<p><strong>Already Received:</strong> <?= $receivedQty ?></p>
-<p><strong>Remaining:</strong> <?= $remaining ?></p>
+<p><strong>PO:</strong> <?= htmlspecialchars($po['po_no']) ?></p>
+<p><strong>Part No:</strong> <?= htmlspecialchars($po['part_no']) ?></p>
+<p><strong>Part Name:</strong> <?= htmlspecialchars($po['part_name']) ?></p>
+<p><strong>Ordered:</strong> <?= htmlspecialchars($po['qty']) ?></p>
+<p><strong>Already Received:</strong> <?= htmlspecialchars($receivedQty) ?></p>
+<p><strong>Remaining:</strong> <?= htmlspecialchars($remaining) ?></p>
 
 <form method="post">
 Invoice No<br>

@@ -1,22 +1,18 @@
+<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
+
+
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
 
-$pos = $pdo->query("
-    SELECT p.id, p.po_no, p.qty, p.status,
-           pm.part_name
-    FROM purchase_orders p
-    JOIN part_master pm ON p.part_no = pm.part_no
-    WHERE p.status != 'closed'
-    ORDER BY p.id DESC
+$inv = $pdo->query("
+    SELECT i.part_no, p.part_name, i.qty
+    FROM inventory i
+    JOIN part_master p ON p.part_no = i.part_no
+    ORDER BY p.part_name
 ");
 ?>
 
-<!DOCTYPE html>
-<html>
-<head>
-<link rel="stylesheet" href="../assets/style.css">
-</head>
 <script>
 const toggle = document.getElementById("themeToggle");
 const body = document.body;
@@ -40,33 +36,23 @@ if (toggle) {
     });
 }
 </script>
-<body>
 
 <div class="content">
-<h1>Stock Entry (Goods Receipt)</h1>
+<h1>Inventory</h1>
 
-<table border="1" cellpadding="8">
+<table>
 <tr>
-    <th>PO No</th>
-    <th>Part</th>
-    <th>Ordered Qty</th>
-    <th>Status</th>
-    <th>Action</th>
+    <th>Part No</th>
+    <th>Name</th>
+    <th>Qty</th>
 </tr>
 
-<?php while ($p = $pos->fetch()): ?>
+<?php while ($r = $inv->fetch()): ?>
 <tr>
-    <td><?= $p['po_no'] ?></td>
-    <td><?= $p['part_name'] ?></td>
-    <td><?= $p['qty'] ?></td>
-    <td><?= $p['status'] ?></td>
-    <td>
-        <a class="btn btn-secondary" href="add.php?po_id=<?= $p['id'] ?>">Receive</a>
-    </td>
+    <td><?= htmlspecialchars($r['part_no']) ?></td>
+    <td><?= htmlspecialchars($r['part_name']) ?></td>
+    <td><?= $r['qty'] ?></td>
 </tr>
 <?php endwhile; ?>
 </table>
 </div>
-
-</body>
-</html>

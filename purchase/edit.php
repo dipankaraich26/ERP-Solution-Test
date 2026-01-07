@@ -1,6 +1,6 @@
 <html>
 <head>
-    <link rel="stylesheet" href="/erp/ERP Solution/assets/style.css">
+    <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 

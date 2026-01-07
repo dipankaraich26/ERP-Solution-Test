@@ -1,4 +1,4 @@
-<html><head><link rel="stylesheet" href="/erp/ERP Solution/assets/style.css"></head></html>
+<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
 
 <?php
 require '../db.php';

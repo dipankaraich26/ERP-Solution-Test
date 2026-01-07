@@ -1,4 +1,4 @@
-<html><head><link rel="stylesheet" href="/erp/ERP Solution/assets/style.css"></head></html>
+<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
 
 <?php if (isset($_GET['error']) && $_GET['error'] === 'used'): ?>
 <script>
@@ -55,7 +55,8 @@ if (toggle) {
 <div class="content">
     <h1>Part Master</h1>
 
-    <a href="add.php" class="btn btn-primary">Add Part</a><br><br>
+    <a href="add.php" class="btn btn-primary">Add Part</a>
+    <a href="inactive.php" class="btn btn-primary">View Inactive Parts</a><br><br>
 
     <table border="1" cellpadding="8">
         <tr>

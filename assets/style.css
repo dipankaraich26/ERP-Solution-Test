@@ -99,7 +99,7 @@ body.dark {
     transition: background-color 0.35s ease;
 }
 
-.sidebar h2 {
+.sidebar #sidebar-ERP-title {
     color: var(--sidebar-text);
     padding: 16px;
     margin: 0;
