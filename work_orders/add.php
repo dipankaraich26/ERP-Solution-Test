@@ -10,12 +10,20 @@ $boms = $pdo->query("
     SELECT id, bom_no FROM bom_master WHERE status='active'
 ")->fetchAll();
 
+// generate next WO number like "WO-1", "WO-2", ...
+$max = $pdo->query("SELECT MAX(CAST(SUBSTRING(wo_no,4) AS UNSIGNED)) FROM work_orders WHERE wo_no LIKE 'WO-%'")->fetchColumn();
+$next = $max ? ((int)$max + 1) : 1;
+$wo_no = 'WO-' . $next;
+
 if ($_SERVER["REQUEST_METHOD"]==="POST") {
+    // enforce server-side WO number to avoid tampering
+    $generated_wo = $wo_no;
+
     $pdo->prepare("
         INSERT INTO work_orders (wo_no, part_no, bom_id, qty)
         VALUES (?, ?, ?, ?)
     ")->execute([
-        $_POST['wo_no'],
+        $generated_wo,
         $_POST['part_no'],
         $_POST['bom_id'],
         $_POST['qty']
@@ -59,7 +67,7 @@ if (toggle) {
 
 <form method="post">
 WO No<br>
-<input name="wo_no" required><br><br>
+<input name="wo_no" value="<?= htmlspecialchars($wo_no) ?>" readonly required><br><br>
 
 Product<br>
 <select name="part_no" required>

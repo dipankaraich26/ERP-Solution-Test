@@ -48,6 +48,7 @@ if (toggle) {
 
 <div class="content">
 <h1>Stock Entry (Goods Receipt)</h1>
+<a href="history.php" class="btn" style="margin-bottom:8px; display:inline-block;">📜 Stock Entry History</a>
 
 <table border="1" cellpadding="8">
 <tr>
@@ -77,6 +78,8 @@ if (toggle) {
     </td>
     <td><?= htmlspecialchars($p['status_list']) ?></td>
     <td>
+        <a class="btn btn-primary" href="receive_all.php?po_no=<?= urlencode($p['po_no']) ?>" onclick="return confirm('Receive ALL remaining parts for <?= htmlspecialchars($p['po_no']) ?>?')">Receive All</a>
+        &nbsp;
         <a class="btn btn-danger" href="../purchase/cancel.php?po_no=<?= urlencode($p['po_no']) ?>" onclick="return confirm('Cancel this PO?')">Cancel PO</a>
     </td>
 </tr>
