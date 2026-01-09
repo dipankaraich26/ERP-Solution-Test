@@ -1,8 +1,9 @@
 <?php
 $host = "localhost";
-$db   = "erp_system";
+$db   = "yashka_erpsystem";
 $user = "root";
-$port = "3307";
+$pass = "";
+$port = "3306";
 
 try {
     $pdo = new PDO("mysql:host=$host;port=$port;dbname=$db", $user);
