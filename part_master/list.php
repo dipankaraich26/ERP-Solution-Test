@@ -67,6 +67,7 @@ if (toggle) {
             <th>Description</th>
             <th>UOM</th>
             <th>Rate</th>
+            <th>HSN</th>
             <th>GST</th>
             <th>Actions</th>
         </tr>
@@ -88,15 +89,24 @@ if (toggle) {
             <td><?= htmlspecialchars($row['description']) ?></td>
             <td><?= htmlspecialchars($row['uom']) ?></td>
             <td><?= htmlspecialchars($row['rate']) ?></td>
+            <td><?= htmlspecialchars($row['hsn_code']) ?></td>
             <td><?= htmlspecialchars($row['gst']) ?></td>
             <td>
-                
                 <a class="btn btn-secondary" href="edit.php?part_no=<?= $row['part_no'] ?>">Edit</a> |
-                <a class="btn btn-secondary" href="deactivate.php?id=<?= $row['id'] ?>"
-                    onclick="return confirm('Deactivate this part?')">
-                    Deactivate
-                </a>
 
+                <?php if (!empty($row['attachment_path'])): ?>
+                    <a class="btn btn-secondary"
+                    href="../<?= htmlspecialchars($row['attachment_path']) ?>"
+                    target="_blank">
+                    View PDF
+                    </a> |
+                <?php endif; ?>
+
+                <a class="btn btn-secondary"
+                href="deactivate.php?id=<?= $row['id'] ?>"
+                onclick="return confirm('Deactivate this part?')">
+                Deactivate
+                </a>
             </td>
         </tr>
         <?php endwhile; ?>

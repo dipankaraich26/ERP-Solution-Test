@@ -5,12 +5,28 @@
 include "../db.php";
 include "../includes/sidebar.php";
 
-$inv = $pdo->query("
-    SELECT i.part_no, p.part_name, i.qty
-    FROM inventory i
-    JOIN part_master p ON p.part_no = i.part_no
-    ORDER BY p.part_name
-");
+$view = $_GET['view'] ?? 'normal';
+
+if ($view === 'zero') {
+    $stmt = $pdo->prepare("
+        SELECT i.part_no, p.part_name, i.qty
+        FROM inventory i
+        JOIN part_master p ON p.part_no = i.part_no
+        WHERE i.qty = 0
+        ORDER BY p.part_name
+    ");
+} else {
+    $stmt = $pdo->prepare("
+        SELECT i.part_no, p.part_name, i.qty
+        FROM inventory i
+        JOIN part_master p ON p.part_no = i.part_no
+        WHERE i.qty > 0
+        ORDER BY p.part_name
+    ");
+}
+
+$stmt->execute();
+$inv = $stmt;
 ?>
 
 <script>
@@ -39,6 +55,15 @@ if (toggle) {
 
 <div class="content">
 <h1>Inventory</h1>
+
+<div style="margin-bottom: 12px;">
+<?php if ($view === 'zero'): ?>
+    <a href="index.php" class="btn">Show Available Stock</a>
+<?php else: ?>
+    <a href="index.php?view=zero" class="btn">Show Zero Stock Data</a>
+<?php endif; ?>
+</div>
+
 
 <table>
 <tr>

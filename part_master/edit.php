@@ -6,14 +6,22 @@ include "../includes/dialog.php";
 showModal();
 
 $part_no = $_GET['part_no'] ?? null;
-if (!$part_no) setModal("Failed to edit part", "Part not specified");
-        header("Location: edit.php"); 
+
+if (!$part_no) {
+    setModal("Failed to edit part", "Part not specified");
+    header("Location: list.php");
+    exit;
+} 
 
 $stmt = $pdo->prepare("SELECT * FROM part_master WHERE part_no=?");
 $stmt->execute([$part_no]);
 $part = $stmt->fetch();
-if (!$part) setModal("Failed to edit part", "Part not found");
-        header("Location: edit.php"); 
+
+if (!$part) {
+    setModal("Failed to edit part", "Part not found");
+    header("Location: list.php");
+    exit;
+}
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
@@ -40,7 +48,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 <html>
 <head>
     <title>Edit Part</title>
-    <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="/assets/style.css">
 </head>
 <script>
 const toggle = document.getElementById("themeToggle");

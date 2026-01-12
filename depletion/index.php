@@ -84,7 +84,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         ")->execute([$qty, $part]);
 
         $pdo->prepare("
-            INSERT INTO depletion (part_no, qty, qissue_date, reason, status, issue_no)
+            INSERT INTO depletion (part_no, qty, issue_date, reason, status, issue_no)
             VALUES (?, ?, CURDATE(), ?, 'issued', CONCAT('ISS-', UNIX_TIMESTAMP()))
         ")->execute([$part, $qty, $reason]);
 

@@ -65,6 +65,13 @@ $pdo->prepare("
     UPDATE work_orders SET status='released' WHERE id=?
 ")->execute([$id]);
 
+/* Add parent part to inventory */
+$pdo->prepare("
+    INSERT INTO inventory (part_no, qty)
+    VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)
+")->execute([$wo['part_no'], $wo['qty']]);
+
 $pdo->commit();
 
 header("Location: index.php");

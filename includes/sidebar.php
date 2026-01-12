@@ -12,8 +12,10 @@ $current = basename($_SERVER['PHP_SELF']);
 
     <a id="sidebar-ERP-title" href="/">ERP</a>
     <a href="/part_master/list.php">Part Master</a>
+    <a href="/customers/index.php">Customers</a>
     <a href="/suppliers/index.php">Suppliers</a>
     <a href="/purchase/index.php">Purchase</a>
+    <a href="/sales_orders/index.php">Sales Orders</a>
     <a href="/stock_entry/index.php">Stock Entry</a>
     <a href="/depletion/index.php">Depletion</a>
     <a href="/inventory/index.php">Inventory</a>
