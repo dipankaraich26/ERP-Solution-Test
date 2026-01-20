@@ -2,7 +2,22 @@
 include "../db.php";
 include "../includes/sidebar.php";
 
-$pos = $pdo->query("
+// Pagination setup
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page); // Ensure page is at least 1
+$per_page = 10;
+$offset = ($page - 1) * $per_page;
+
+// Get total count of grouped purchase orders (non-closed)
+$total_count = $pdo->query("
+    SELECT COUNT(DISTINCT po_no)
+    FROM purchase_orders
+    WHERE status != 'closed'
+")->fetchColumn();
+
+$total_pages = ceil($total_count / $per_page);
+
+$stmt = $pdo->prepare("
     SELECT
         po.po_no,
         GROUP_CONCAT(CONCAT(po.id, '::', po.part_no, '::', pm.part_name, '::', po.qty) SEPARATOR '|||') AS items,
@@ -13,7 +28,13 @@ $pos = $pdo->query("
     WHERE po.status != 'closed'
     GROUP BY po.po_no
     ORDER BY max_id DESC
-")->fetchAll(PDO::FETCH_ASSOC);
+    LIMIT :limit OFFSET :offset
+");
+$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
+
+$pos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -50,6 +71,7 @@ if (toggle) {
 <h1>Stock Entry (Goods Receipt)</h1>
 <a href="history.php" class="btn" style="margin-bottom:8px; display:inline-block;">📜 Stock Entry History</a>
 
+<div style="overflow-x: auto;">
 <table border="1" cellpadding="8">
 <tr>
     <th>PO No</th>
@@ -85,6 +107,26 @@ if (toggle) {
 </tr>
 <?php endforeach; ?>
 </table>
+</div>
+
+    <!-- Pagination -->
+    <?php if ($total_pages > 1): ?>
+    <div style="margin-top: 20px; text-align: center;">
+        <?php if ($page > 1): ?>
+            <a href="?page=1" class="btn btn-secondary">First</a>
+            <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+        <?php endif; ?>
+
+        <span style="margin: 0 10px;">
+            Page <?= $page ?> of <?= $total_pages ?> (<?= $total_count ?> total purchase orders)
+        </span>
+
+        <?php if ($page < $total_pages): ?>
+            <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
+            <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 </div>
 
 </body>

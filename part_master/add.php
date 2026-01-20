@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $uom = trim($_POST['uom'] ?? '');
     $category = trim($_POST['category'] ?? '');
     $rate = trim($_POST['rate'] ?? '');
+    $hsn_code = trim($_POST['hsn_code'] ?? '');
     $gst       = trim($_POST['gst'] ?? '');
 
     // 🔹 Validation
@@ -66,13 +67,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $attachmentPath = null;
+
+    if (!empty($_FILES['attachment']['name'])) {
+        $uploadDir = "../uploads/parts/";
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $ext = strtolower(pathinfo($_FILES['attachment']['name'], PATHINFO_EXTENSION));
+        if ($ext !== 'pdf') {
+            $errors[] = "Only PDF files are allowed";
+        } else {
+            $fileName = $part_no . "_" . time() . ".pdf";
+            $fullPath = $uploadDir . $fileName;
+
+            if (move_uploaded_file($_FILES['attachment']['tmp_name'], $fullPath)) {
+                $attachmentPath = "uploads/parts/" . $fileName;
+            } else {
+                $errors[] = "Failed to upload attachment";
+            }
+        }
+    }
+
     // 🔹 Insert
-    if (empty($errors)) {
-        $stmt = $pdo->prepare("
-            INSERT INTO part_master 
-            (part_no, part_name, part_id, description, uom, category, rate, gst, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
-        ");
+    $stmt = $pdo->prepare("
+        INSERT INTO part_master 
+        (part_no, part_name, part_id, description, uom, category, hsn_code, rate, gst, attachment_path, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+    ");
 
     $stmt->execute([
         $part_no,
@@ -82,16 +105,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $uom,
         $category,
         $rate,
-        $gst
+        $hsn_code,
+        $gst,
+        $attachmentPath
     ]);
 
     $success = true;
 }
-
-}
 ?>
-
-
 
 <!DOCTYPE html>
 <html>
@@ -148,33 +169,48 @@ if (toggle) {
         </div>
     <?php endif; ?>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+
         <label>Part No</label>
         <input type="text" name="part_no" required>
-        <br><br>
+
         <label>Part Name</label>
         <input type="text" name="part_name" required>
-        <br><br>
+
         <label>Part ID</label>
         <input type="text" name="part_id" required>
-        <br><br>
+
         <label>Description</label>
         <input type="text" name="description" required>
-        <br><br>
+
+        <label>Category</label>
+        <select name="category" required>
+            <option value="">-- Select Category --</option>
+            <option value="Assembly">Assembly</option>
+            <option value="Machining">Machining</option>
+            <option value="Brought Out">Brought Out</option>
+        </select>
+
         <label>UOM</label>
         <input type="text" name="uom" required>
-        <br><br>
-        <label>Category</label>
-        <input type="text" name="category" required>
-        <br><br>
+
         <label>Rate</label>
         <input type="number" name="rate" step="0.01" min="0" required>
-        <br><br>
+
+        <label>HSN Code</label>
+        <input type="text" name="hsn_code">
+
         <label>GST (%)</label>
         <input type="number" name="gst" step="0.01" min="0" required>
-        <br><br>
+
+        <label>Attachment (PDF)</label>
+        <input type="file" name="attachment" accept="application/pdf">
+
+        <div></div>
         <button type="submit">Add Part</button>
+
     </form>
+
 
 </div>
 

@@ -21,14 +21,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             contact_person=?,
             phone=?,
             email=?,
-            address=?
+            address1=?,
+            address2=?,
+            city=?,
+            pincode=?,
+            state=?,
+            gstin=?
         WHERE id=?
     ")->execute([
         $_POST['supplier_name'],
         $_POST['contact_person'],
         $_POST['phone'],
         $_POST['email'],
-        $_POST['address'],
+        $_POST['address1'],
+        $_POST['address2'],
+        $_POST['city'],
+        $_POST['pincode'],
+        $_POST['state'],
+        $_POST['gstin'],
         $id
     ]);
 
@@ -59,20 +69,95 @@ if (toggle) {
         }
     });
 }
+
+function loadCities(stateName, selectedCity = null) {
+    const citySelect = document.getElementById('city_select');
+
+    if (!stateName) {
+        citySelect.innerHTML = '<option value="">-- Select City --</option>';
+        return;
+    }
+
+    fetch(`/api/get_cities.php?state=${encodeURIComponent(stateName)}`)
+        .then(response => response.json())
+        .then(data => {
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+            data.forEach(city => {
+                const option = document.createElement('option');
+                option.value = city.city_name;
+                option.textContent = city.city_name;
+                if (selectedCity && city.city_name === selectedCity) {
+                    option.selected = true;
+                }
+                citySelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading cities:', error));
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const stateSelect = document.querySelector('select[name="state"]');
+    const currentCity = '<?= htmlspecialchars($supplier['city'] ?? '') ?>';
+
+    // Load cities for the current state on page load
+    if (stateSelect.value) {
+        loadCities(stateSelect.value, currentCity);
+    }
+
+    stateSelect.addEventListener('change', function() {
+        loadCities(this.value);
+    });
+});
 </script>
 <div class="content">
     <h1>Edit Supplier</h1>
     <form method="post">
-        Name <input name="supplier_name" value="<?= htmlspecialchars($supplier['supplier_name']) ?>">
-        <br><br>
-        Contact <input name="contact_person" value="<?= htmlspecialchars($supplier['contact_person']) ?>">
-        <br><br>
-        Phone <input name="phone" value="<?= htmlspecialchars($supplier['phone']) ?>">
-        <br><br>
-        Email <input name="email" value="<?= htmlspecialchars($supplier['email']) ?>">
-        <br><br>
-        Address <input name="address" value="<?= htmlspecialchars($supplier['address']) ?>">
-        <br><br>
+        Supplier Code<br>
+        <input value="<?= htmlspecialchars($supplier['supplier_code']) ?>" readonly><br><br>
+
+        Name<br>
+        <input name="supplier_name" value="<?= htmlspecialchars($supplier['supplier_name']) ?>" required><br><br>
+
+        Contact Person<br>
+        <input name="contact_person" value="<?= htmlspecialchars($supplier['contact_person'] ?? '') ?>"><br><br>
+
+        Phone<br>
+        <input name="phone" value="<?= htmlspecialchars($supplier['phone'] ?? '') ?>"><br><br>
+
+        Email<br>
+        <input name="email" type="email" value="<?= htmlspecialchars($supplier['email'] ?? '') ?>"><br><br>
+
+        Address Line 1<br>
+        <input name="address1" value="<?= htmlspecialchars($supplier['address1'] ?? '') ?>"><br><br>
+
+        Address Line 2<br>
+        <input name="address2" value="<?= htmlspecialchars($supplier['address2'] ?? '') ?>"><br><br>
+
+        City<br>
+        <select id="city_select" name="city">
+            <option value="">-- Select City --</option>
+            <option value="<?= htmlspecialchars($supplier['city'] ?? '') ?>" selected><?= htmlspecialchars($supplier['city'] ?? '') ?></option>
+        </select><br><br>
+
+        Pincode<br>
+        <input name="pincode" value="<?= htmlspecialchars($supplier['pincode'] ?? '') ?>" maxlength="10"><br><br>
+
+        State<br>
+        <select name="state">
+            <option value="">-- Select State --</option>
+            <?php
+            $states = $pdo->query("SELECT id, state_name FROM india_states ORDER BY state_name")->fetchAll();
+            foreach ($states as $state) {
+                $selected = ($supplier['state'] === $state['state_name']) ? 'selected' : '';
+                echo '<option value="' . htmlspecialchars($state['state_name']) . '" ' . $selected . '>' . htmlspecialchars($state['state_name']) . '</option>';
+            }
+            ?>
+        </select><br><br>
+
+        GSTIN<br>
+        <input name="gstin" value="<?= htmlspecialchars($supplier['gstin'] ?? '') ?>" placeholder="15-character GSTIN"><br><br>
+
         <button>Update</button>
+        <a href="index.php" class="btn btn-secondary">Cancel</a>
     </form>
 </div>

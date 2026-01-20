@@ -1,11 +1,6 @@
-<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
-
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 include "../includes/dialog.php";
-
-showModal();
 
 /* =========================
    FETCH PARTS & SUPPLIERS
@@ -102,10 +97,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
 /* =========================
+   PAGINATION SETUP
+========================= */
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page); // Ensure page is at least 1
+$per_page = 10;
+$offset = ($page - 1) * $per_page;
+
+// Get total count of grouped purchase orders
+$total_count = $pdo->query("
+    SELECT COUNT(DISTINCT po_no) FROM purchase_orders
+")->fetchColumn();
+
+$total_pages = ceil($total_count / $per_page);
+
+/* =========================
    FETCH PURCHASE ORDERS (grouped by PO number)
    Each PO will show all its line items in one row (parts list)
 ========================= */
-$orders = $pdo->query("
+$stmt = $pdo->prepare("
     SELECT
         po.po_no,
         po.purchase_date,
@@ -118,8 +128,25 @@ $orders = $pdo->query("
     JOIN suppliers s ON s.id = po.supplier_id
     GROUP BY po.po_no, po.purchase_date, s.supplier_name
     ORDER BY po.purchase_date DESC, max_id DESC
-")->fetchAll(PDO::FETCH_ASSOC);
+    LIMIT :limit OFFSET :offset
+");
+$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
+
+$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+include "../includes/sidebar.php";
+showModal();
 ?>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Purchase Orders</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
 
 <script>
 const toggle = document.getElementById("themeToggle");
@@ -213,6 +240,7 @@ if (toggle) {
 <!-- =========================
      PURCHASE ORDER LIST (grouped)
 ========================= -->
+<div style="overflow-x: auto;">
 <table>
     <tr>
         <th>PO No</th>
@@ -242,7 +270,8 @@ if (toggle) {
         <td><?= htmlspecialchars($o['supplier_name']) ?></td>
         <td><?= $o['purchase_date'] ?></td>
         <td><?= htmlspecialchars(implode(', ', explode(',', $o['status_list']))) ?></td>
-        <td>
+        <td style="white-space: nowrap;">
+            <a class="btn btn-primary" href="view.php?po_no=<?= urlencode($o['po_no']) ?>">View</a>
             <?php if (strpos($o['status_list'], 'open') !== false): ?>
                 <a class="btn btn-danger" href="cancel.php?po_no=<?= urlencode($o['po_no']) ?>" onclick="return confirm('Cancel this PO?')">Cancel PO</a>
             <?php endif; ?>
@@ -250,6 +279,26 @@ if (toggle) {
     </tr>
     <?php endforeach; ?>
 </table>
+</div>
+
+<!-- Pagination -->
+<?php if ($total_pages > 1): ?>
+<div style="margin-top: 20px; text-align: center;">
+    <?php if ($page > 1): ?>
+        <a href="?page=1" class="btn btn-secondary">First</a>
+        <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+    <?php endif; ?>
+
+    <span style="margin: 0 10px;">
+        Page <?= $page ?> of <?= $total_pages ?> (<?= $total_count ?> total purchase orders)
+    </span>
+
+    <?php if ($page < $total_pages): ?>
+        <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
+        <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 </div>
 
 <script>
@@ -285,3 +334,6 @@ function removeRow(btn) {
     tr.remove();
 }
 </script>
+
+</body>
+</html>
