@@ -5,7 +5,7 @@ requireLogin();
 
 $settings = getCompanySettings();
 
-// Helper function to safely query count
+// Helper function to safely query count - test
 function safeCount($pdo, $query) {
     try {
         return $pdo->query($query)->fetchColumn() ?: 0;
