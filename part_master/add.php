@@ -184,7 +184,12 @@ if (toggle) {
         <input type="text" name="description" required>
 
         <label>Category</label>
-        <input type="text" name="category" required>
+        <select name="category" required>
+            <option value="">-- Select Category --</option>
+            <option value="Assembly">Assembly</option>
+            <option value="Machining">Machining</option>
+            <option value="Brought Out">Brought Out</option>
+        </select>
 
         <label>UOM</label>
         <input type="text" name="uom" required>

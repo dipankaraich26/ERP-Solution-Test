@@ -1,5 +1,6 @@
 <?php
 require "../db.php";
+include "../includes/dialog.php";
 
 $so_no = $_GET['so_no'] ?? '';
 if (!$so_no) {
@@ -14,7 +15,7 @@ try {
     $stmt = $pdo->prepare("
         SELECT part_no, qty
         FROM sales_orders
-        WHERE so_no = ? AND status = 'open'
+        WHERE so_no = ? AND status IN ('open', 'pending')
     ");
     $stmt->execute([$so_no]);
     $lines = $stmt->fetchAll();
@@ -24,18 +25,23 @@ try {
     }
 
     /* Stock check */
+    $insufficientParts = [];
     foreach ($lines as $l) {
         $s = $pdo->prepare("
-            SELECT qty FROM inventory WHERE part_no = ?
+            SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?
         ");
         $s->execute([$l['part_no']]);
         $available = (int)$s->fetchColumn();
 
-        if (($available - $l['qty']) < 0) {
-            throw new Exception(
-                "Cannot release SO. Part {$l['part_no']} will deplete stock."
-            );
+        if ($available < $l['qty']) {
+            $insufficientParts[] = $l['part_no'] . " (Available: $available, Required: {$l['qty']})";
         }
+    }
+
+    if (!empty($insufficientParts)) {
+        throw new Exception(
+            "Cannot release SO. Insufficient stock for:\n" . implode("\n", $insufficientParts)
+        );
     }
 
     /* Deduct inventory */
@@ -55,9 +61,11 @@ try {
     ")->execute([$so_no]);
 
     $pdo->commit();
+    setModal("Success", "Sales Order $so_no released successfully. Inventory has been deducted.");
 
 } catch (Exception $e) {
     $pdo->rollBack();
+    setModal("Error", $e->getMessage());
 }
 
 header("Location: index.php");

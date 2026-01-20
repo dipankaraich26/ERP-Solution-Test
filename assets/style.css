@@ -135,7 +135,7 @@ body.dark {
    CONTENT
 ========================================================= */
 .content {
-    margin-left: 200px;
+    margin-left: 250px;
     padding: 5%;
     transition: background-color 0.35s ease;
 }

@@ -4,18 +4,24 @@
 include "../db.php";
 include "../includes/sidebar.php";
 
+/* GET SELECTED MONTH/YEAR OR DEFAULT TO CURRENT */
+$selected_month = isset($_GET['month']) ? $_GET['month'] : date('Y-m');
+list($year, $month) = explode('-', $selected_month);
+
 /* MONTHLY CONSUMPTION REPORT */
-$rows = $pdo->query("
-    SELECT 
+$stmt = $pdo->prepare("
+    SELECT
         p.part_name,
         d.part_no,
         SUM(d.qty) AS total_issued
     FROM depletion d
     JOIN part_master p ON p.part_no = d.part_no
-    WHERE MONTH(d.issue_date) = MONTH(CURDATE())
-      AND YEAR(d.issue_date) = YEAR(CURDATE())
+    WHERE MONTH(d.issue_date) = ?
+      AND YEAR(d.issue_date) = ?
     GROUP BY d.part_no
 ");
+$stmt->execute([$month, $year]);
+$rows = $stmt;
 ?>
 <!DOCTYPE html>
 <html>
@@ -54,6 +60,16 @@ if (toggle) {
 
 <div class="content">
     <h1>Monthly Consumption Report</h1>
+
+    <!-- Month Filter -->
+    <form method="get" style="margin-bottom: 20px;">
+        <label for="month" style="font-weight: 600; margin-right: 10px;">Select Month:</label>
+        <input type="month" id="month" name="month" value="<?= htmlspecialchars($selected_month) ?>" required>
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="monthly.php" class="btn btn-secondary">Reset</a>
+    </form>
+
+    <p><strong>Showing data for: <?= date('F Y', strtotime($selected_month . '-01')) ?></strong></p>
 
     <table border="1" cellpadding="8">
         <tr>

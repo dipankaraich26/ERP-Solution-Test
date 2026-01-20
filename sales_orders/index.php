@@ -1,140 +1,243 @@
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 include "../includes/dialog.php";
 
 showModal();
 
 /* =========================
-   FETCH INVENTORY PARTS
+   FETCH CUSTOMER POs (for creating new SO)
 ========================= */
-$parts = $pdo->query("
-    SELECT i.part_no, p.part_name, i.qty AS stock_qty
-    FROM inventory i
-    JOIN part_master p ON p.part_no = i.part_no
-    ORDER BY p.part_name
+$customerPOs = $pdo->query("
+    SELECT cp.id, cp.po_no, cp.customer_id, c.company_name, c.customer_name,
+           cp.linked_quote_id, q.pi_no
+    FROM customer_po cp
+    LEFT JOIN customers c ON cp.customer_id = c.customer_id
+    LEFT JOIN quote_master q ON cp.linked_quote_id = q.id
+    WHERE cp.status = 'active'
+    ORDER BY cp.id DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
-
-/* =========================
-   FETCH CUSTOMERS
-========================= */
-$customers = $pdo->query("
-    SELECT id, company_name
-    FROM customers
-    WHERE status='active'
-    ORDER BY company_name
-");
 
 /* =========================
    HANDLE SALES ORDER CREATE
 ========================= */
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['create_so'])) {
+    $customer_po_id = (int)($_POST['customer_po_id'] ?? 0);
+    $sales_date = $_POST['sales_date'] ?? '';
 
-    $maxNo = $pdo->query("
-        SELECT COALESCE(MAX(CAST(SUBSTRING(so_no,4) AS UNSIGNED)),0)
-        FROM sales_orders WHERE so_no LIKE 'SO-%'
-    ")->fetchColumn();
-
-    $so_no = 'SO-' . ((int)$maxNo + 1);
-
-    $parts_post = $_POST['part_no'] ?? [];
-    $qtys       = $_POST['qty'] ?? [];
-    $customer   = (int)($_POST['customer_id'] ?? 0);
-    $date       = $_POST['sales_date'] ?? '';
-
-    $items = [];
-    for ($i=0; $i<count($parts_post); $i++) {
-        if (!$parts_post[$i]) continue;
-        $items[] = [
-            'part_no' => $parts_post[$i],
-            'qty'     => (int)$qtys[$i]
-        ];
-    }
-
-    if (!$items || !$customer || !$date) {
-        setModal("Failed", "Customer, date and at least one part required");
+    if (!$customer_po_id || !$sales_date) {
+        setModal("Failed", "Customer PO and Sales Date are required");
         header("Location: index.php");
         exit;
     }
 
-    foreach ($items as $it) {
-        $stmt = $pdo->prepare("
-            SELECT qty FROM inventory WHERE part_no = ?
-        ");
-        $stmt->execute([$it['part_no']]);
-        $available = (int)$stmt->fetchColumn();
+    // Get Customer PO details
+    $poStmt = $pdo->prepare("
+        SELECT cp.*, q.id as quote_id, q.pi_no
+        FROM customer_po cp
+        LEFT JOIN quote_master q ON cp.linked_quote_id = q.id
+        WHERE cp.id = ?
+    ");
+    $poStmt->execute([$customer_po_id]);
+    $po = $poStmt->fetch(PDO::FETCH_ASSOC);
 
-        if (($available - $it['qty']) < 0) {
-            setModal(
-                "Stock Blocked",
-                "Sales Order cannot be created. Part {$it['part_no']} will deplete stock to zero or below."
-            );
-            header("Location: index.php");
-            exit;
+    if (!$po) {
+        setModal("Failed", "Customer PO not found");
+        header("Location: index.php");
+        exit;
+    }
+
+    // Get linked PI (quote) ID - either from direct link or from POST
+    $linked_quote_id = $po['quote_id'];
+
+    if (!$linked_quote_id) {
+        setModal("Failed", "Customer PO is not linked to a Proforma Invoice. Please link it first.");
+        header("Location: index.php");
+        exit;
+    }
+
+    // Get parts from the PI
+    $partsStmt = $pdo->prepare("
+        SELECT part_no, part_name, qty
+        FROM quote_items
+        WHERE quote_id = ?
+    ");
+    $partsStmt->execute([$linked_quote_id]);
+    $parts = $partsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($parts)) {
+        setModal("Failed", "No parts found in the linked Proforma Invoice");
+        header("Location: index.php");
+        exit;
+    }
+
+    // Generate SO number
+    $maxNo = $pdo->query("
+        SELECT COALESCE(MAX(CAST(SUBSTRING(so_no,4) AS UNSIGNED)),0)
+        FROM sales_orders WHERE so_no LIKE 'SO-%'
+    ")->fetchColumn();
+    $so_no = 'SO-' . ((int)$maxNo + 1);
+
+    // Get customer integer ID from PO's varchar customer_id
+    // sales_orders.customer_id is INT referencing customers.id
+    $customer_id = null;
+    if (!empty($po['customer_id'])) {
+        $custStmt = $pdo->prepare("SELECT id FROM customers WHERE customer_id = ?");
+        $custStmt->execute([$po['customer_id']]);
+        $customer_id = $custStmt->fetchColumn();
+    }
+
+    // Check stock for all parts
+    $stockIssues = [];
+    foreach ($parts as $part) {
+        $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+        $stockStmt->execute([$part['part_no']]);
+        $available = (int)$stockStmt->fetchColumn();
+
+        if ($available < $part['qty']) {
+            $stockIssues[] = $part['part_no'] . " (Need: " . $part['qty'] . ", Available: " . $available . ")";
         }
     }
 
+    // Create the sales order anyway (with stock status indicator)
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare("
             INSERT INTO sales_orders
-            (so_no, part_no, qty, sales_date, customer_id)
-            VALUES (?, ?, ?, ?, ?)
+            (so_no, part_no, qty, sales_date, customer_id, customer_po_id, linked_quote_id, status, stock_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         ");
 
-        foreach ($items as $it) {
+        foreach ($parts as $part) {
+            // Check individual stock status
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$part['part_no']]);
+            $available = (int)$stockStmt->fetchColumn();
+            $itemStockStatus = ($available >= $part['qty']) ? 'ok' : 'insufficient';
+
             $stmt->execute([
                 $so_no,
-                $it['part_no'],
-                $it['qty'],
-                $date,
-                $customer
+                $part['part_no'],
+                $part['qty'],
+                $sales_date,
+                $customer_id,
+                $customer_po_id,
+                $linked_quote_id,
+                $itemStockStatus
             ]);
-
-
         }
 
         $pdo->commit();
+
+        if (!empty($stockIssues)) {
+            setModal("Warning", "Sales Order created but stock is insufficient for: " . implode(", ", $stockIssues));
+        }
+
         header("Location: index.php");
         exit;
 
     } catch (Exception $e) {
         $pdo->rollBack();
-        setModal("Error", "Sales Order creation failed");
+        setModal("Error", "Sales Order creation failed: " . $e->getMessage());
         header("Location: index.php");
         exit;
     }
 }
 
 /* =========================
+   PAGINATION SETUP
+========================= */
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page);
+$per_page = 10;
+$offset = ($page - 1) * $per_page;
+
+// Get total count of grouped sales orders
+$total_count = $pdo->query("
+    SELECT COUNT(DISTINCT so_no) FROM sales_orders
+")->fetchColumn();
+
+$total_pages = ceil($total_count / $per_page);
+
+/* =========================
    FETCH SALES ORDERS (GROUPED)
 ========================= */
-$orders = $pdo->query("
+$stmt = $pdo->prepare("
     SELECT
         so.so_no,
         so.sales_date,
+        so.status,
+        so.customer_po_id,
+        so.linked_quote_id,
         c.company_name,
+        cp.po_no as customer_po_no,
+        q.pi_no,
         GROUP_CONCAT(
-            CONCAT(so.id,'::',so.part_no,'::',p.part_name,'::',so.qty)
+            CONCAT(so.part_no,'::',p.part_name,'::',so.qty,'::',so.stock_status)
             SEPARATOR '|||'
         ) AS items,
-        GROUP_CONCAT(DISTINCT so.status) AS status_list,
-        MAX(so.id) AS max_id
+        MAX(so.id) AS max_id,
+        SUM(CASE WHEN so.stock_status = 'insufficient' THEN 1 ELSE 0 END) as insufficient_count
     FROM sales_orders so
     JOIN part_master p ON p.part_no = so.part_no
-    JOIN customers c ON c.id = so.customer_id
-    GROUP BY so.so_no, so.sales_date, c.company_name
+    LEFT JOIN customers c ON c.id = so.customer_id
+    LEFT JOIN customer_po cp ON cp.id = so.customer_po_id
+    LEFT JOIN quote_master q ON q.id = so.linked_quote_id
+    GROUP BY so.so_no, so.sales_date, so.status, so.customer_po_id, so.linked_quote_id,
+             c.company_name, cp.po_no, q.pi_no
     ORDER BY so.sales_date DESC, max_id DESC
-")->fetchAll(PDO::FETCH_ASSOC);
-?>
+    LIMIT :limit OFFSET :offset
+");
+$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
 
-<script src="/assets/script.js"></script>
+$orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+include "../includes/sidebar.php";
+?>
 
 <!DOCTYPE html>
 <html>
 <head>
     <title>Sales Orders</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <style>
+        .form-box {
+            max-width: 500px;
+            padding: 20px;
+            background: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .form-box h3 { margin-top: 0; }
+        .form-box label { display: block; margin: 10px 0 5px; font-weight: bold; }
+        .form-box select, .form-box input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .status-pending { background: #ffc107; color: #000; }
+        .status-released { background: #28a745; color: #fff; }
+        .status-completed { background: #17a2b8; color: #fff; }
+        .stock-ok { color: #28a745; }
+        .stock-insufficient { color: #dc3545; font-weight: bold; }
+        .stock-warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+    </style>
 </head>
 
 <body>
@@ -145,82 +248,41 @@ $orders = $pdo->query("
     <!-- =========================
          CREATE SALES ORDER
     ========================= -->
-    <form method="post" class="form-box" id="soForm">
-        <h3>Create Sales Order</h3>
+    <form method="post" class="form-box">
+        <h3>Create Sales Order from Customer PO</h3>
 
-        <label>Sales Order No</label>
-        <div><em>Automatically assigned (SO-1, SO-2, ...)</em></div>
-
-        <label>Customer</label>
-        <select name="customer_id" required>
-            <option value="">Select Customer</option>
-            <?php while ($c = $customers->fetch()): ?>
-                <option value="<?= $c['id'] ?>">
-                    <?= htmlspecialchars($c['company_name']) ?>
+        <label>Select Customer PO *</label>
+        <select name="customer_po_id" required onchange="showPODetails(this)">
+            <option value="">-- Select Customer PO --</option>
+            <?php foreach ($customerPOs as $cpo): ?>
+                <?php if ($cpo['linked_quote_id']): ?>
+                <option value="<?= $cpo['id'] ?>"
+                    data-pi="<?= htmlspecialchars($cpo['pi_no'] ?? '') ?>"
+                    data-customer="<?= htmlspecialchars($cpo['company_name'] ?? '') ?>">
+                    <?= htmlspecialchars($cpo['po_no']) ?>
+                    <?php if ($cpo['company_name']): ?>
+                        - <?= htmlspecialchars($cpo['company_name']) ?>
+                    <?php endif; ?>
+                    (PI: <?= htmlspecialchars($cpo['pi_no'] ?? 'Not linked') ?>)
                 </option>
-            <?php endwhile; ?>
+                <?php endif; ?>
+            <?php endforeach; ?>
         </select>
+        <small style="color: #666;">Only Customer POs linked to a PI are shown</small>
 
-        <label>Sales Date</label>
-        <input type="date" name="sales_date" required>
+        <div id="poDetails" style="display: none; margin-top: 15px; padding: 10px; background: #e8f4e8; border-radius: 5px;">
+            <strong>Customer:</strong> <span id="detailCustomer"></span><br>
+            <strong>Linked PI:</strong> <span id="detailPI"></span>
+        </div>
 
-        <label>Items</label>
-        <table border="1" cellpadding="6" id="soTable">
-            <tr>
-                <th>Part</th>
-                <th>Available</th>
-                <th>Qty</th>
-                <th></th>
-            </tr>
+        <label>Sales Date *</label>
+        <input type="date" name="sales_date" value="<?= date('Y-m-d') ?>" required>
 
-            <!-- First row -->
-            <tr>
-                <td>
-                    <select name="part_no[]" required onchange="checkStock(this)">
-                        <option value="">Select Part</option>
-                        <?php foreach ($parts as $p): ?>
-                            <option value="<?= htmlspecialchars($p['part_no']) ?>"
-                                    data-stock="<?= $p['stock_qty'] ?>">
-                                <?= htmlspecialchars($p['part_no']) ?> —
-                                <?= htmlspecialchars($p['part_name']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </td>
-                <td class="stock-cell">–</td>
-                <td>
-                    <input type="number" name="qty[]" min="1" required>
-                </td>
-                <td>
-                    <button type="button" onclick="addRow()">➕</button>
-                </td>
-            </tr>
+        <p style="color: #666; font-size: 0.9em; margin-top: 15px;">
+            Parts will be automatically fetched from the linked Proforma Invoice.
+        </p>
 
-            <!-- Template row -->
-            <tr id="templateRow" style="display:none;">
-                <td>
-                    <select name="part_no[]" disabled onchange="checkStock(this)">
-                        <option value="">Select Part</option>
-                        <?php foreach ($parts as $p): ?>
-                            <option value="<?= htmlspecialchars($p['part_no']) ?>"
-                                    data-stock="<?= $p['stock_qty'] ?>">
-                                <?= htmlspecialchars($p['part_no']) ?> —
-                                <?= htmlspecialchars($p['part_name']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </td>
-                <td class="stock-cell">–</td>
-                <td>
-                    <input type="number" name="qty[]" min="1" disabled>
-                </td>
-                <td>
-                    <button type="button" onclick="removeRow(this)">➖</button>
-                </td>
-            </tr>
-        </table>
-
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" name="create_so" value="1" class="btn btn-primary" style="margin-top: 15px;">
             Create Sales Order
         </button>
     </form>
@@ -230,120 +292,102 @@ $orders = $pdo->query("
     <!-- =========================
          SALES ORDER LIST
     ========================= -->
-    <table>
+    <h3>Sales Orders</h3>
+    <div style="overflow-x: auto;">
+    <table border="1" cellpadding="8">
         <tr>
             <th>SO No</th>
+            <th>Customer PO</th>
+            <th>PI No</th>
             <th>Customer</th>
-            <th>Items</th>
             <th>Date</th>
+            <th>Stock Status</th>
             <th>Status</th>
             <th>Actions</th>
         </tr>
 
         <?php foreach ($orders as $o): ?>
         <tr>
-            <td><?= htmlspecialchars($o['so_no']) ?></td>
-            <td><?= htmlspecialchars($o['company_name']) ?></td>
+            <td><strong><?= htmlspecialchars($o['so_no']) ?></strong></td>
+            <td><?= htmlspecialchars($o['customer_po_no'] ?? '-') ?></td>
             <td>
-                <?php $items = explode('|||', $o['items']); ?>
-                <ul style="margin:0;padding-left:18px;">
-                    <?php foreach ($items as $it):
-                        list($id,$pn,$name,$qty) = explode('::',$it);
-                    ?>
-                        <li>
-                            <?= htmlspecialchars($pn) ?> —
-                            <?= htmlspecialchars($name) ?>
-                            (Qty: <?= $qty ?>)
-                            <a href="edit.php?id=<?= $id ?>">Edit</a>
-                        </li>
-                    <?php endforeach; ?>
-                </ul>
-            </td>
-            <td><?= $o['sales_date'] ?></td>
-            <td><?= htmlspecialchars($o['status_list']) ?></td>
-            <td>
-                <?php if (strpos($o['status_list'],'open') !== false): ?>
-                    <a class="btn btn-danger"
-                       href="cancel.php?so_no=<?= urlencode($o['so_no']) ?>"
-                       onclick="return confirm('Cancel this Sales Order?')">
-                        Cancel
+                <?php if ($o['pi_no']): ?>
+                    <a href="/proforma/view.php?id=<?= $o['linked_quote_id'] ?>">
+                        <?= htmlspecialchars($o['pi_no']) ?>
                     </a>
-                <?php endif; ?> |
-                <?php if ($o['status_list'] === 'open'): ?>
-                    <a class="btn btn-primary"
-                    href="release.php?so_no=<?= urlencode($o['so_no']) ?>"
-                    onclick="return confirm('Release this Sales Order? Inventory will be updated.')">
-                    Release
+                <?php else: ?>
+                    -
+                <?php endif; ?>
+            </td>
+            <td><?= htmlspecialchars($o['company_name'] ?? '-') ?></td>
+            <td><?= $o['sales_date'] ?></td>
+            <td>
+                <?php if ($o['insufficient_count'] > 0): ?>
+                    <span class="stock-warning">Stock Low (<?= $o['insufficient_count'] ?> items)</span>
+                <?php else: ?>
+                    <span class="stock-ok">OK</span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <span class="status-badge status-<?= $o['status'] ?>">
+                    <?= ucfirst($o['status']) ?>
+                </span>
+            </td>
+            <td style="white-space: nowrap;">
+                <a class="btn btn-secondary" href="view.php?so_no=<?= urlencode($o['so_no']) ?>">View</a>
+                <?php if ($o['status'] === 'pending'): ?>
+                    <a class="btn btn-success"
+                       href="release.php?so_no=<?= urlencode($o['so_no']) ?>"
+                       onclick="return confirm('Release this Sales Order?\n\nInventory will be deducted.')">
+                        Release
                     </a>
                 <?php endif; ?>
             </td>
         </tr>
         <?php endforeach; ?>
+
+        <?php if (empty($orders)): ?>
+        <tr>
+            <td colspan="8" style="text-align: center; padding: 20px;">No Sales Orders found.</td>
+        </tr>
+        <?php endif; ?>
     </table>
+    </div>
+
+    <!-- Pagination -->
+    <?php if ($total_pages > 1): ?>
+    <div style="margin-top: 20px; text-align: center;">
+        <?php if ($page > 1): ?>
+            <a href="?page=1" class="btn btn-secondary">First</a>
+            <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+        <?php endif; ?>
+
+        <span style="margin: 0 10px;">
+            Page <?= $page ?> of <?= $total_pages ?> (<?= $total_count ?> total orders)
+        </span>
+
+        <?php if ($page < $total_pages): ?>
+            <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
+            <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
 </div>
 
-<!-- =========================
-     JAVASCRIPT
-========================= -->
 <script>
-function addRow() {
-    const tpl = document.getElementById('templateRow');
-    const clone = tpl.cloneNode(true);
-    clone.removeAttribute('id');
-    clone.style.display = '';
-
-    const sel = clone.querySelector('select');
-    const qty = clone.querySelector('input');
-
-    sel.disabled = false;
-    sel.required = true;
-    sel.selectedIndex = 0;
-
-    qty.disabled = false;
-    qty.required = true;
-    qty.value = '';
-
-    tpl.parentNode.insertBefore(clone, tpl);
-}
-
-function removeRow(btn) {
-    const tr = btn.closest('tr');
-    const table = document.getElementById('soTable');
-
-    const activeRows = table.querySelectorAll(
-        'select[name="part_no[]"]:not([disabled])'
-    );
-
-    if (activeRows.length <= 1) {
-        tr.querySelector('select').selectedIndex = 0;
-        tr.querySelector('.stock-cell').innerText = '–';
-        tr.querySelector('input').value = '';
-        return;
-    }
-
-    tr.remove();
-}
-
-function checkStock(select) {
+function showPODetails(select) {
     const opt = select.selectedOptions[0];
-    if (!opt) return;
+    const details = document.getElementById('poDetails');
 
-    const stock = parseInt(opt.dataset.stock || '0', 10);
-    const row = select.closest('tr');
-    const qtyInput = row.querySelector('input[name="qty[]"]');
-    const cell = row.querySelector('.stock-cell');
-
-    cell.innerText = stock;
-
-    qtyInput.oninput = function () {
-        const q = parseInt(this.value || '0', 10);
-        if ((stock - q) < 0) {
-            alert("❌ This quantity will deplete stock completely. Not allowed.");
-        }
-    };
+    if (opt && opt.value) {
+        document.getElementById('detailCustomer').textContent = opt.dataset.customer || '-';
+        document.getElementById('detailPI').textContent = opt.dataset.pi || '-';
+        details.style.display = 'block';
+    } else {
+        details.style.display = 'none';
+    }
 }
-
 </script>
 
 </body>

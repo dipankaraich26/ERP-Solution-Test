@@ -69,6 +69,9 @@ if (toggle) {
 WO No<br>
 <input name="wo_no" value="<?= htmlspecialchars($wo_no) ?>" readonly required><br><br>
 
+Date<br>
+<input type="text" value="<?= date('Y-m-d') ?>" readonly><br><br>
+
 Product<br>
 <select name="part_no" required>
 <?php foreach ($parts as $p): ?>

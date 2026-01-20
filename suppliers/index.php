@@ -1,12 +1,8 @@
-<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
-
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 include "../includes/dialog.php";
 
-showModal();
-$suppliers = $pdo->query("SELECT id, supplier_name FROM suppliers");
+$error = '';
 
 /* =========================
    HANDLE ADD SUPPLIER
@@ -17,15 +13,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $contact = $_POST['contact_person'];
     $phone = $_POST['phone'];
     $email = $_POST['email'];
-    $address = $_POST['address'];
-    
+    $address1 = $_POST['address1'];
+    $address2 = $_POST['address2'];
+    $city = $_POST['city'];
+    $pincode = $_POST['pincode'];
+    $state = $_POST['state'];
+    $gstin = $_POST['gstin'];
 
     try {
         $pdo->prepare("
             INSERT INTO suppliers
-            (supplier_code, supplier_name, contact_person, phone, email, address)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ")->execute([$code, $name, $contact, $phone, $email, $address]);
+            (supplier_code, supplier_name, contact_person, phone, email, address1, address2, city, pincode, state, gstin)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute([$code, $name, $contact, $phone, $email, $address1, $address2, $city, $pincode, $state, $gstin]);
 
         header("Location: index.php");
         exit;
@@ -35,12 +35,28 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 
 /* =========================
-   SUPPLIER LIST
+   SUPPLIER LIST WITH PAGINATION
 ========================= */
-$suppliers = $pdo->query("
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page);
+$per_page = 10;
+$offset = ($page - 1) * $per_page;
+
+$total_count = $pdo->query("SELECT COUNT(*) FROM suppliers")->fetchColumn();
+$total_pages = ceil($total_count / $per_page);
+
+$stmt = $pdo->prepare("
     SELECT * FROM suppliers
     ORDER BY supplier_name
+    LIMIT :limit OFFSET :offset
 ");
+$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
+$suppliers = $stmt;
+
+include "../includes/sidebar.php";
+showModal();
 ?>
 <!DOCTYPE html>
 <html>
@@ -48,67 +64,113 @@ $suppliers = $pdo->query("
     <title>Suppliers</title>
     <link rel="stylesheet" href="../assets/style.css">
 </head>
-<script>
-const toggle = document.getElementById("themeToggle");
-const body = document.body;
-
-if (toggle) {
-    if (localStorage.getItem("theme") === "dark") {
-        body.classList.add("dark");
-        toggle.textContent = "☀️ Light Mode";
-    }
-
-    toggle.addEventListener("click", () => {
-        body.classList.toggle("dark");
-
-        if (body.classList.contains("dark")) {
-            localStorage.setItem("theme", "dark");
-            toggle.textContent = "☀️ Light Mode";
-        } else {
-            localStorage.setItem("theme", "light");
-            toggle.textContent = "🌙 Dark Mode";
-        }
-    });
-}
-</script>
-</body>
-</html>
-
-
 <body>
 
 <div class="content">
     <h1>Suppliers</h1>
 
     <?php if (!empty($error)): ?>
-        <script>alert("<?= htmlspecialchars($error) ?>");</script>
+        <div class="alert error"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
 
     <!-- ADD SUPPLIER FORM -->
-    <form method="post">
-        Code <input name="supplier_code" required>
-        Name <input name="supplier_name" required>
-        Contact <input name="contact_person">
-        Phone <input name="phone">
-        Email <input name="email">
-        Address <input name="address">
-        <br><br>
-        <button>Add Supplier</button>
+    <form method="post" class="form-grid" style="max-width: 600px; margin-bottom: 30px;">
+        <label>Code</label>
+        <input name="supplier_code" required>
+
+        <label>Name</label>
+        <input name="supplier_name" required>
+
+        <label>Contact Person</label>
+        <input name="contact_person">
+
+        <label>Phone</label>
+        <input name="phone">
+
+        <label>Email</label>
+        <input name="email" type="email">
+
+        <label>Address Line 1</label>
+        <input name="address1">
+
+        <label>Address Line 2</label>
+        <input name="address2">
+
+        <label>City</label>
+        <select id="city_select_add" name="city">
+            <option value="">-- Select City --</option>
+        </select>
+
+        <label>Pincode</label>
+        <input name="pincode" maxlength="10">
+
+        <label>State</label>
+        <select name="state" id="state_select_add">
+            <option value="">-- Select State --</option>
+            <?php
+            $states = $pdo->query("SELECT id, state_name FROM india_states ORDER BY state_name")->fetchAll();
+            foreach ($states as $state) {
+                echo '<option value="' . htmlspecialchars($state['state_name']) . '">' . htmlspecialchars($state['state_name']) . '</option>';
+            }
+            ?>
+        </select>
+
+        <label>GSTIN</label>
+        <input name="gstin" placeholder="15-character GSTIN">
+
+        <div></div>
+        <button type="submit" class="btn btn-primary">Add Supplier</button>
     </form>
+
+    <script>
+    function loadCitiesAdd(stateName) {
+        const citySelect = document.getElementById('city_select_add');
+
+        if (!stateName) {
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+            return;
+        }
+
+        fetch(`/api/get_cities.php?state=${encodeURIComponent(stateName)}`)
+            .then(response => response.json())
+            .then(data => {
+                citySelect.innerHTML = '<option value="">-- Select City --</option>';
+                data.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.city_name;
+                    option.textContent = city.city_name;
+                    citySelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading cities:', error));
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const stateSelectAdd = document.getElementById('state_select_add');
+        stateSelectAdd.addEventListener('change', function() {
+            loadCitiesAdd(this.value);
+        });
+    });
+    </script>
 
     <hr>
 
     <!-- SUPPLIER TABLE -->
+    <div style="overflow-x: auto;">
     <table border="1" cellpadding="8">
         <tr>
             <th>Code</th>
             <th>Name</th>
             <th>Contact</th>
             <th>Phone</th>
-            <th>Address</th>
             <th>Email</th>
+            <th>Address 1</th>
+            <th>Address 2</th>
+            <th>City</th>
+            <th>Pincode</th>
+            <th>State</th>
+            <th>GSTIN</th>
             <th>Action</th>
-            
         </tr>
 
         <?php while ($s = $suppliers->fetch()): ?>
@@ -117,16 +179,41 @@ if (toggle) {
             <td><?= htmlspecialchars($s['supplier_name']) ?></td>
             <td><?= htmlspecialchars($s['contact_person']) ?></td>
             <td><?= htmlspecialchars($s['phone']) ?></td>
-            <td><?= htmlspecialchars($s['address']) ?></td>
             <td><?= htmlspecialchars($s['email']) ?></td>
-            <td>
-                <a class="btn btn-secondary" href="edit.php?id=<?= $s['id'] ?>">Edit</a> |
-                <a class="btn btn-secondary" href="delete.php?id=<?= $s['id'] ?>"
+            <td><?= htmlspecialchars($s['address1'] ?? '') ?></td>
+            <td><?= htmlspecialchars($s['address2'] ?? '') ?></td>
+            <td><?= htmlspecialchars($s['city'] ?? '') ?></td>
+            <td><?= htmlspecialchars($s['pincode'] ?? '') ?></td>
+            <td><?= htmlspecialchars($s['state'] ?? '') ?></td>
+            <td><?= htmlspecialchars($s['gstin'] ?? '') ?></td>
+            <td style="white-space: nowrap;">
+                <a class="btn btn-secondary" href="edit.php?id=<?= $s['id'] ?>">Edit</a>
+                <a class="btn btn-danger" href="delete.php?id=<?= $s['id'] ?>"
                    onclick="return confirm('Delete supplier?')">Delete</a>
             </td>
         </tr>
         <?php endwhile; ?>
     </table>
+    </div>
+
+    <!-- Pagination -->
+    <?php if ($total_pages > 1): ?>
+    <div style="margin-top: 20px; text-align: center;">
+        <?php if ($page > 1): ?>
+            <a href="?page=1" class="btn btn-secondary">First</a>
+            <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+        <?php endif; ?>
+
+        <span style="margin: 0 10px;">
+            Page <?= $page ?> of <?= $total_pages ?> (<?= $total_count ?> total suppliers)
+        </span>
+
+        <?php if ($page < $total_pages): ?>
+            <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
+            <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 </div>
 
 </body>
