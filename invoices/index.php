@@ -82,6 +82,12 @@ include "../includes/sidebar.php";
         <a href="add.php" class="btn btn-primary">+ Generate Invoice</a>
     </p>
 
+    <!-- Search Box -->
+    <div style="margin-bottom: 15px;">
+        <input type="text" id="searchInput" placeholder="Search by Invoice No, SO No, Customer, PO..."
+               style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 350px;">
+    </div>
+
     <hr>
 
     <!-- =========================
@@ -161,6 +167,31 @@ include "../includes/sidebar.php";
     </div>
     <?php endif; ?>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const table = document.querySelector('table');
+    const rows = table.querySelectorAll('tr:not(:first-child)');
+
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            let found = false;
+
+            cells.forEach(cell => {
+                if (cell.textContent.toLowerCase().includes(searchTerm)) {
+                    found = true;
+                }
+            });
+
+            row.style.display = found ? '' : 'none';
+        });
+    });
+});
+</script>
 
 </body>
 </html>

@@ -260,6 +260,314 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </div>
     </div>
 
+    <?php
+    // Load WO and PO items for this plan
+    $woItems = getPlanWorkOrderItems($pdo, $planId);
+    $poItems = getPlanPurchaseOrderItems($pdo, $planId);
+
+    // Group WO items by SO
+    $woItemsBySO = [];
+    foreach ($woItems as $item) {
+        $soList = $item['so_list'] ?? 'Unknown';
+        $soNumbers = array_map('trim', explode(',', $soList));
+        foreach ($soNumbers as $soNo) {
+            if (!isset($woItemsBySO[$soNo])) {
+                $woItemsBySO[$soNo] = [];
+            }
+            $woItemsBySO[$soNo][] = $item;
+        }
+    }
+
+    // Group PO items by SO
+    $poItemsBySO = [];
+    foreach ($poItems as $item) {
+        $soList = $item['so_list'] ?? 'Unknown';
+        $soNumbers = array_map('trim', explode(',', $soList));
+        foreach ($soNumbers as $soNo) {
+            if (!isset($poItemsBySO[$soNo])) {
+                $poItemsBySO[$soNo] = [];
+            }
+            $poItemsBySO[$soNo][] = $item;
+        }
+    }
+    ?>
+
+    <?php if (!empty($woItems)): ?>
+    <!-- Work Order Parts Section -->
+    <div class="form-section" style="margin-top: 30px; border-top: 3px solid #10b981; padding-top: 20px;">
+        <h3 style="color: #059669; margin-bottom: 15px;">
+            <span style="background: #d1fae5; padding: 4px 12px; border-radius: 20px;">
+                ⚙️ Work Order Parts (Internal Production)
+            </span>
+            <?php
+            $woCreatedCount = 0;
+            $woPendingCount = 0;
+            $woInStockCount = 0;
+            foreach ($woItems as $wi) {
+                if ($wi['created_wo_id']) {
+                    $woCreatedCount++;
+                } elseif ($wi['shortage'] <= 0) {
+                    $woInStockCount++;
+                } else {
+                    $woPendingCount++;
+                }
+            }
+            ?>
+            <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
+                <span style="color: #16a34a;"><?= $woCreatedCount ?> Created</span> |
+                <span style="color: #10b981;"><?= $woInStockCount ?> In Stock</span> |
+                <span style="color: #f59e0b;"><?= $woPendingCount ?> Pending</span>
+            </span>
+        </h3>
+
+        <div style="overflow-x: auto; margin-bottom: 20px;">
+            <table>
+                <thead>
+                    <tr style="background: #d1fae5;">
+                        <th>Part No</th>
+                        <th>Part Name</th>
+                        <th>Part ID</th>
+                        <th>SO List</th>
+                        <th>Stock</th>
+                        <th>Required</th>
+                        <th>Shortage</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($woItems as $idx => $item):
+                        $hasWO = !empty($item['created_wo_id']);
+                    ?>
+                        <tr style="background: <?= $hasWO ? '#dcfce7' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4') ?>;">
+                            <td><?= htmlspecialchars($item['part_no']) ?></td>
+                            <td><?= htmlspecialchars($item['part_name']) ?></td>
+                            <td><strong><?= htmlspecialchars($item['part_id'] ?? '-') ?></strong></td>
+                            <td><small style="color: #666;"><?= htmlspecialchars($item['so_list'] ?? '-') ?></small></td>
+                            <td><?= $item['current_stock'] ?></td>
+                            <td><?= $item['required_qty'] ?></td>
+                            <td style="color: <?= $item['shortage'] > 0 ? '#dc2626' : '#16a34a' ?>; font-weight: bold;">
+                                <?= $item['shortage'] ?>
+                            </td>
+                            <td>
+                                <?php if ($hasWO): ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        In Progress
+                                    </span>
+                                    <br><small style="color: #059669;"><?= htmlspecialchars($item['created_wo_no']) ?></small>
+                                <?php elseif ($item['shortage'] <= 0): ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        In Stock
+                                    </span>
+                                <?php else: ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #f59e0b; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        Pending
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($hasWO): ?>
+                                    <a href="/work_orders/view.php?id=<?= $item['created_wo_id'] ?>"
+                                       class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
+                                        View WO
+                                    </a>
+                                <?php elseif ($item['shortage'] > 0): ?>
+                                    <span style="color: #f59e0b;">Needs WO</span>
+                                <?php else: ?>
+                                    <span style="color: #16a34a;">✓</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SO-wise Work Order Summary -->
+        <?php if (!empty($woItemsBySO)): ?>
+        <div style="padding: 15px; background: #ecfdf5; border-radius: 8px; border: 1px solid #10b981;">
+            <h4 style="margin: 0 0 15px 0; color: #059669;">📋 Shop Order Wise Work Order Summary</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                <?php foreach ($woItemsBySO as $soNo => $soItems):
+                    $soCreated = 0;
+                    $soPending = 0;
+                    $soInStock = 0;
+                    foreach ($soItems as $si) {
+                        if (!empty($si['created_wo_id'])) {
+                            $soCreated++;
+                        } elseif (($si['shortage'] ?? 0) <= 0) {
+                            $soInStock++;
+                        } else {
+                            $soPending++;
+                        }
+                    }
+                    $allDone = ($soPending == 0);
+                ?>
+                <div style="background: white; padding: 12px; border-radius: 6px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong><?= htmlspecialchars($soNo) ?></strong>
+                        <?php if ($allDone): ?>
+                            <span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;">Complete</span>
+                        <?php else: ?>
+                            <span style="background: #f59e0b; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;"><?= $soPending ?> Pending</span>
+                        <?php endif; ?>
+                    </div>
+                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                        <?= count($soItems) ?> parts |
+                        <span style="color: #16a34a;"><?= $soCreated ?> created</span> |
+                        <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($poItems)): ?>
+    <!-- Purchase Order Parts Section -->
+    <div class="form-section" style="margin-top: 30px; border-top: 3px solid #f59e0b; padding-top: 20px;">
+        <h3 style="color: #d97706; margin-bottom: 15px;">
+            <span style="background: #fef3c7; padding: 4px 12px; border-radius: 20px;">
+                🔧 Purchase Order Parts (Sublet/External)
+            </span>
+            <?php
+            $poOrderedCount = 0;
+            $poPendingCount = 0;
+            $poInStockCount = 0;
+            foreach ($poItems as $pi) {
+                if ($pi['created_po_id']) {
+                    $poOrderedCount++;
+                } elseif ($pi['shortage'] <= 0) {
+                    $poInStockCount++;
+                } else {
+                    $poPendingCount++;
+                }
+            }
+            ?>
+            <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
+                <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
+                <span style="color: #10b981;"><?= $poInStockCount ?> In Stock</span> |
+                <span style="color: #f59e0b;"><?= $poPendingCount ?> Pending</span>
+            </span>
+        </h3>
+
+        <div style="overflow-x: auto; margin-bottom: 20px;">
+            <table>
+                <thead>
+                    <tr style="background: #fef3c7;">
+                        <th>Part No</th>
+                        <th>Part Name</th>
+                        <th>Part ID</th>
+                        <th>SO List</th>
+                        <th>Stock</th>
+                        <th>Required</th>
+                        <th>Shortage</th>
+                        <th>Ordered Qty</th>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($poItems as $idx => $item):
+                        $hasPO = !empty($item['created_po_id']);
+                    ?>
+                        <tr style="background: <?= $hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7') ?>;">
+                            <td><?= htmlspecialchars($item['part_no']) ?></td>
+                            <td><?= htmlspecialchars($item['part_name']) ?></td>
+                            <td><strong><?= htmlspecialchars($item['part_id'] ?? '-') ?></strong></td>
+                            <td><small style="color: #666;"><?= htmlspecialchars($item['so_list'] ?? '-') ?></small></td>
+                            <td><?= $item['current_stock'] ?></td>
+                            <td><?= $item['required_qty'] ?></td>
+                            <td style="color: <?= $item['shortage'] > 0 ? '#dc2626' : '#16a34a' ?>; font-weight: bold;">
+                                <?= $item['shortage'] ?>
+                            </td>
+                            <td>
+                                <?php if ($hasPO): ?>
+                                    <span style="color: #16a34a; font-weight: bold;"><?= $item['ordered_qty'] ?></span>
+                                <?php else: ?>
+                                    -
+                                <?php endif; ?>
+                            </td>
+                            <td><?= htmlspecialchars($item['supplier_name'] ?? '-') ?></td>
+                            <td>
+                                <?php if ($hasPO): ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        Ordered
+                                    </span>
+                                    <br><small style="color: #059669;"><?= htmlspecialchars($item['created_po_no']) ?></small>
+                                <?php elseif ($item['shortage'] <= 0): ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        In Stock
+                                    </span>
+                                <?php else: ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #f59e0b; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        Pending
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($hasPO): ?>
+                                    <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
+                                       class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
+                                        View PO
+                                    </a>
+                                <?php elseif ($item['shortage'] > 0): ?>
+                                    <span style="color: #f59e0b;">Needs PO</span>
+                                <?php else: ?>
+                                    <span style="color: #16a34a;">✓</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SO-wise Purchase Order Summary -->
+        <?php if (!empty($poItemsBySO)): ?>
+        <div style="padding: 15px; background: #fffbeb; border-radius: 8px; border: 1px solid #f59e0b;">
+            <h4 style="margin: 0 0 15px 0; color: #d97706;">📋 Shop Order Wise Purchase Order Summary</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                <?php foreach ($poItemsBySO as $soNo => $soItems):
+                    $soOrdered = 0;
+                    $soPending = 0;
+                    $soInStock = 0;
+                    foreach ($soItems as $si) {
+                        if (!empty($si['created_po_id'])) {
+                            $soOrdered++;
+                        } elseif (($si['shortage'] ?? 0) <= 0) {
+                            $soInStock++;
+                        } else {
+                            $soPending++;
+                        }
+                    }
+                    $allDone = ($soPending == 0);
+                ?>
+                <div style="background: white; padding: 12px; border-radius: 6px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong><?= htmlspecialchars($soNo) ?></strong>
+                        <?php if ($allDone): ?>
+                            <span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;">Complete</span>
+                        <?php else: ?>
+                            <span style="background: #f59e0b; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;"><?= $soPending ?> Pending</span>
+                        <?php endif; ?>
+                    </div>
+                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                        <?= count($soItems) ?> parts |
+                        <span style="color: #16a34a;"><?= $soOrdered ?> ordered</span> |
+                        <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
     <!-- Notes -->
     <?php if (!empty($planDetails['notes'])): ?>
     <div class="form-section">

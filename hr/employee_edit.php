@@ -25,11 +25,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $first_name = trim($_POST['first_name'] ?? '');
     $last_name = trim($_POST['last_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
-    $date_of_joining = $_POST['date_of_joining'] ?? '';
+    $date_of_joining_input = $_POST['date_of_joining'] ?? '';
+    $date_of_birth_input = $_POST['date_of_birth'] ?? '';
 
     if ($first_name === '') $errors[] = "First name is required";
     if ($phone === '') $errors[] = "Phone number is required";
-    if ($date_of_joining === '') $errors[] = "Date of joining is required";
+    if ($date_of_joining_input === '') $errors[] = "Date of joining is required";
+
+    // Check for duplicate phone number (exclude current employee)
+    if (!empty($phone) && $phone !== $emp['phone']) {
+        $stmt = $pdo->prepare("SELECT id, first_name, last_name FROM employees WHERE phone = ? AND id != ? AND status != 'Inactive'");
+        $stmt->execute([$phone, $id]);
+        $existing = $stmt->fetch();
+
+        if ($existing) {
+            $errors[] = "An employee with phone number '$phone' already exists: " . $existing['first_name'] . " " . $existing['last_name'] . " (ID: EMP-" . str_pad($existing['id'], 4, '0', STR_PAD_LEFT) . ")";
+        }
+    }
+
+    // Convert DD-MM-YYYY to YYYY-MM-DD for database
+    $date_of_joining = '';
+    if (!empty($date_of_joining_input)) {
+        if (preg_match('/^(\d{2})-(\d{2})-(\d{4})$/', $date_of_joining_input, $matches)) {
+            $date_of_joining = $matches[3] . '-' . $matches[2] . '-' . $matches[1];
+        } else {
+            $errors[] = "Date of joining must be in DD-MM-YYYY format";
+        }
+    }
+
+    $date_of_birth = '';
+    if (!empty($date_of_birth_input)) {
+        if (preg_match('/^(\d{2})-(\d{2})-(\d{4})$/', $date_of_birth_input, $matches)) {
+            $date_of_birth = $matches[3] . '-' . $matches[2] . '-' . $matches[1];
+        } else {
+            $errors[] = "Date of birth must be in DD-MM-YYYY format";
+        }
+    }
 
     if (empty($errors)) {
         // Handle photo upload
@@ -61,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 reporting_to = ?, work_location = ?,
                 aadhar_no = ?, pan_no = ?, uan_no = ?, pf_no = ?, esi_no = ?,
                 bank_name = ?, bank_account = ?, bank_ifsc = ?, bank_branch = ?,
-                basic_salary = ?, hra = ?, conveyance = ?, medical_allowance = ?, special_allowance = ?, other_allowance = ?,
+ \
                 photo_path = ?, notes = ?, status = ?
             WHERE id = ?
         ");
@@ -69,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([
             $first_name,
             $last_name,
-            $_POST['date_of_birth'] ?: null,
+            !empty($date_of_birth) ? $date_of_birth : null,
             $_POST['gender'] ?? 'Male',
             $_POST['marital_status'] ?? 'Single',
             $_POST['blood_group'] ?: null,
@@ -108,6 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['medical_allowance'] ?: 0,
             $_POST['special_allowance'] ?: 0,
             $_POST['other_allowance'] ?: 0,
+            $_POST['performance_allowance'] ?: 0,
+            $_POST['food_allowance'] ?: 0,
             $photo_path,
             $_POST['notes'] ?: null,
             $_POST['status'] ?? 'Active',
@@ -125,8 +158,51 @@ $managers = $pdo->prepare("SELECT id, emp_id, first_name, last_name FROM employe
 $managers->execute([$id]);
 $managers = $managers->fetchAll();
 
-// Get departments
-$departments = $pdo->query("SELECT name FROM departments ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+// Get departments - with fallback list
+try {
+    $departments = $pdo->query("SELECT name FROM departments ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    $departments = [];
+}
+
+// Get states for dropdown
+$states = [];
+try {
+    $states = $pdo->query("SELECT id, state_name FROM states WHERE is_active = 1 ORDER BY state_name")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table might not exist
+}
+
+// Fallback department list if table is empty or doesn't exist
+if (empty($departments)) {
+    $departments = [
+        'Administration',
+        'Accounts',
+        'Assembly',
+        'Design',
+        'Electrical',
+        'Electronics',
+        'Engineering',
+        'Fabrication',
+        'Finance',
+        'HR',
+        'IT',
+        'Kronos',
+        'Maintenance',
+        'Manufacturing',
+        'Marketing',
+        'Operations',
+        'Production',
+        'Purchase',
+        'Quality',
+        'R&D',
+        'Sales',
+        'Service',
+        'Store',
+        'Testing',
+        'Welding'
+    ];
+}
 
 include "../includes/sidebar.php";
 showModal();
@@ -212,7 +288,8 @@ showModal();
                     </div>
                     <div class="form-group">
                         <label>Date of Birth</label>
-                        <input type="date" name="date_of_birth" value="<?= $emp['date_of_birth'] ?>">
+                        <input type="text" name="date_of_birth" placeholder="DD-MM-YYYY" pattern="\d{2}-\d{2}-\d{4}" value="<?= $emp['date_of_birth'] ? date('d-m-Y', strtotime($emp['date_of_birth'])) : '' ?>">
+                        <small style="color: #666;">Format: DD-MM-YYYY (e.g., 15-06-1990)</small>
                     </div>
                     <div class="form-group">
                         <label>Gender</label>
@@ -288,12 +365,26 @@ showModal();
                         <input type="text" name="address_line2" value="<?= htmlspecialchars($emp['address_line2'] ?? '') ?>">
                     </div>
                     <div class="form-group">
-                        <label>City</label>
-                        <input type="text" name="city" value="<?= htmlspecialchars($emp['city'] ?? '') ?>">
+                        <label>State</label>
+                        <select name="state" id="stateSelect" onchange="loadCities(this.value)">
+                            <option value="">-- Select State --</option>
+                            <?php foreach ($states as $st): ?>
+                            <option value="<?= htmlspecialchars($st['state_name']) ?>"
+                                    data-id="<?= $st['id'] ?>"
+                                    <?= ($emp['state'] ?? '') === $st['state_name'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($st['state_name']) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="form-group">
-                        <label>State</label>
-                        <input type="text" name="state" value="<?= htmlspecialchars($emp['state'] ?? '') ?>">
+                        <label>City</label>
+                        <select name="city" id="citySelect">
+                            <option value="">-- Select City --</option>
+                            <?php if (!empty($emp['city'])): ?>
+                            <option value="<?= htmlspecialchars($emp['city']) ?>" selected><?= htmlspecialchars($emp['city']) ?></option>
+                            <?php endif; ?>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Pincode</label>
@@ -305,6 +396,63 @@ showModal();
                     </div>
                 </div>
             </div>
+
+            <script>
+            // Load cities on page load if state is already selected
+            document.addEventListener('DOMContentLoaded', function() {
+                const stateSelect = document.getElementById('stateSelect');
+                if (stateSelect.value) {
+                    loadCities(stateSelect.value, '<?= addslashes($emp['city'] ?? '') ?>');
+                }
+            });
+
+            function loadCities(stateName, selectedCity = '') {
+                const citySelect = document.getElementById('citySelect');
+                citySelect.innerHTML = '<option value="">Loading...</option>';
+
+                if (!stateName) {
+                    citySelect.innerHTML = '<option value="">-- Select City --</option>';
+                    return;
+                }
+
+                fetch('../api/get_cities.php?state=' + encodeURIComponent(stateName))
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        let options = '<option value="">-- Select City --</option>';
+                        const cities = data.cities || [];
+
+                        if (Array.isArray(cities) && cities.length > 0) {
+                            cities.forEach(city => {
+                                const cityName = city.city_name || city;
+                                const isSelected = (selectedCity && cityName === selectedCity) ? 'selected' : '';
+                                options += '<option value="' + cityName + '" ' + isSelected + '>' + cityName + '</option>';
+                            });
+                        } else {
+                            // If no cities found in database, allow manual entry
+                            if (selectedCity) {
+                                options += '<option value="' + selectedCity + '" selected>' + selectedCity + '</option>';
+                            }
+                            options += '<option value="">-- No cities found --</option>';
+                        }
+
+                        citySelect.innerHTML = options;
+                    })
+                    .catch(error => {
+                        console.error('Error loading cities:', error);
+                        // On error, still allow the current city to be kept
+                        let options = '<option value="">-- Select City --</option>';
+                        if (selectedCity) {
+                            options = '<option value="' + selectedCity + '" selected>' + selectedCity + '</option>' + options;
+                        }
+                        citySelect.innerHTML = options;
+                    });
+            }
+            </script>
 
             <!-- Emergency Contact -->
             <div class="form-section">
@@ -352,7 +500,8 @@ showModal();
                     </div>
                     <div class="form-group">
                         <label>Date of Joining *</label>
-                        <input type="date" name="date_of_joining" required value="<?= $emp['date_of_joining'] ?>">
+                        <input type="text" name="date_of_joining" placeholder="DD-MM-YYYY" pattern="\d{2}-\d{2}-\d{4}" required value="<?= date('d-m-Y', strtotime($emp['date_of_joining'])) ?>">
+                        <small style="color: #666;">Format: DD-MM-YYYY (e.g., 15-01-2020)</small>
                     </div>
                     <div class="form-group">
                         <label>Date of Leaving</label>
@@ -440,29 +589,75 @@ showModal();
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Basic Salary</label>
-                        <input type="number" name="basic_salary" step="0.01" value="<?= $emp['basic_salary'] ?>">
+                        <input type="number" name="basic_salary" id="basic_salary" step="0.01" value="<?= $emp['basic_salary'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                     <div class="form-group">
                         <label>HRA</label>
-                        <input type="number" name="hra" step="0.01" value="<?= $emp['hra'] ?>">
+                        <input type="number" name="hra" id="hra" step="0.01" value="<?= $emp['hra'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                     <div class="form-group">
                         <label>Conveyance</label>
-                        <input type="number" name="conveyance" step="0.01" value="<?= $emp['conveyance'] ?>">
+                        <input type="number" name="conveyance" id="conveyance" step="0.01" value="<?= $emp['conveyance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                     <div class="form-group">
                         <label>Medical Allowance</label>
-                        <input type="number" name="medical_allowance" step="0.01" value="<?= $emp['medical_allowance'] ?>">
+                        <input type="number" name="medical_allowance" id="medical_allowance" step="0.01" value="<?= $emp['medical_allowance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                     <div class="form-group">
                         <label>Special Allowance</label>
-                        <input type="number" name="special_allowance" step="0.01" value="<?= $emp['special_allowance'] ?>">
+                        <input type="number" name="special_allowance" id="special_allowance" step="0.01" value="<?= $emp['special_allowance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                     <div class="form-group">
                         <label>Other Allowance</label>
-                        <input type="number" name="other_allowance" step="0.01" value="<?= $emp['other_allowance'] ?>">
+                        <input type="number" name="other_allowance" id="other_allowance" step="0.01" value="<?= $emp['other_allowance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
+                    </div>
+                    <div class="form-group">
+                        <label>Performance Allowance</label>
+                        <input type="number" name="performance_allowance" id="performance_allowance" step="0.01" value="<?= $emp['performance_allowance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
+                    </div>
+                    <div class="form-group">
+                        <label>Food Allowance</label>
+                        <input type="number" name="food_allowance" id="food_allowance" step="0.01" value="<?= $emp['food_allowance'] ?? 0 ?>" onchange="calculateSalaryTotals()" onkeyup="calculateSalaryTotals()">
                     </div>
                 </div>
+                <!-- Salary Totals -->
+                <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; text-align: center;">
+                        <div>
+                            <div style="font-size: 0.85em; opacity: 0.9;">Total Allowances</div>
+                            <div id="totalAllowances" style="font-size: 1.4em; font-weight: bold;">₹0.00</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85em; opacity: 0.9;">Basic Salary</div>
+                            <div id="basicDisplay" style="font-size: 1.4em; font-weight: bold;">₹0.00</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85em; opacity: 0.9;">Total Gross Salary</div>
+                            <div id="totalGross" style="font-size: 1.4em; font-weight: bold;">₹0.00</div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                function calculateSalaryTotals() {
+                    const basic = parseFloat(document.getElementById('basic_salary').value) || 0;
+                    const hra = parseFloat(document.getElementById('hra').value) || 0;
+                    const conveyance = parseFloat(document.getElementById('conveyance').value) || 0;
+                    const medical = parseFloat(document.getElementById('medical_allowance').value) || 0;
+                    const special = parseFloat(document.getElementById('special_allowance').value) || 0;
+                    const other = parseFloat(document.getElementById('other_allowance').value) || 0;
+                    const performance = parseFloat(document.getElementById('performance_allowance').value) || 0;
+                    const food = parseFloat(document.getElementById('food_allowance').value) || 0;
+
+                    const totalAllowances = hra + conveyance + medical + special + other + performance + food;
+                    const totalGross = basic + totalAllowances;
+
+                    document.getElementById('totalAllowances').textContent = '₹' + totalAllowances.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                    document.getElementById('basicDisplay').textContent = '₹' + basic.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                    document.getElementById('totalGross').textContent = '₹' + totalGross.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                }
+                // Calculate on page load
+                document.addEventListener('DOMContentLoaded', calculateSalaryTotals);
+                </script>
             </div>
 
             <!-- Notes -->

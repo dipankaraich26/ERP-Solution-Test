@@ -6,6 +6,31 @@ $part_no = isset($_GET['part_no']) ? trim($_GET['part_no']) : '';
 $success = false;
 $error = '';
 
+/**
+ * Update part_master rate from first/preferred supplier
+ * If no active suppliers, leave rate unchanged
+ */
+function updatePartMasterRateFromSupplier($pdo, $part_no) {
+    // Get the first active supplier rate (prefer preferred suppliers)
+    $stmt = $pdo->prepare("
+        SELECT supplier_rate
+        FROM part_supplier_mapping
+        WHERE part_no = ? AND active = 1
+        ORDER BY is_preferred DESC, id ASC
+        LIMIT 1
+    ");
+    $stmt->execute([$part_no]);
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($result && $result['supplier_rate'] > 0) {
+        // Update part_master rate with supplier rate
+        $updateStmt = $pdo->prepare("UPDATE part_master SET rate = ? WHERE part_no = ?");
+        $updateStmt->execute([$result['supplier_rate'], $part_no]);
+        return true;
+    }
+    return false;
+}
+
 // Fetch part details
 if ($part_no) {
     $partStmt = $pdo->prepare("SELECT * FROM part_master WHERE part_no = ?");
@@ -48,7 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $error = "Supplier and rate are required";
         } else {
             if (addSupplierToPart($pdo, $part_no, $supplier_id, $rate, $lead_days, $min_order_qty, $supplier_sku, (bool)$is_preferred)) {
-                $success = "Supplier added successfully";
+                // Auto-update part_master rate from first/preferred supplier
+                updatePartMasterRateFromSupplier($pdo, $part_no);
+                $success = "Supplier added successfully. Part rate updated.";
                 // Refresh current suppliers
                 $currentSuppliers = getPartSuppliers($pdo, $part_no);
             } else {
@@ -71,7 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 WHERE id = ? AND part_no = ?
             ");
             if ($updateStmt->execute([$rate, $lead_days, $min_order_qty, $is_preferred, $mapping_id, $part_no])) {
-                $success = "Supplier updated successfully";
+                // Auto-update part_master rate from first/preferred supplier
+                updatePartMasterRateFromSupplier($pdo, $part_no);
+                $success = "Supplier updated successfully. Part rate updated.";
                 $currentSuppliers = getPartSuppliers($pdo, $part_no);
             } else {
                 $error = "Failed to update supplier";
@@ -87,7 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 WHERE id = ? AND part_no = ?
             ");
             if ($deleteStmt->execute([$mapping_id, $part_no])) {
-                $success = "Supplier removed successfully";
+                // Auto-update part_master rate from remaining first/preferred supplier
+                updatePartMasterRateFromSupplier($pdo, $part_no);
+                $success = "Supplier removed successfully. Part rate updated.";
                 $currentSuppliers = getPartSuppliers($pdo, $part_no);
             } else {
                 $error = "Failed to remove supplier";
@@ -104,12 +135,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 WHERE id = ? AND part_no = ?
             ");
             if ($toggleStmt->execute([$mapping_id, $part_no])) {
-                $success = "Supplier status updated";
+                // Auto-update part_master rate from first/preferred active supplier
+                updatePartMasterRateFromSupplier($pdo, $part_no);
+                $success = "Supplier status updated. Part rate updated.";
                 $currentSuppliers = getPartSuppliers($pdo, $part_no);
             } else {
                 $error = "Failed to update supplier status";
             }
         }
+    }
+
+    // Refresh part details to show updated rate
+    if ($success && $part_no) {
+        $partStmt = $pdo->prepare("SELECT * FROM part_master WHERE part_no = ?");
+        $partStmt->execute([$part_no]);
+        $part = $partStmt->fetch(PDO::FETCH_ASSOC);
     }
 }
 

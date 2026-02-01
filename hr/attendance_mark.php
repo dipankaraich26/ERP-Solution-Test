@@ -74,6 +74,24 @@ $holidayName = $holiday->fetchColumn();
 
 $isSunday = date('w', strtotime($date)) == 0;
 
+// Get approved leaves for this date
+$approvedLeaves = [];
+try {
+    $leaveStmt = $pdo->prepare("
+        SELECT lr.employee_id, lr.total_days, lr.is_half_day, lr.half_day_type, lt.leave_code, lt.leave_type_name
+        FROM leave_requests lr
+        JOIN leave_types lt ON lr.leave_type_id = lt.id
+        WHERE lr.status = 'Approved'
+          AND ? BETWEEN lr.start_date AND lr.end_date
+    ");
+    $leaveStmt->execute([$date]);
+    while ($leave = $leaveStmt->fetch(PDO::FETCH_ASSOC)) {
+        $approvedLeaves[$leave['employee_id']] = $leave;
+    }
+} catch (PDOException $e) {
+    // Leave tables may not exist yet
+}
+
 include "../includes/sidebar.php";
 showModal();
 ?>
@@ -117,6 +135,22 @@ showModal();
         .status-Absent { color: #e74c3c; }
         .status-Half-Day { color: #f39c12; }
         .status-On-Leave { color: #3498db; }
+
+        .leave-indicator {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #e3f2fd;
+            color: #1565c0;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .leave-indicator.half-day {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        .has-leave { background: #e3f2fd; }
 
         .quick-fill {
             margin-bottom: 20px;
@@ -180,23 +214,38 @@ showModal();
             <tbody>
                 <?php foreach ($employees as $emp):
                     $att = $existingAtt[$emp['id']] ?? null;
+                    $hasLeave = isset($approvedLeaves[$emp['id']]);
+                    $leaveInfo = $hasLeave ? $approvedLeaves[$emp['id']] : null;
+
+                    // Determine default status - prioritize approved leave
+                    $currentStatus = $att['status'] ?? '';
+                    if ($hasLeave && empty($currentStatus)) {
+                        $currentStatus = $leaveInfo['is_half_day'] ? 'Half Day' : 'On Leave';
+                    }
                 ?>
-                <tr>
+                <tr class="<?= $hasLeave ? 'has-leave' : '' ?>">
                     <td>
-                        <strong><?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?></strong><br>
+                        <strong><?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?></strong>
+                        <?php if ($hasLeave): ?>
+                            <span class="leave-indicator <?= $leaveInfo['is_half_day'] ? 'half-day' : '' ?>">
+                                <?= htmlspecialchars($leaveInfo['leave_code']) ?>
+                                <?= $leaveInfo['is_half_day'] ? ' (' . $leaveInfo['half_day_type'] . ')' : '' ?>
+                            </span>
+                        <?php endif; ?>
+                        <br>
                         <small style="color: #7f8c8d;"><?= htmlspecialchars($emp['emp_id']) ?></small>
                     </td>
                     <td><?= htmlspecialchars($emp['department'] ?? '-') ?></td>
                     <td>
                         <select name="attendance[<?= $emp['id'] ?>][status]" class="status-select">
                             <option value="">-- Select --</option>
-                            <option value="Present" <?= ($att['status'] ?? '') === 'Present' ? 'selected' : '' ?>>Present</option>
-                            <option value="Absent" <?= ($att['status'] ?? '') === 'Absent' ? 'selected' : '' ?>>Absent</option>
-                            <option value="Half Day" <?= ($att['status'] ?? '') === 'Half Day' ? 'selected' : '' ?>>Half Day</option>
-                            <option value="Late" <?= ($att['status'] ?? '') === 'Late' ? 'selected' : '' ?>>Late</option>
-                            <option value="On Leave" <?= ($att['status'] ?? '') === 'On Leave' ? 'selected' : '' ?>>On Leave</option>
-                            <option value="Holiday" <?= ($att['status'] ?? '') === 'Holiday' ? 'selected' : '' ?>>Holiday</option>
-                            <option value="Week Off" <?= ($att['status'] ?? '') === 'Week Off' ? 'selected' : '' ?>>Week Off</option>
+                            <option value="Present" <?= $currentStatus === 'Present' ? 'selected' : '' ?>>Present</option>
+                            <option value="Absent" <?= $currentStatus === 'Absent' ? 'selected' : '' ?>>Absent</option>
+                            <option value="Half Day" <?= $currentStatus === 'Half Day' ? 'selected' : '' ?>>Half Day</option>
+                            <option value="Late" <?= $currentStatus === 'Late' ? 'selected' : '' ?>>Late</option>
+                            <option value="On Leave" <?= $currentStatus === 'On Leave' ? 'selected' : '' ?>>On Leave</option>
+                            <option value="Holiday" <?= $currentStatus === 'Holiday' ? 'selected' : '' ?>>Holiday</option>
+                            <option value="Week Off" <?= $currentStatus === 'Week Off' ? 'selected' : '' ?>>Week Off</option>
                         </select>
                     </td>
                     <td>

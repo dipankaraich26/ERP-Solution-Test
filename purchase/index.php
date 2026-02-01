@@ -3,22 +3,6 @@ include "../db.php";
 include "../includes/dialog.php";
 
 /* =========================
-   FETCH PARTS & SUPPLIERS
-========================= */
-$parts = $pdo->query("
-    SELECT part_no, part_name
-    FROM part_master
-    WHERE status = 'active'
-    ORDER BY part_name
-")->fetchAll(PDO::FETCH_ASSOC);
-
-$suppliers = $pdo->query("
-    SELECT id, supplier_name
-    FROM suppliers
-    ORDER BY supplier_name
-");
-
-/* =========================
    HANDLE PO CREATION
 ========================= */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -27,14 +11,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $maxNo = $pdo->query("SELECT COALESCE(MAX(CAST(SUBSTRING(po_no,4) AS UNSIGNED)), 0) FROM purchase_orders WHERE po_no LIKE 'PO-%'")->fetchColumn();
     $nextNo = ((int)$maxNo) + 1;
     $po_no = 'PO-' . $nextNo;
-    $parts_post  = $_POST['part_no'] ?? [];
-    $qtys        = $_POST['qty'] ?? [];
+
     $supplier_id = (int)($_POST['supplier_id'] ?? 0);
-    $date        = $_POST['purchase_date'] ?? '';
+    $date = $_POST['purchase_date'] ?? '';
+    $parts_post = $_POST['part_no'] ?? [];
+    $qtys = $_POST['qty'] ?? [];
+    $rates = $_POST['rate'] ?? [];
 
     // normalize to arrays
     if (!is_array($parts_post)) $parts_post = [$parts_post];
     if (!is_array($qtys)) $qtys = [$qtys];
+    if (!is_array($rates)) $rates = [$rates];
 
     // build items list (skip empty part values)
     $items = [];
@@ -42,18 +29,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     for ($i = 0; $i < $max; $i++) {
         $p = $parts_post[$i] ?? '';
         $q = isset($qtys[$i]) ? (int)$qtys[$i] : 0;
+        $r = isset($rates[$i]) ? (float)$rates[$i] : 0;
         if ($p === '') continue;
-        $items[] = ['part_no' => $p, 'qty' => $q];
+        $items[] = ['part_no' => $p, 'qty' => $q, 'rate' => $r];
     }
 
-    if (empty($items)) {
-        setModal("Failed to add PO", "Use at least one part with quantity");
+    if ($supplier_id <= 0) {
+        setModal("Failed to add PO", "Supplier is required");
         header("Location: index.php");
         exit;
     }
 
-    if ($supplier_id <= 0 || $date === '') {
-        setModal("Failed to add PO", "Supplier and purchase date are required");
+    if ($date === '') {
+        setModal("Failed to add PO", "Purchase date is required");
+        header("Location: index.php");
+        exit;
+    }
+
+    if (empty($items)) {
+        setModal("Failed to add PO", "Select at least one part with quantity");
         header("Location: index.php");
         exit;
     }
@@ -61,7 +55,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     // validate quantities
     foreach ($items as $it) {
         if ($it['qty'] <= 0) {
-            setModal("Failed to add PO", "Quantity must be more than 0");
+            setModal("Failed to add PO", "Quantity must be more than 0 for all parts");
             header("Location: index.php");
             exit;
         }
@@ -70,19 +64,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     // Insert multiple purchase orders in a transaction. All items use the same generated PO number.
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("\n            INSERT INTO purchase_orders\n            (po_no, part_no, qty, purchase_date, status, supplier_id)\n            VALUES (?, ?, ?, ?, 'open', ?)\n        ");
+        $stmt = $pdo->prepare("
+            INSERT INTO purchase_orders
+            (po_no, part_no, qty, rate, purchase_date, status, supplier_id)
+            VALUES (?, ?, ?, ?, ?, 'open', ?)
+        ");
 
         foreach ($items as $it) {
             $stmt->execute([
                 $po_no,
                 $it['part_no'],
                 $it['qty'],
+                $it['rate'],
                 $date,
                 $supplier_id
             ]);
         }
 
         $pdo->commit();
+        setModal("Success", "Purchase Order $po_no created successfully!");
         header("Location: index.php");
         exit;
 
@@ -145,101 +145,280 @@ showModal();
 <head>
     <title>Purchase Orders</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <style>
+        .po-form-section {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .po-form-section h3 {
+            margin-top: 0;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .form-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .parts-selection {
+            margin-top: 20px;
+            display: none;
+        }
+        .parts-selection.active {
+            display: block;
+        }
+        .parts-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .parts-table th,
+        .parts-table td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        .parts-table th {
+            background: #3498db;
+            color: white;
+        }
+        .parts-table tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        .parts-table input[type="checkbox"] {
+            transform: scale(1.3);
+            margin-right: 10px;
+        }
+        .parts-table input[type="number"] {
+            width: 100px;
+            padding: 5px;
+        }
+        .no-parts-msg {
+            padding: 20px;
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            color: #856404;
+        }
+        .supplier-info {
+            background: #e8f4fc;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 0.95em;
+        }
+        /* Dynamic Supplier Search Styles */
+        .supplier-search-container {
+            position: relative;
+        }
+        .supplier-search-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .supplier-search-input:focus {
+            border-color: #3498db;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+        .supplier-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .supplier-dropdown.active {
+            display: block;
+        }
+        .supplier-option {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            transition: background 0.15s;
+        }
+        .supplier-option:last-child {
+            border-bottom: none;
+        }
+        .supplier-option:hover,
+        .supplier-option.highlighted {
+            background: #f0f7ff;
+        }
+        .supplier-option.selected {
+            background: #e3f2fd;
+        }
+        .supplier-option-code {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .supplier-option-name {
+            color: #555;
+            margin-left: 8px;
+        }
+        .supplier-option-location {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 2px;
+        }
+        .supplier-selected-display {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        .supplier-selected-display .supplier-details {
+            flex: 1;
+        }
+        .supplier-selected-display .clear-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .supplier-selected-display .clear-btn:hover {
+            background: #c0392b;
+        }
+        .supplier-no-results {
+            padding: 15px;
+            text-align: center;
+            color: #888;
+        }
+        .supplier-loading {
+            padding: 15px;
+            text-align: center;
+            color: #3498db;
+        }
+        .badge-preferred {
+            background: #28a745;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            margin-left: 5px;
+        }
+        .selected-count {
+            background: #3498db;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+    </style>
 </head>
 <body>
-
-<script>
-const toggle = document.getElementById("themeToggle");
-const body = document.body;
-
-if (toggle) {
-    if (localStorage.getItem("theme") === "dark") {
-        body.classList.add("dark");
-        toggle.textContent = "☀️ Light Mode";
-    }
-
-    toggle.addEventListener("click", () => {
-        body.classList.toggle("dark");
-
-        if (body.classList.contains("dark")) {
-            localStorage.setItem("theme", "dark");
-            toggle.textContent = "☀️ Light Mode";
-        } else {
-            localStorage.setItem("theme", "light");
-            toggle.textContent = "🌙 Dark Mode";
-        }
-    });
-}
-</script>
 
 <div class="content">
 <h1>Purchase Orders</h1>
 
 <!-- =========================
-     ADD PURCHASE ORDER
+     CREATE PURCHASE ORDER
 ========================= -->
-<form method="post" class="form-box">
-    <h3>Create Purchase Order</h3>
+<form method="post" id="poForm" onsubmit="return validatePOForm()">
+    <div class="po-form-section">
+        <h3>Create Purchase Order</h3>
 
-    <label>PO Number</label>
-    <div><em>Automatically assigned on create (e.g. PO-1)</em></div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>PO Number</label>
+                <input type="text" value="Auto-generated (PO-XXX)" readonly style="background: #eee;">
+            </div>
+            <div class="form-group">
+                <label>Purchase Date *</label>
+                <input type="date" name="purchase_date" required value="<?= date('Y-m-d') ?>">
+            </div>
+        </div>
 
-    <label>Parts</label>
-    <table border="1" cellpadding="6" id="poTable">
-        <tr>
-            <th>Part</th>
-            <th>Qty</th>
-            <th></th>
-        </tr>
-        <tr>
-            <td>
-                <select name="part_no[]" required>
-                    <option value="">Select Part</option>
-                    <?php foreach ($parts as $p): ?>
-                        <option value="<?= htmlspecialchars($p['part_no']) ?>"><?= htmlspecialchars($p['part_no']) ?> — <?= htmlspecialchars($p['part_name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </td>
-            <td><input type="number" name="qty[]" min="1" required></td>
-            <td><button type="button" onclick="addRow()">➕</button></td>
-        </tr>
+        <div class="form-row">
+            <div class="form-group" style="flex: 2;">
+                <label>Supplier *</label>
+                <div class="supplier-search-container">
+                    <input type="hidden" name="supplier_id" id="supplierIdInput" required>
+                    <input type="text"
+                           id="supplierSearchInput"
+                           class="supplier-search-input"
+                           placeholder="Type to search suppliers by code, name, or city..."
+                           autocomplete="off">
+                    <div id="supplierDropdown" class="supplier-dropdown">
+                        <div class="supplier-loading">Loading suppliers...</div>
+                    </div>
+                </div>
+                <div id="supplierSelectedDisplay" class="supplier-selected-display" style="display: none;">
+                    <div class="supplier-details">
+                        <span class="supplier-option-code" id="selectedSupplierCode"></span>
+                        <span class="supplier-option-name" id="selectedSupplierName"></span>
+                        <div class="supplier-option-location" id="selectedSupplierLocation"></div>
+                    </div>
+                    <button type="button" class="clear-btn" onclick="clearSupplierSelection()">Clear</button>
+                </div>
+            </div>
+        </div>
 
-        <!-- Hidden template row used by addRow(); controls disabled so they don't trigger validation while hidden -->
-        <tr id="templateRow" style="display:none;">
-            <td>
-                <select name="part_no[]" disabled>
-                    <option value="">Select Part</option>
-                    <?php foreach ($parts as $p): ?>
-                        <option value="<?= htmlspecialchars($p['part_no']) ?>"><?= htmlspecialchars($p['part_no']) ?> — <?= htmlspecialchars($p['part_name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </td>
-            <td><input type="number" name="qty[]" min="1" disabled></td>
-            <td><button type="button" onclick="removeRow(this)">➖</button></td>
-        </tr>
-    </table>
+        <div id="supplierInfo" class="supplier-info" style="display: none;"></div>
+    </div>
 
-    <label>Supplier</label>
-    <select name="supplier_id" required>
-        <option value="">Select Supplier</option>
-        <?php while ($s = $suppliers->fetch()): ?>
-            <option value="<?= $s['id'] ?>">
-                <?= htmlspecialchars($s['supplier_name']) ?>
-            </option>
-        <?php endwhile; ?>
-    </select>
+    <!-- Parts Selection Section -->
+    <div class="po-form-section parts-selection" id="partsSection">
+        <h3>Select Parts <span id="selectedCount" class="selected-count" style="display: none;">0 selected</span></h3>
 
-    <label>Purchase Date</label>
-    <input type="date" name="purchase_date" required>
+        <div id="partsContainer">
+            <p style="color: #666;">Select a supplier to see linked parts...</p>
+        </div>
+    </div>
 
-    <button type="submit" class="btn btn-primary">Create PO</button>
+    <div id="submitSection" style="display: none;">
+        <button type="submit" class="btn btn-success" style="padding: 12px 30px; font-size: 1.1em;">
+            Create Purchase Order
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="resetForm()" style="margin-left: 10px;">
+            Reset
+        </button>
+    </div>
 </form>
 
-<hr>
+<hr style="margin: 30px 0;">
 
 <!-- =========================
      PURCHASE ORDER LIST (grouped)
 ========================= -->
+<h2>Purchase Order List</h2>
 <div style="overflow-x: auto;">
 <table>
     <tr>
@@ -302,36 +481,421 @@ if (toggle) {
 </div>
 
 <script>
-function addRow() {
-    const tpl = document.getElementById('templateRow');
-    if (!tpl) return;
-    const clone = tpl.cloneNode(true);
-    clone.removeAttribute('id');
-    clone.style.display = '';
+let supplierParts = [];
+let selectedSupplierId = null;
+let supplierSearchTimeout = null;
+let highlightedIndex = -1;
+let currentSuppliers = [];
 
-    // enable and clear inputs/selects
-    const sel = clone.querySelector('select[name="part_no[]"]');
-    const qty = clone.querySelector('input[name="qty[]"]');
-    if (sel) { sel.disabled = false; sel.required = true; sel.selectedIndex = 0; }
-    if (qty) { qty.disabled = false; qty.required = true; qty.value = ''; }
+/**
+ * Initialize supplier search functionality
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('supplierSearchInput');
+    const dropdown = document.getElementById('supplierDropdown');
 
-    tpl.parentNode.insertBefore(clone, tpl);
+    // Load initial suppliers when focusing on empty input
+    searchInput.addEventListener('focus', function() {
+        if (!selectedSupplierId) {
+            searchSuppliers('');
+            dropdown.classList.add('active');
+        }
+    });
+
+    // Search as user types
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+        clearTimeout(supplierSearchTimeout);
+        highlightedIndex = -1;
+
+        supplierSearchTimeout = setTimeout(() => {
+            searchSuppliers(query);
+        }, 200);
+    });
+
+    // Keyboard navigation
+    searchInput.addEventListener('keydown', function(e) {
+        const options = dropdown.querySelectorAll('.supplier-option');
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            highlightedIndex = Math.min(highlightedIndex + 1, options.length - 1);
+            updateHighlight(options);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            highlightedIndex = Math.max(highlightedIndex - 1, 0);
+            updateHighlight(options);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (highlightedIndex >= 0 && options[highlightedIndex]) {
+                options[highlightedIndex].click();
+            }
+        } else if (e.key === 'Escape') {
+            dropdown.classList.remove('active');
+            searchInput.blur();
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.supplier-search-container')) {
+            dropdown.classList.remove('active');
+        }
+    });
+});
+
+/**
+ * Update highlighted option
+ */
+function updateHighlight(options) {
+    options.forEach((opt, idx) => {
+        opt.classList.toggle('highlighted', idx === highlightedIndex);
+    });
+
+    // Scroll highlighted option into view
+    if (highlightedIndex >= 0 && options[highlightedIndex]) {
+        options[highlightedIndex].scrollIntoView({ block: 'nearest' });
+    }
 }
 
-function removeRow(btn) {
-    const tr = btn.closest('tr');
-    if (!tr) return;
-    const table = document.getElementById('poTable');
-    const visibleRows = Array.from(table.querySelectorAll('tr')).filter(r => r.style.display !== 'none' && r.querySelector('select[name="part_no[]"]'));
-    if (visibleRows.length <= 1) {
-        // clear instead of removing last row
-        const sel = tr.querySelector('select[name="part_no[]"]');
-        const qty = tr.querySelector('input[name="qty[]"]');
-        if (sel) sel.selectedIndex = 0;
-        if (qty) qty.value = '';
+/**
+ * Search suppliers via API
+ */
+function searchSuppliers(query) {
+    const dropdown = document.getElementById('supplierDropdown');
+    dropdown.innerHTML = '<div class="supplier-loading">Searching...</div>';
+    dropdown.classList.add('active');
+
+    fetch('../api/search_suppliers.php?q=' + encodeURIComponent(query))
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                dropdown.innerHTML = '<div class="supplier-no-results">Error loading suppliers</div>';
+                return;
+            }
+
+            currentSuppliers = data.suppliers;
+
+            if (data.suppliers.length === 0) {
+                dropdown.innerHTML = '<div class="supplier-no-results">No suppliers found</div>';
+                return;
+            }
+
+            let html = '';
+            data.suppliers.forEach((supplier, index) => {
+                const location = [supplier.city, supplier.state].filter(Boolean).join(', ');
+                html += `
+                    <div class="supplier-option" data-id="${supplier.id}" data-index="${index}" onclick="selectSupplier(${index})">
+                        <div>
+                            <span class="supplier-option-code">${htmlEscape(supplier.supplier_code)}</span>
+                            <span class="supplier-option-name">— ${htmlEscape(supplier.supplier_name)}</span>
+                        </div>
+                        ${location ? `<div class="supplier-option-location">${htmlEscape(location)}${supplier.phone ? ' | ' + htmlEscape(supplier.phone) : ''}</div>` : ''}
+                    </div>
+                `;
+            });
+
+            dropdown.innerHTML = html;
+            highlightedIndex = -1;
+        })
+        .catch(error => {
+            console.error('Error searching suppliers:', error);
+            dropdown.innerHTML = '<div class="supplier-no-results">Error searching. Please try again.</div>';
+        });
+}
+
+/**
+ * Select a supplier from the dropdown
+ */
+function selectSupplier(index) {
+    const supplier = currentSuppliers[index];
+    if (!supplier) return;
+
+    selectedSupplierId = supplier.id;
+
+    // Set hidden input value
+    document.getElementById('supplierIdInput').value = supplier.id;
+
+    // Hide search input, show selected display
+    document.getElementById('supplierSearchInput').style.display = 'none';
+    document.getElementById('supplierDropdown').classList.remove('active');
+
+    // Update selected display
+    const selectedDisplay = document.getElementById('supplierSelectedDisplay');
+    document.getElementById('selectedSupplierCode').textContent = supplier.supplier_code;
+    document.getElementById('selectedSupplierName').textContent = '— ' + supplier.supplier_name;
+    const location = [supplier.city, supplier.state].filter(Boolean).join(', ');
+    document.getElementById('selectedSupplierLocation').textContent = location + (supplier.phone ? ' | ' + supplier.phone : '');
+    selectedDisplay.style.display = 'flex';
+
+    // Load parts for this supplier
+    loadPartsForSupplier(supplier.id);
+}
+
+/**
+ * Clear supplier selection
+ */
+function clearSupplierSelection() {
+    selectedSupplierId = null;
+    document.getElementById('supplierIdInput').value = '';
+    document.getElementById('supplierSearchInput').value = '';
+    document.getElementById('supplierSearchInput').style.display = 'block';
+    document.getElementById('supplierSelectedDisplay').style.display = 'none';
+
+    // Reset parts section
+    const partsSection = document.getElementById('partsSection');
+    const partsContainer = document.getElementById('partsContainer');
+    const submitSection = document.getElementById('submitSection');
+    const supplierInfo = document.getElementById('supplierInfo');
+
+    partsSection.classList.remove('active');
+    partsContainer.innerHTML = '<p style="color: #666;">Select a supplier to see linked parts...</p>';
+    submitSection.style.display = 'none';
+    supplierInfo.style.display = 'none';
+    supplierParts = [];
+
+    // Focus search input
+    document.getElementById('supplierSearchInput').focus();
+}
+
+/**
+ * Load parts linked to a specific supplier via AJAX
+ */
+function loadPartsForSupplier(supplierId) {
+    const partsSection = document.getElementById('partsSection');
+    const partsContainer = document.getElementById('partsContainer');
+    const submitSection = document.getElementById('submitSection');
+    const supplierInfo = document.getElementById('supplierInfo');
+
+    // Reset
+    supplierParts = [];
+    partsContainer.innerHTML = '<p style="color: #666;">Loading parts...</p>';
+    submitSection.style.display = 'none';
+    supplierInfo.style.display = 'none';
+
+    if (!supplierId) {
+        partsSection.classList.remove('active');
+        partsContainer.innerHTML = '<p style="color: #666;">Select a supplier to see linked parts...</p>';
         return;
     }
-    tr.remove();
+
+    partsSection.classList.add('active');
+
+    // Fetch parts for this supplier
+    fetch('../api/get_supplier_parts.php?supplier_id=' + encodeURIComponent(supplierId))
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success || data.parts.length === 0) {
+                partsContainer.innerHTML = `
+                    <div class="no-parts-msg">
+                        <strong>No parts linked to this supplier.</strong><br>
+                        <p style="margin: 10px 0 0 0;">
+                            Parts need to be mapped to suppliers in Part Master.
+                            <a href="/part_master/list.php">Manage Part-Supplier Mappings</a>
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            supplierParts = data.parts;
+
+            // Show supplier info
+            supplierInfo.innerHTML = '<strong>' + data.parts.length + ' parts</strong> available from this supplier';
+            supplierInfo.style.display = 'block';
+
+            // Build parts table
+            let html = `
+                <div style="margin-bottom: 10px;">
+                    <label style="display: inline-flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)" style="margin-right: 8px; transform: scale(1.3);">
+                        <strong>Select All Parts</strong>
+                    </label>
+                </div>
+                <table class="parts-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">Select</th>
+                            <th>Part No</th>
+                            <th>Part Name</th>
+                            <th>HSN Code</th>
+                            <th>Unit</th>
+                            <th style="width: 120px;">Rate</th>
+                            <th style="width: 100px;">Quantity *</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.parts.forEach((part, index) => {
+                const preferred = part.is_preferred == 1 ? '<span class="badge-preferred">Preferred</span>' : '';
+                html += `
+                    <tr id="partRow_${index}">
+                        <td>
+                            <input type="checkbox" class="part-checkbox"
+                                   data-index="${index}"
+                                   onchange="togglePartSelection(${index})">
+                        </td>
+                        <td>
+                            ${htmlEscape(part.part_no)} ${preferred}
+                            <input type="hidden" name="part_no[]" value="" id="partNo_${index}" disabled>
+                        </td>
+                        <td>${htmlEscape(part.part_name)}</td>
+                        <td>${htmlEscape(part.hsn_code || '-')}</td>
+                        <td>${htmlEscape(part.uom || 'Nos')}</td>
+                        <td>
+                            <input type="number" step="0.01" min="0"
+                                   id="rate_${index}"
+                                   name="rate[]"
+                                   value="${part.supplier_rate ? parseFloat(part.supplier_rate).toFixed(2) : '0.00'}"
+                                   style="width: 100px;" disabled>
+                        </td>
+                        <td>
+                            <input type="number" min="1"
+                                   id="qty_${index}"
+                                   name="qty[]"
+                                   value="${part.min_order_qty || 1}"
+                                   placeholder="Qty"
+                                   style="width: 80px;" disabled>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            partsContainer.innerHTML = html;
+
+            updateSelectedCount();
+        })
+        .catch(error => {
+            console.error('Error loading parts:', error);
+            partsContainer.innerHTML = '<p style="color: #e74c3c;">Error loading parts. Please try again.</p>';
+        });
+}
+
+/**
+ * Toggle selection of a part
+ */
+function togglePartSelection(index) {
+    const checkbox = document.querySelector(`#partRow_${index} .part-checkbox`);
+    const partNoInput = document.getElementById(`partNo_${index}`);
+    const qtyInput = document.getElementById(`qty_${index}`);
+    const rateInput = document.getElementById(`rate_${index}`);
+    const row = document.getElementById(`partRow_${index}`);
+
+    if (checkbox.checked) {
+        // Enable inputs and set part_no value
+        partNoInput.value = supplierParts[index].part_no;
+        partNoInput.disabled = false;
+        qtyInput.disabled = false;
+        rateInput.disabled = false;
+        row.style.background = '#e8f5e9';
+    } else {
+        // Disable and clear
+        partNoInput.value = '';
+        partNoInput.disabled = true;
+        qtyInput.disabled = true;
+        rateInput.disabled = true;
+        row.style.background = '';
+    }
+
+    updateSelectedCount();
+
+    // Update select all checkbox state
+    const allCheckboxes = document.querySelectorAll('.part-checkbox');
+    const checkedCount = document.querySelectorAll('.part-checkbox:checked').length;
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = checkedCount === allCheckboxes.length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+    }
+}
+
+/**
+ * Toggle select all parts
+ */
+function toggleSelectAll(checked) {
+    const checkboxes = document.querySelectorAll('.part-checkbox');
+    checkboxes.forEach((cb, index) => {
+        if (cb.checked !== checked) {
+            cb.checked = checked;
+            togglePartSelection(index);
+        }
+    });
+}
+
+/**
+ * Update selected count display
+ */
+function updateSelectedCount() {
+    const count = document.querySelectorAll('.part-checkbox:checked').length;
+    const countSpan = document.getElementById('selectedCount');
+    const submitSection = document.getElementById('submitSection');
+
+    if (count > 0) {
+        countSpan.textContent = count + ' selected';
+        countSpan.style.display = 'inline-block';
+        submitSection.style.display = 'block';
+    } else {
+        countSpan.style.display = 'none';
+        submitSection.style.display = 'none';
+    }
+}
+
+/**
+ * Validate form before submit
+ */
+function validatePOForm() {
+    // Check supplier is selected
+    if (!selectedSupplierId) {
+        alert('Please select a supplier');
+        document.getElementById('supplierSearchInput').focus();
+        return false;
+    }
+
+    const checkedParts = document.querySelectorAll('.part-checkbox:checked');
+
+    if (checkedParts.length === 0) {
+        alert('Please select at least one part');
+        return false;
+    }
+
+    // Check all quantities are valid
+    let valid = true;
+    checkedParts.forEach(cb => {
+        const index = cb.dataset.index;
+        const qty = parseInt(document.getElementById(`qty_${index}`).value) || 0;
+        if (qty <= 0) {
+            valid = false;
+        }
+    });
+
+    if (!valid) {
+        alert('Please enter a valid quantity (greater than 0) for all selected parts');
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Reset the form
+ */
+function resetForm() {
+    clearSupplierSelection();
+}
+
+/**
+ * HTML escape helper
+ */
+function htmlEscape(str) {
+    if (!str) return '';
+    return str.toString()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 </script>
 

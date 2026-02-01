@@ -1,8 +1,7 @@
-<html><head><link rel="stylesheet" href="/assets/style.css"></head></html>
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 include "../includes/dialog.php";
+include "../includes/sidebar.php";
 
 showModal();
 
@@ -64,6 +63,9 @@ if (toggle) {
 
 <div class="content">
 <h1>Stock Depletion</h1>
+
+<a href="stock_adjustment.php" class="btn btn-primary">Stock Adjustment</a>
+<br><br>
 
 <form method="post">
     <label>Part</label>

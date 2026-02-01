@@ -62,6 +62,7 @@ function hasPermission(string $module, string $action = 'view'): bool {
     if (!isLoggedIn()) return false;
 
     $role = getUserRole();
+    $userId = getUserId();
 
     // Admin has all permissions
     if ($role === 'admin') return true;
@@ -82,6 +83,24 @@ function hasPermission(string $module, string $action = 'view'): bool {
             $column = 'can_view';
     }
 
+    // First check user-specific permissions (these override role permissions)
+    try {
+        $stmt = $pdo->prepare("
+            SELECT $column FROM user_permissions
+            WHERE user_id = ? AND module = ?
+        ");
+        $stmt->execute([$userId, $module]);
+        $userPerm = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // If user has specific permissions set, use those
+        if ($userPerm !== false) {
+            return (bool)$userPerm[$column];
+        }
+    } catch (Exception $e) {
+        // user_permissions table might not exist yet, continue to role check
+    }
+
+    // Fall back to role-based permissions
     $stmt = $pdo->prepare("
         SELECT $column FROM role_permissions
         WHERE role = ? AND module = ?
@@ -90,6 +109,80 @@ function hasPermission(string $module, string $action = 'view'): bool {
     $result = $stmt->fetchColumn();
 
     return (bool)$result;
+}
+
+/**
+ * Check if user has permission to any module in a list
+ *
+ * @param array $modules List of module names
+ * @param string $action Action type: 'view', 'create', 'edit', 'delete'
+ * @return bool
+ */
+function hasAnyPermission(array $modules, string $action = 'view'): bool {
+    foreach ($modules as $module) {
+        if (hasPermission($module, $action)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Get all modules user has permission for
+ *
+ * @param string $action Action type: 'view', 'create', 'edit', 'delete'
+ * @return array List of module names
+ */
+function getAllowedModules(string $action = 'view'): array {
+    if (!isLoggedIn()) return [];
+
+    $role = getUserRole();
+    $userId = getUserId();
+
+    // Admin has all permissions
+    if ($role === 'admin') {
+        global $pdo;
+        try {
+            return $pdo->query("SELECT module_key FROM modules WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    global $pdo;
+    $allowed = [];
+
+    switch ($action) {
+        case 'create':
+            $column = 'can_create';
+            break;
+        case 'edit':
+            $column = 'can_edit';
+            break;
+        case 'delete':
+            $column = 'can_delete';
+            break;
+        default:
+            $column = 'can_view';
+    }
+
+    // Get user-specific permissions
+    try {
+        $stmt = $pdo->prepare("SELECT module FROM user_permissions WHERE user_id = ? AND $column = 1");
+        $stmt->execute([$userId]);
+        $allowed = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        // Table might not exist
+    }
+
+    // Get role-based permissions if no user-specific ones
+    if (empty($allowed)) {
+        $stmt = $pdo->prepare("SELECT module FROM role_permissions WHERE role = ? AND $column = 1");
+        $stmt->execute([$role]);
+        $allowed = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    return $allowed;
 }
 
 /**

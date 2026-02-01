@@ -1,6 +1,12 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
 include "../includes/dialog.php";
+
+// Get current user info
+$currentUserId = getUserId();
+$currentUserRole = getUserRole();
+$isAdmin = ($currentUserRole === 'admin');
 
 /* =========================
    FILTERS
@@ -8,7 +14,25 @@ include "../includes/dialog.php";
 $filter_status = $_GET['status'] ?? '';
 $filter_type = $_GET['type'] ?? '';
 $filter_timeline = $_GET['timeline'] ?? '';
+$filter_assigned = $_GET['assigned'] ?? '';
+$filter_followup = $_GET['followup'] ?? '';
 $search = $_GET['search'] ?? '';
+
+/* =========================
+   GET EMPLOYEES FOR ASSIGN TO FILTER
+========================= */
+$assignedEmployees = [];
+try {
+    $empStmt = $pdo->query("
+        SELECT id, CONCAT(first_name, ' ', last_name) as employee_name, department
+        FROM employees
+        WHERE status = 'Active'
+        ORDER BY first_name, last_name
+    ");
+    $assignedEmployees = $empStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table might not exist
+}
 
 /* =========================
    PAGINATION SETUP
@@ -24,6 +48,9 @@ $offset = ($page - 1) * $per_page;
 $where = [];
 $params = [];
 
+// All logged-in users can see all leads
+// Note: assigned_user_id is from employees table, not users table
+
 if ($filter_status) {
     $where[] = "lead_status = ?";
     $params[] = $filter_status;
@@ -35,6 +62,16 @@ if ($filter_type) {
 if ($filter_timeline) {
     $where[] = "buying_timeline = ?";
     $params[] = $filter_timeline;
+}
+if ($filter_assigned) {
+    $where[] = "assigned_user_id = ?";
+    $params[] = $filter_assigned;
+}
+if ($filter_followup === 'today') {
+    $where[] = "next_followup_date = CURDATE()";
+}
+if ($filter_followup === 'overdue') {
+    $where[] = "next_followup_date < CURDATE() AND lead_status NOT IN ('converted', 'lost')";
 }
 if ($search) {
     $where[] = "(company_name LIKE ? OR contact_person LIKE ? OR phone LIKE ? OR email LIKE ?)";
@@ -61,16 +98,7 @@ $sql = "
            (SELECT COUNT(*) FROM crm_lead_interactions WHERE lead_id = l.id) as interaction_count
     FROM crm_leads l
     $whereClause
-    ORDER BY
-        CASE lead_status
-            WHEN 'hot' THEN 1
-            WHEN 'warm' THEN 2
-            WHEN 'cold' THEN 3
-            WHEN 'converted' THEN 4
-            WHEN 'lost' THEN 5
-        END,
-        next_followup_date ASC,
-        updated_at DESC
+    ORDER BY l.id DESC
     LIMIT $per_page OFFSET $offset
 ";
 $stmt = $pdo->prepare($sql);
@@ -80,7 +108,11 @@ $leads = $stmt->fetchAll(PDO::FETCH_ASSOC);
 /* =========================
    STATS FOR DASHBOARD
 ========================= */
-$stats = $pdo->query("
+$statsWhere = "";
+$statsParams = [];
+// All users see all leads stats
+
+$statsStmt = $pdo->prepare("
     SELECT
         COUNT(*) as total,
         SUM(CASE WHEN lead_status = 'hot' THEN 1 ELSE 0 END) as hot,
@@ -90,8 +122,10 @@ $stats = $pdo->query("
         SUM(CASE WHEN lead_status = 'lost' THEN 1 ELSE 0 END) as lost,
         SUM(CASE WHEN next_followup_date = CURDATE() THEN 1 ELSE 0 END) as followup_today,
         SUM(CASE WHEN next_followup_date < CURDATE() AND lead_status NOT IN ('converted', 'lost') THEN 1 ELSE 0 END) as overdue
-    FROM crm_leads
-")->fetch(PDO::FETCH_ASSOC);
+    FROM crm_leads $statsWhere
+");
+$statsStmt->execute($statsParams);
+$stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
 include "../includes/sidebar.php";
 showModal();
@@ -125,6 +159,22 @@ showModal();
         .stat-lost { background: #7f8c8d; }
         .stat-followup { background: #9b59b6; }
         .stat-overdue { background: #c0392b; }
+
+        /* Clickable stat cards */
+        a.stat-card {
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        a.stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+            filter: brightness(1.1);
+        }
+        a.stat-card.active {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3), inset 0 0 0 3px rgba(255,255,255,0.5);
+        }
 
         .filters {
             display: flex;
@@ -185,36 +235,41 @@ showModal();
 <div class="content">
     <h1>CRM - Lead Management</h1>
 
-    <!-- Stats Dashboard -->
+
+    <!-- Stats Dashboard (Clickable to filter) -->
     <div class="stats-grid">
-        <div class="stat-card stat-total">
+        <a href="index.php" class="stat-card stat-total <?= empty($filter_status) && empty($filter_followup) ? 'active' : '' ?>">
             <div class="number"><?= $stats['total'] ?? 0 ?></div>
             <div class="label">Total Leads</div>
-        </div>
-        <div class="stat-card stat-hot">
+        </a>
+        <a href="index.php?status=hot" class="stat-card stat-hot <?= $filter_status === 'hot' ? 'active' : '' ?>">
             <div class="number"><?= $stats['hot'] ?? 0 ?></div>
             <div class="label">Hot</div>
-        </div>
-        <div class="stat-card stat-warm">
+        </a>
+        <a href="index.php?status=warm" class="stat-card stat-warm <?= $filter_status === 'warm' ? 'active' : '' ?>">
             <div class="number"><?= $stats['warm'] ?? 0 ?></div>
             <div class="label">Warm</div>
-        </div>
-        <div class="stat-card stat-cold">
+        </a>
+        <a href="index.php?status=cold" class="stat-card stat-cold <?= $filter_status === 'cold' ? 'active' : '' ?>">
             <div class="number"><?= $stats['cold'] ?? 0 ?></div>
             <div class="label">Cold</div>
-        </div>
-        <div class="stat-card stat-converted">
+        </a>
+        <a href="index.php?status=converted" class="stat-card stat-converted <?= $filter_status === 'converted' ? 'active' : '' ?>">
             <div class="number"><?= $stats['converted'] ?? 0 ?></div>
             <div class="label">Converted</div>
-        </div>
-        <div class="stat-card stat-followup">
+        </a>
+        <a href="index.php?status=lost" class="stat-card stat-lost <?= $filter_status === 'lost' ? 'active' : '' ?>">
+            <div class="number"><?= $stats['lost'] ?? 0 ?></div>
+            <div class="label">Lost</div>
+        </a>
+        <a href="index.php?followup=today" class="stat-card stat-followup <?= $filter_followup === 'today' ? 'active' : '' ?>">
             <div class="number"><?= $stats['followup_today'] ?? 0 ?></div>
             <div class="label">Follow-up Today</div>
-        </div>
-        <div class="stat-card stat-overdue">
+        </a>
+        <a href="index.php?followup=overdue" class="stat-card stat-overdue <?= $filter_followup === 'overdue' ? 'active' : '' ?>">
             <div class="number"><?= $stats['overdue'] ?? 0 ?></div>
             <div class="label">Overdue</div>
-        </div>
+        </a>
     </div>
 
     <p>
@@ -251,6 +306,23 @@ showModal();
             <option value="uncertain" <?= $filter_timeline === 'uncertain' ? 'selected' : '' ?>>Uncertain</option>
         </select>
 
+        <?php if (!empty($assignedEmployees)): ?>
+        <select name="assigned">
+            <option value="">All Assigned To</option>
+            <?php foreach ($assignedEmployees as $emp):
+                $empName = htmlspecialchars($emp['employee_name']);
+                if (!empty($emp['department'])) {
+                    $empName .= ' (' . htmlspecialchars($emp['department']) . ')';
+                }
+            ?>
+                <option value="<?= $emp['id'] ?>"
+                    <?= $filter_assigned == $emp['id'] ? 'selected' : '' ?>>
+                    <?= $empName ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
+
         <button type="submit" class="btn btn-secondary">Filter</button>
         <a href="index.php" class="btn btn-secondary">Clear</a>
     </form>
@@ -267,6 +339,7 @@ showModal();
                 <th>Status</th>
                 <th>Buying Timeline</th>
                 <th>Next Follow-up</th>
+                <th>Assigned To</th>
                 <th>Reqs</th>
                 <th>Actions</th>
             </tr>
@@ -331,6 +404,9 @@ showModal();
                         <span style="color: #999;">Not set</span>
                     <?php endif; ?>
                 </td>
+                <td>
+                    <?= htmlspecialchars($lead['assigned_to'] ?? '-') ?>
+                </td>
                 <td style="text-align: center;">
                     <?= $lead['req_count'] ?>
                 </td>
@@ -343,7 +419,7 @@ showModal();
 
             <?php if (empty($leads)): ?>
             <tr>
-                <td colspan="9" style="text-align: center; padding: 30px;">
+                <td colspan="10" style="text-align: center; padding: 30px;">
                     No leads found. <a href="add.php">Add your first lead</a>
                 </td>
             </tr>

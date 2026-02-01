@@ -8,11 +8,11 @@ $page = max(1, $page); // Ensure page is at least 1
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
-// Get total count of grouped purchase orders (non-closed)
+// Get total count of grouped purchase orders (exclude closed and cancelled)
 $total_count = $pdo->query("
     SELECT COUNT(DISTINCT po_no)
     FROM purchase_orders
-    WHERE status != 'closed'
+    WHERE status NOT IN ('closed', 'cancelled')
 ")->fetchColumn();
 
 $total_pages = ceil($total_count / $per_page);
@@ -25,7 +25,7 @@ $stmt = $pdo->prepare("
         MAX(po.id) AS max_id
     FROM purchase_orders po
     JOIN part_master pm ON po.part_no = pm.part_no
-    WHERE po.status != 'closed'
+    WHERE po.status NOT IN ('closed', 'cancelled')
     GROUP BY po.po_no
     ORDER BY max_id DESC
     LIMIT :limit OFFSET :offset

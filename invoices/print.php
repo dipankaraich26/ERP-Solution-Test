@@ -48,17 +48,34 @@ $items = [];
 $totalTaxable = 0;
 $totalCGST = 0;
 $totalSGST = 0;
+$totalIGST = 0;
 $grandTotal = 0;
+$isIGST = false;
 
 if ($chain && $chain['pi_id']) {
+    // Check if this PI uses IGST (handle case where column doesn't exist yet)
+    try {
+        $piStmt = $pdo->prepare("SELECT is_igst FROM quote_master WHERE id = ?");
+        $piStmt->execute([$chain['pi_id']]);
+        $piData = $piStmt->fetch(PDO::FETCH_ASSOC);
+        $isIGST = isset($piData['is_igst']) && $piData['is_igst'] == 1;
+    } catch (PDOException $e) {
+        // Column doesn't exist yet - default to CGST/SGST mode
+        $isIGST = false;
+    }
+
     $itemsStmt = $pdo->prepare("SELECT * FROM quote_items WHERE quote_id = ? ORDER BY id");
     $itemsStmt->execute([$chain['pi_id']]);
     $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($items as $item) {
         $totalTaxable += $item['taxable_amount'];
-        $totalCGST += $item['cgst_amount'];
-        $totalSGST += $item['sgst_amount'];
+        if ($isIGST) {
+            $totalIGST += $item['igst_amount'] ?? 0;
+        } else {
+            $totalCGST += $item['cgst_amount'];
+            $totalSGST += $item['sgst_amount'];
+        }
         $grandTotal += $item['total_amount'];
     }
 }
@@ -82,17 +99,11 @@ $document_title = 'TAX INVOICE';
         }
 
         .doc-info {
-            display: flex;
-            justify-content: space-between;
             margin-bottom: 20px;
             border: 1px solid #ddd;
         }
         .doc-info > div {
             padding: 15px;
-            flex: 1;
-        }
-        .doc-info .customer-box {
-            border-left: 1px solid #ddd;
         }
         .doc-info h4 {
             margin: 0 0 10px 0;
@@ -218,8 +229,8 @@ $document_title = 'TAX INVOICE';
 
     <?php include "../includes/company_header.php"; ?>
 
-    <div class="doc-info">
-        <div class="invoice-box">
+    <div class="doc-info" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0;">
+        <div class="invoice-box" style="border-right: 1px solid #ddd;">
             <h4>Invoice Details</h4>
             <p><strong><?= htmlspecialchars($invoice['invoice_no']) ?></strong></p>
             <p>Date: <?= htmlspecialchars($invoice['invoice_date']) ?></p>
@@ -236,7 +247,7 @@ $document_title = 'TAX INVOICE';
                 </p>
             <?php endif; ?>
         </div>
-        <div class="customer-box">
+        <div class="customer-box" style="border-right: 1px solid #ddd;">
             <h4>Bill To</h4>
             <?php if ($chain): ?>
                 <p><strong><?= htmlspecialchars($chain['company_name'] ?? $chain['customer_name'] ?? '') ?></strong></p>
@@ -259,6 +270,31 @@ $document_title = 'TAX INVOICE';
                 <p>Customer information not available</p>
             <?php endif; ?>
         </div>
+        <div class="customer-box">
+            <h4>Ship To</h4>
+            <?php if (!empty($invoice['ship_to_address1'])): ?>
+                <?php if ($invoice['ship_to_company_name']): ?>
+                    <p><strong><?= htmlspecialchars($invoice['ship_to_company_name']) ?></strong></p>
+                <?php endif; ?>
+                <?php if ($invoice['ship_to_contact_name']): ?>
+                    <p><?= htmlspecialchars($invoice['ship_to_contact_name']) ?></p>
+                <?php endif; ?>
+                <p><?= htmlspecialchars($invoice['ship_to_address1']) ?></p>
+                <?php if ($invoice['ship_to_address2']): ?>
+                    <p><?= htmlspecialchars($invoice['ship_to_address2']) ?></p>
+                <?php endif; ?>
+                <p><?= htmlspecialchars(implode(', ', array_filter([
+                    $invoice['ship_to_city'] ?? '',
+                    $invoice['ship_to_state'] ?? '',
+                    $invoice['ship_to_pincode'] ?? ''
+                ]))) ?></p>
+                <?php if ($invoice['ship_to_gstin']): ?>
+                    <p>GSTIN: <?= htmlspecialchars($invoice['ship_to_gstin']) ?></p>
+                <?php endif; ?>
+            <?php else: ?>
+                <p style="color: #999; font-style: italic;">Same as Bill To</p>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if (!empty($items)): ?>
@@ -267,14 +303,19 @@ $document_title = 'TAX INVOICE';
             <tr>
                 <th style="width: 30px;">#</th>
                 <th>Part No</th>
+                <th>Product Name</th>
                 <th>Description</th>
                 <th>HSN</th>
                 <th style="width: 50px;">Qty</th>
                 <th style="width: 40px;">Unit</th>
                 <th>Rate</th>
                 <th>Taxable</th>
+                <?php if ($isIGST): ?>
+                <th>IGST</th>
+                <?php else: ?>
                 <th>CGST</th>
                 <th>SGST</th>
+                <?php endif; ?>
                 <th>Amount</th>
             </tr>
         </thead>
@@ -284,23 +325,32 @@ $document_title = 'TAX INVOICE';
                 <td><?= $i + 1 ?></td>
                 <td><?= htmlspecialchars($item['part_no']) ?></td>
                 <td><?= htmlspecialchars($item['part_name']) ?></td>
+                <td><?= htmlspecialchars($item['description'] ?? '') ?></td>
                 <td><?= htmlspecialchars($item['hsn_code'] ?? '') ?></td>
                 <td class="number"><?= number_format($item['qty'], 2) ?></td>
                 <td><?= htmlspecialchars($item['unit'] ?? 'Nos') ?></td>
                 <td class="number"><?= number_format($item['rate'], 2) ?></td>
                 <td class="number"><?= number_format($item['taxable_amount'], 2) ?></td>
+                <?php if ($isIGST): ?>
+                <td class="number"><?= number_format($item['igst_amount'] ?? 0, 2) ?></td>
+                <?php else: ?>
                 <td class="number"><?= number_format($item['cgst_amount'], 2) ?></td>
                 <td class="number"><?= number_format($item['sgst_amount'], 2) ?></td>
+                <?php endif; ?>
                 <td class="number"><?= number_format($item['total_amount'], 2) ?></td>
             </tr>
             <?php endforeach; ?>
         </tbody>
         <tfoot>
             <tr>
-                <td colspan="7" style="text-align: right;">Totals:</td>
+                <td colspan="8" style="text-align: right;">Totals:</td>
                 <td class="number"><?= number_format($totalTaxable, 2) ?></td>
+                <?php if ($isIGST): ?>
+                <td class="number"><?= number_format($totalIGST, 2) ?></td>
+                <?php else: ?>
                 <td class="number"><?= number_format($totalCGST, 2) ?></td>
                 <td class="number"><?= number_format($totalSGST, 2) ?></td>
+                <?php endif; ?>
                 <td class="number"><?= number_format($grandTotal, 2) ?></td>
             </tr>
         </tfoot>
@@ -312,6 +362,12 @@ $document_title = 'TAX INVOICE';
                 <td class="label">Taxable Amount:</td>
                 <td class="value"><?= number_format($totalTaxable, 2) ?></td>
             </tr>
+            <?php if ($isIGST): ?>
+            <tr>
+                <td class="label">IGST:</td>
+                <td class="value"><?= number_format($totalIGST, 2) ?></td>
+            </tr>
+            <?php else: ?>
             <tr>
                 <td class="label">CGST:</td>
                 <td class="value"><?= number_format($totalCGST, 2) ?></td>
@@ -320,6 +376,7 @@ $document_title = 'TAX INVOICE';
                 <td class="label">SGST:</td>
                 <td class="value"><?= number_format($totalSGST, 2) ?></td>
             </tr>
+            <?php endif; ?>
             <tr class="grand-total">
                 <td class="label">Grand Total:</td>
                 <td class="value"><?= number_format($grandTotal, 2) ?></td>

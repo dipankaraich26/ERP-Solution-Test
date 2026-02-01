@@ -1,6 +1,7 @@
 <?php
 include "../db.php";
-include "../includes/dialog.php";
+include "../includes/auth.php";
+requireLogin();
 
 // Get selected month
 $selectedMonth = $_GET['month'] ?? date('Y-m');
@@ -51,7 +52,6 @@ foreach ($payrolls as $p) {
 }
 
 include "../includes/sidebar.php";
-showModal();
 ?>
 
 <!DOCTYPE html>
@@ -127,6 +127,8 @@ showModal();
     </style>
 </head>
 <body>
+
+<?php include "../includes/header.php"; ?>
 
 <div class="content">
     <div class="payroll-header">

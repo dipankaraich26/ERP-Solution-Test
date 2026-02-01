@@ -1,6 +1,7 @@
 <?php
-include "../db.php";
-include "../includes/dialog.php";
+require "../db.php";
+require "../includes/header.php";
+require "../includes/sidebar.php";
 
 // Filters
 $status = $_GET['status'] ?? '';
@@ -39,7 +40,7 @@ $stmt->execute($params);
 $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get departments for filter
-$departments = $pdo->query("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL ORDER BY department")->fetchAll(PDO::FETCH_COLUMN);
+$departments = $pdo->query("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' ORDER BY department")->fetchAll(PDO::FETCH_COLUMN);
 
 // Stats
 $stats = [
@@ -47,16 +48,9 @@ $stats = [
     'active' => $pdo->query("SELECT COUNT(*) FROM employees WHERE status = 'Active'")->fetchColumn(),
     'on_leave' => $pdo->query("SELECT COUNT(*) FROM employees WHERE status = 'On Leave'")->fetchColumn(),
 ];
-
-include "../includes/sidebar.php";
-showModal();
 ?>
 
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Employees - HR</title>
-    <link rel="stylesheet" href="../assets/style.css">
+<div class="content">
     <style>
         .stats-row {
             display: flex;
@@ -123,10 +117,7 @@ showModal();
         .status-Resigned { background: #e2e3e5; color: #383d41; }
         .status-Terminated { background: #f8d7da; color: #721c24; }
     </style>
-</head>
-<body>
 
-<div class="content">
     <h1>Employee Management</h1>
 
     <div class="stats-row">
@@ -171,8 +162,10 @@ showModal();
             <a href="employees.php" class="btn btn-secondary">Reset</a>
         </form>
 
-        <div style="margin-left: auto;">
-            <a href="employee_add.php" class="btn btn-success">+ Add Employee</a>
+        <div style="margin-left: auto; display: flex; gap: 10px;">
+            <a href="download_employees.php<?= $status || $department || $search ? '?' . http_build_query(['status' => $status, 'department' => $department, 'search' => $search]) : '' ?>" class="btn btn-success">Download Excel</a>
+            <a href="employee_import.php" class="btn btn-primary">Import from Excel</a>
+            <a href="employee_add.php" class="btn" style="background: #27ae60; color: white;">+ Add Employee</a>
         </div>
     </div>
 
@@ -196,7 +189,7 @@ showModal();
                 <tr>
                     <td>
                         <div class="emp-info">
-                            <?php if ($emp['photo_path']): ?>
+                            <?php if (!empty($emp['photo_path'])): ?>
                                 <img src="../<?= htmlspecialchars($emp['photo_path']) ?>" class="emp-photo" alt="">
                             <?php else: ?>
                                 <div class="emp-photo" style="display: flex; align-items: center; justify-content: center; color: #fff; background: #3498db;">
@@ -229,5 +222,4 @@ showModal();
     </table>
 </div>
 
-</body>
-</html>
+<?php include "../includes/footer.php"; ?>

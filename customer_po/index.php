@@ -52,6 +52,12 @@ $pos = $stmt;
 
     <a href="add.php" class="btn btn-primary">+ Upload Customer PO</a>
 
+    <!-- Search Box -->
+    <div style="margin: 15px 0;">
+        <input type="text" id="searchInput" placeholder="Search by PO No, Customer, PI No..."
+               style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 350px;">
+    </div>
+
     <div style="overflow-x: auto; margin-top: 20px;">
     <table border="1" cellpadding="8">
         <tr>
@@ -121,6 +127,31 @@ $pos = $stmt;
     </div>
     <?php endif; ?>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const table = document.querySelector('table');
+    const rows = table.querySelectorAll('tr:not(:first-child)');
+
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            let found = false;
+
+            cells.forEach(cell => {
+                if (cell.textContent.toLowerCase().includes(searchTerm)) {
+                    found = true;
+                }
+            });
+
+            row.style.display = found ? '' : 'none';
+        });
+    });
+});
+</script>
 
 </body>
 </html>

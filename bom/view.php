@@ -14,7 +14,8 @@ $bom->execute([$id]);
 $bom = $bom->fetch();
 
 $items = $pdo->prepare("
-    SELECT i.qty, p.part_name, p.part_no, p.category, COALESCE(inv.qty, 0) AS current_stock
+    SELECT i.qty, p.part_name, p.part_no, p.category, p.rate, p.uom,
+           COALESCE(inv.qty, 0) AS current_stock
     FROM bom_items i
     JOIN part_master p ON i.component_part_no = p.part_no
     LEFT JOIN inventory inv ON inv.part_no = p.part_no
@@ -22,6 +23,12 @@ $items = $pdo->prepare("
 ");
 $items->execute([$id]);
 $itemsData = $items->fetchAll(PDO::FETCH_ASSOC);
+
+// Calculate total BOM cost
+$totalBomCost = 0;
+foreach ($itemsData as $item) {
+    $totalBomCost += (float)$item['qty'] * (float)$item['rate'];
+}
 
 // Function to get sub-BOM items for an Assembly part
 function getSubBomItems($pdo, $part_no) {
@@ -42,7 +49,8 @@ function getSubBomItems($pdo, $part_no) {
 
     // Get the sub-BOM items
     $subItemsStmt = $pdo->prepare("
-        SELECT i.qty, p.part_name, p.part_no, p.category, COALESCE(inv.qty, 0) AS current_stock
+        SELECT i.qty, p.part_name, p.part_no, p.category, p.rate, p.uom,
+               COALESCE(inv.qty, 0) AS current_stock
         FROM bom_items i
         JOIN part_master p ON i.component_part_no = p.part_no
         LEFT JOIN inventory inv ON inv.part_no = p.part_no
@@ -51,6 +59,12 @@ function getSubBomItems($pdo, $part_no) {
     $subItemsStmt->execute([$subBom['id']]);
 
     $subItems = $subItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Calculate sub-BOM cost
+    $subBomCost = 0;
+    foreach ($subItems as $si) {
+        $subBomCost += (float)$si['qty'] * (float)$si['rate'];
+    }
 
     // Only return sub-BOM if it actually has items
     if (empty($subItems)) {
@@ -61,7 +75,8 @@ function getSubBomItems($pdo, $part_no) {
         'bom_no' => $subBom['bom_no'],
         'bom_id' => $subBom['id'],
         'status' => $subBom['status'],
-        'items' => $subItems
+        'items' => $subItems,
+        'total_cost' => $subBomCost
     ];
 }
 
@@ -190,16 +205,27 @@ if (toggle) {
     <p><strong>Status:</strong> <?= htmlspecialchars($bom['status']) ?></p>
     <p><strong>Description:</strong> <?= htmlspecialchars($bom['description']) ?></p>
 
+    <!-- BOM Cost Summary -->
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%); color: white; padding: 15px 20px; border-radius: 8px; margin: 20px 0; display: inline-block;">
+        <span style="font-size: 0.9em; opacity: 0.9;">Total BOM Cost:</span>
+        <span style="font-size: 1.5em; font-weight: bold; margin-left: 10px;">₹ <?= number_format($totalBomCost, 2) ?></span>
+    </div>
+
     <table border="1" cellpadding="8" id="bomTable">
         <tr>
             <th>Part Number</th>
             <th>Component</th>
             <th>Category</th>
             <th>Qty</th>
+            <th>Rate</th>
+            <th>Cost</th>
             <th>Current Stock</th>
         </tr>
         <?php foreach ($itemsData as $index => $i): ?>
-        <?php $hasSubBom = !empty($i['sub_bom']); ?>
+        <?php
+            $hasSubBom = !empty($i['sub_bom']);
+            $itemCost = (float)$i['qty'] * (float)$i['rate'];
+        ?>
         <tr class="<?= $hasSubBom ? 'assembly-row' : '' ?>" <?= $hasSubBom ? 'onclick="toggleSubBom(' . $index . ')"' : '' ?>>
             <td><?= htmlspecialchars($i['part_no']) ?></td>
             <td>
@@ -212,27 +238,40 @@ if (toggle) {
                 <?php endif; ?>
             </td>
             <td><?= htmlspecialchars($i['category'] ?? '') ?></td>
-            <td><?= $i['qty'] ?></td>
+            <td><?= $i['qty'] ?> <?= htmlspecialchars($i['uom'] ?? '') ?></td>
+            <td style="text-align: right;">₹ <?= number_format((float)$i['rate'], 2) ?></td>
+            <td style="text-align: right; font-weight: bold;">₹ <?= number_format($itemCost, 2) ?></td>
             <td><?= $i['current_stock'] ?></td>
         </tr>
         <?php if ($hasSubBom): ?>
         <tr class="sub-bom-row" id="sub-bom-<?= $index ?>">
-            <td colspan="5" class="sub-bom-cell">
-                <strong>Sub-BOM: <?= htmlspecialchars($i['sub_bom']['bom_no']) ?></strong>
+            <td colspan="7" class="sub-bom-cell">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>Sub-BOM: <?= htmlspecialchars($i['sub_bom']['bom_no']) ?></strong>
+                    <span style="background: #28a745; color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.9em;">
+                        Sub-BOM Cost: ₹ <?= number_format($i['sub_bom']['total_cost'], 2) ?>
+                    </span>
+                </div>
                 <table class="sub-bom-table">
                     <tr>
                         <th>Part Number</th>
                         <th>Component</th>
                         <th>Category</th>
                         <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Cost</th>
                         <th>Current Stock</th>
                     </tr>
-                    <?php foreach ($i['sub_bom']['items'] as $subItem): ?>
+                    <?php foreach ($i['sub_bom']['items'] as $subItem):
+                        $subItemCost = (float)$subItem['qty'] * (float)$subItem['rate'];
+                    ?>
                     <tr>
                         <td><?= htmlspecialchars($subItem['part_no']) ?></td>
                         <td><?= htmlspecialchars($subItem['part_name']) ?></td>
                         <td><?= htmlspecialchars($subItem['category'] ?? '') ?></td>
-                        <td><?= $subItem['qty'] ?></td>
+                        <td><?= $subItem['qty'] ?> <?= htmlspecialchars($subItem['uom'] ?? '') ?></td>
+                        <td style="text-align: right;">₹ <?= number_format((float)$subItem['rate'], 2) ?></td>
+                        <td style="text-align: right; font-weight: bold;">₹ <?= number_format($subItemCost, 2) ?></td>
                         <td><?= $subItem['current_stock'] ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -273,14 +312,17 @@ function exportToExcel() {
     // Create workbook
     const wb = XLSX.utils.book_new();
 
+    const totalBomCost = <?= json_encode($totalBomCost) ?>;
+
     // Header data
     const headerData = [
         ['BOM Number', bomNo],
         ['Parent Part', parentPart],
         ['Status', status],
         ['Description', description],
+        ['Total BOM Cost', '₹ ' + parseFloat(totalBomCost).toLocaleString('en-IN', {minimumFractionDigits: 2})],
         [], // Empty row
-        ['Part Number', 'Component', 'Category', 'Qty', 'Current Stock']
+        ['Part Number', 'Component', 'Category', 'Qty', 'Rate', 'Cost', 'Current Stock']
     ];
 
     // Get table data with sub-BOM support
@@ -288,28 +330,39 @@ function exportToExcel() {
     const tableData = [];
 
     itemsData.forEach(item => {
+        const rate = parseFloat(item.rate) || 0;
+        const qty = parseFloat(item.qty) || 0;
+        const cost = qty * rate;
+
         // Add main item
         tableData.push([
             item.part_no,
             item.part_name,
             item.category || '',
-            item.qty,
+            qty + ' ' + (item.uom || ''),
+            rate.toFixed(2),
+            cost.toFixed(2),
             item.current_stock
         ]);
 
         // Add sub-BOM items if present
         if (item.sub_bom && item.sub_bom.items) {
-            tableData.push(['', '--- Sub-BOM: ' + item.sub_bom.bom_no + ' ---', '', '', '']);
+            tableData.push(['', '--- Sub-BOM: ' + item.sub_bom.bom_no + ' (Cost: ₹' + parseFloat(item.sub_bom.total_cost).toFixed(2) + ') ---', '', '', '', '', '']);
             item.sub_bom.items.forEach(subItem => {
+                const subRate = parseFloat(subItem.rate) || 0;
+                const subQty = parseFloat(subItem.qty) || 0;
+                const subCost = subQty * subRate;
                 tableData.push([
                     '    ' + subItem.part_no,
                     '    ' + subItem.part_name,
                     subItem.category || '',
-                    subItem.qty,
+                    subQty + ' ' + (subItem.uom || ''),
+                    subRate.toFixed(2),
+                    subCost.toFixed(2),
                     subItem.current_stock
                 ]);
             });
-            tableData.push(['', '', '', '', '']); // Empty row after sub-BOM
+            tableData.push(['', '', '', '', '', '', '']); // Empty row after sub-BOM
         }
     });
 
@@ -322,10 +375,12 @@ function exportToExcel() {
     // Set column widths
     ws['!cols'] = [
         { wch: 18 },
-        { wch: 45 },
+        { wch: 40 },
         { wch: 12 },
-        { wch: 10 },
-        { wch: 15 }
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 12 }
     ];
 
     // Add worksheet to workbook

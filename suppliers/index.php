@@ -69,6 +69,11 @@ showModal();
 <div class="content">
     <h1>Suppliers</h1>
 
+    <div style="margin-bottom: 20px;">
+        <a href="import.php" class="btn btn-primary">Import from Excel</a>
+        <a href="download_template.php" class="btn btn-secondary">Download Template</a>
+    </div>
+
     <?php if (!empty($error)): ?>
         <div class="alert error"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
@@ -96,6 +101,21 @@ showModal();
         <label>Address Line 2</label>
         <input name="address2">
 
+        <label>State</label>
+        <select name="state" id="state_select_add" onchange="loadCitiesAdd(this.value)">
+            <option value="">-- Select State --</option>
+            <?php
+            try {
+                $states = $pdo->query("SELECT id, state_name FROM states WHERE is_active = 1 ORDER BY state_name")->fetchAll();
+                foreach ($states as $state) {
+                    echo '<option value="' . htmlspecialchars($state['state_name']) . '">' . htmlspecialchars($state['state_name']) . '</option>';
+                }
+            } catch (PDOException $e) {
+                // Table might not exist
+            }
+            ?>
+        </select>
+
         <label>City</label>
         <select id="city_select_add" name="city">
             <option value="">-- Select City --</option>
@@ -103,17 +123,6 @@ showModal();
 
         <label>Pincode</label>
         <input name="pincode" maxlength="10">
-
-        <label>State</label>
-        <select name="state" id="state_select_add">
-            <option value="">-- Select State --</option>
-            <?php
-            $states = $pdo->query("SELECT id, state_name FROM india_states ORDER BY state_name")->fetchAll();
-            foreach ($states as $state) {
-                echo '<option value="' . htmlspecialchars($state['state_name']) . '">' . htmlspecialchars($state['state_name']) . '</option>';
-            }
-            ?>
-        </select>
 
         <label>GSTIN</label>
         <input name="gstin" placeholder="15-character GSTIN">
@@ -125,32 +134,34 @@ showModal();
     <script>
     function loadCitiesAdd(stateName) {
         const citySelect = document.getElementById('city_select_add');
+        citySelect.innerHTML = '<option value="">Loading...</option>';
 
         if (!stateName) {
             citySelect.innerHTML = '<option value="">-- Select City --</option>';
             return;
         }
 
-        fetch(`/api/get_cities.php?state=${encodeURIComponent(stateName)}`)
+        fetch('../api/get_cities.php?state=' + encodeURIComponent(stateName))
             .then(response => response.json())
             .then(data => {
                 citySelect.innerHTML = '<option value="">-- Select City --</option>';
-                data.forEach(city => {
-                    const option = document.createElement('option');
-                    option.value = city.city_name;
-                    option.textContent = city.city_name;
-                    citySelect.appendChild(option);
-                });
+                const cities = data.cities || [];
+                if (Array.isArray(cities) && cities.length > 0) {
+                    cities.forEach(city => {
+                        const option = document.createElement('option');
+                        option.value = city.city_name;
+                        option.textContent = city.city_name;
+                        citySelect.appendChild(option);
+                    });
+                } else {
+                    citySelect.innerHTML = '<option value="">-- No cities found --</option>';
+                }
             })
-            .catch(error => console.error('Error loading cities:', error));
+            .catch(error => {
+                console.error('Error loading cities:', error);
+                citySelect.innerHTML = '<option value="">-- Error loading cities --</option>';
+            });
     }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        const stateSelectAdd = document.getElementById('state_select_add');
-        stateSelectAdd.addEventListener('change', function() {
-            loadCitiesAdd(this.value);
-        });
-    });
     </script>
 
     <hr>

@@ -99,10 +99,8 @@ include "../includes/sidebar.php";
         <div class="action-buttons">
             <a href="index.php" class="btn btn-secondary">Back to List</a>
             <?php if ($order['status'] === 'pending'): ?>
-                <a class="btn btn-success"
-                   href="release.php?so_no=<?= urlencode($so_no) ?>"
-                   onclick="return confirm('Release this Sales Order?\n\nInventory will be deducted.')">
-                    Release
+                <a class="btn btn-success" href="release_checklist.php?so_no=<?= urlencode($so_no) ?>">
+                    Release Checklist
                 </a>
             <?php endif; ?>
             <a href="print.php?so_no=<?= urlencode($so_no) ?>" target="_blank" class="btn btn-secondary">Print View</a>

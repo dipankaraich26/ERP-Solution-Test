@@ -25,7 +25,9 @@ $parts = $pdo->query("
         <td><?= htmlspecialchars($p['part_no']) ?></td>
         <td><?= htmlspecialchars($p['part_name']) ?></td>
         <td>
-            <a href="reactivate.php?id=<?= $p['id'] ?>">Reactivate</a>
+            <a href="reactivate.php?id=<?= $p['id'] ?>" class="btn btn-secondary">Reactivate</a>
+            | <a href="delete.php?id=<?= $p['id'] ?>" class="btn btn-danger"
+               onclick="return confirm('Are you sure you want to DELETE this part permanently? This cannot be undone.')">Delete</a>
         </td>
     </tr>
     <?php endwhile; ?>

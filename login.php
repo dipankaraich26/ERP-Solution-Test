@@ -143,6 +143,23 @@ $settings = $pdo->query("SELECT company_name, logo_path FROM company_settings WH
             color: #7f8c8d;
             font-size: 0.9em;
         }
+        .attendance-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 10px 20px;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .attendance-link:hover {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
     </style>
 </head>
 <body>
@@ -177,6 +194,13 @@ $settings = $pdo->query("SELECT company_name, logo_path FROM company_settings WH
     <p class="footer-note">
         Default login: admin / admin123
     </p>
+
+    <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+        <a href="/hr/attendance_login.php" class="attendance-link">
+            <span style="font-size: 1.2em;">&#128197;</span>
+            Employee Attendance Portal
+        </a>
+    </div>
 </div>
 
 </body>

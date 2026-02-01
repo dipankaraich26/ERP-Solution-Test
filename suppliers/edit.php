@@ -72,27 +72,48 @@ if (toggle) {
 
 function loadCities(stateName, selectedCity = null) {
     const citySelect = document.getElementById('city_select');
+    citySelect.innerHTML = '<option value="">Loading...</option>';
 
     if (!stateName) {
         citySelect.innerHTML = '<option value="">-- Select City --</option>';
         return;
     }
 
-    fetch(`/api/get_cities.php?state=${encodeURIComponent(stateName)}`)
+    fetch('../api/get_cities.php?state=' + encodeURIComponent(stateName))
         .then(response => response.json())
         .then(data => {
             citySelect.innerHTML = '<option value="">-- Select City --</option>';
-            data.forEach(city => {
+            const cities = data.cities || [];
+            if (Array.isArray(cities) && cities.length > 0) {
+                cities.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.city_name;
+                    option.textContent = city.city_name;
+                    if (selectedCity && city.city_name === selectedCity) {
+                        option.selected = true;
+                    }
+                    citySelect.appendChild(option);
+                });
+            } else if (selectedCity) {
+                // Keep current city if no cities found
                 const option = document.createElement('option');
-                option.value = city.city_name;
-                option.textContent = city.city_name;
-                if (selectedCity && city.city_name === selectedCity) {
-                    option.selected = true;
-                }
+                option.value = selectedCity;
+                option.textContent = selectedCity;
+                option.selected = true;
                 citySelect.appendChild(option);
-            });
+            }
         })
-        .catch(error => console.error('Error loading cities:', error));
+        .catch(error => {
+            console.error('Error loading cities:', error);
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+            if (selectedCity) {
+                const option = document.createElement('option');
+                option.value = selectedCity;
+                option.textContent = selectedCity;
+                option.selected = true;
+                citySelect.appendChild(option);
+            }
+        });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -133,26 +154,32 @@ document.addEventListener('DOMContentLoaded', function() {
         Address Line 2<br>
         <input name="address2" value="<?= htmlspecialchars($supplier['address2'] ?? '') ?>"><br><br>
 
+        State<br>
+        <select name="state" id="state_select" onchange="loadCities(this.value)">
+            <option value="">-- Select State --</option>
+            <?php
+            try {
+                $states = $pdo->query("SELECT id, state_name FROM states WHERE is_active = 1 ORDER BY state_name")->fetchAll();
+                foreach ($states as $state) {
+                    $selected = ($supplier['state'] === $state['state_name']) ? 'selected' : '';
+                    echo '<option value="' . htmlspecialchars($state['state_name']) . '" ' . $selected . '>' . htmlspecialchars($state['state_name']) . '</option>';
+                }
+            } catch (PDOException $e) {
+                // Table might not exist
+            }
+            ?>
+        </select><br><br>
+
         City<br>
         <select id="city_select" name="city">
             <option value="">-- Select City --</option>
-            <option value="<?= htmlspecialchars($supplier['city'] ?? '') ?>" selected><?= htmlspecialchars($supplier['city'] ?? '') ?></option>
+            <?php if (!empty($supplier['city'])): ?>
+            <option value="<?= htmlspecialchars($supplier['city']) ?>" selected><?= htmlspecialchars($supplier['city']) ?></option>
+            <?php endif; ?>
         </select><br><br>
 
         Pincode<br>
         <input name="pincode" value="<?= htmlspecialchars($supplier['pincode'] ?? '') ?>" maxlength="10"><br><br>
-
-        State<br>
-        <select name="state">
-            <option value="">-- Select State --</option>
-            <?php
-            $states = $pdo->query("SELECT id, state_name FROM india_states ORDER BY state_name")->fetchAll();
-            foreach ($states as $state) {
-                $selected = ($supplier['state'] === $state['state_name']) ? 'selected' : '';
-                echo '<option value="' . htmlspecialchars($state['state_name']) . '" ' . $selected . '>' . htmlspecialchars($state['state_name']) . '</option>';
-            }
-            ?>
-        </select><br><br>
 
         GSTIN<br>
         <input name="gstin" value="<?= htmlspecialchars($supplier['gstin'] ?? '') ?>" placeholder="15-character GSTIN"><br><br>

@@ -1,0 +1,346 @@
+================================================================================
+                    SIDEBAR LOGO - QUICK SETUP GUIDE
+================================================================================
+
+✅ WHAT'S NEW: Company Logo Now Displays in Sidebar!
+═════════════════════════════════════════════════════════════════════════════
+
+Your sidebar now displays:
+  • Company logo (at top, below theme toggle)
+  • Company name (below logo)
+  • Professional branding throughout ERP
+
+================================================================================
+                         QUICK START (3 STEPS)
+================================================================================
+
+STEP 1: Go to Admin Settings
+   → Navigate to: /admin/settings.php
+   → Or use sidebar: HR & Admin → Settings
+
+STEP 2: Upload Company Logo
+   → Scroll to "Upload Company Logo" section
+   → Click to upload image (PNG recommended)
+   → Enter company name
+   → Click "Save"
+
+STEP 3: Refresh Browser
+   → Press: Ctrl + F5 (Windows/Linux)
+   → Or: Cmd + Shift + R (Mac)
+   → Logo appears in sidebar ✓
+
+================================================================================
+                            EXPECTED RESULT
+================================================================================
+
+Sidebar Now Shows (Top to Bottom):
+┌───────────────────────────┐
+│  🌙 Dark Mode              │  ← Theme toggle
+├───────────────────────────┤
+│   [Company Logo Image]     │  ← NEW: Your logo
+│   Company Name             │  ← NEW: Your company
+├───────────────────────────┤
+│  ERP                       │  ← Existing
+├───────────────────────────┤
+│  ▶ Sales & CRM             │  ← Module groups
+│  ▶ Purchase & SCM          │
+│  ▶ Inventory               │
+│  [More modules...]         │
+└───────────────────────────┘
+
+================================================================================
+                         LOGO SPECIFICATIONS
+================================================================================
+
+Recommended Size:
+  • Width: 150-250 pixels
+  • Height: 50-80 pixels (displays at max 60px)
+  • Aspect Ratio: 3:1 to 5:1 (wide format)
+
+File Format:
+  • PNG (best - supports transparency)
+  • JPG, GIF, SVG (also supported)
+
+File Size:
+  • 20-100 KB (smaller is better for speed)
+
+Quality:
+  • 72-96 DPI
+  • Transparent background recommended
+
+Why Wide Format?
+  • Looks professional in compact sidebar
+  • Takes advantage of sidebar width
+  • Maintains aspect ratio
+  • Better visibility
+
+================================================================================
+                            TROUBLESHOOTING
+================================================================================
+
+LOGO NOT SHOWING?
+
+1. Verify File Uploaded
+   → Go to /admin/settings.php
+   → Check logo is selected and saved
+   → Verify company name is entered
+
+2. Clear Browser Cache
+   → Hard refresh: Ctrl + F5
+   → Or try incognito/private mode
+   → Or clear entire browser cache
+
+3. Check File Exists
+   → Navigate to: /uploads/company/
+   → Look for: logo_[timestamp].ext
+   → Verify file size > 0 bytes
+
+4. Re-upload Logo
+   → Go to Admin Settings
+   → Delete old logo (if desired)
+   → Upload new logo
+   → Save and refresh
+
+COMPANY NAME NOT SHOWING?
+
+1. Go to Admin Settings: /admin/settings.php
+2. Enter company name in "Company Name" field
+3. Click Save
+4. Refresh browser
+
+LOGO SHOWS BUT CROPPED?
+
+1. Upload image with wider aspect ratio
+2. Recommended: 3:1 to 5:1 ratio
+3. Example: 240 pixels wide × 80 pixels high
+4. Re-upload and refresh
+
+================================================================================
+                          FEATURES & BENEFITS
+================================================================================
+
+✅ Professional Branding
+   Company logo displays at top of every page
+   Creates branded experience throughout ERP
+
+✅ Consistent with Dashboard
+   Same logo as dashboard header
+   Updates automatically everywhere
+
+✅ Easy to Update
+   One place to change: Admin Settings
+   Updates across entire system instantly
+
+✅ Mobile Friendly
+   Responsive logo sizing
+   Works on all devices
+   Touch-friendly interface
+
+✅ Error Handling
+   If logo missing: Shows company name only
+   If image broken: Gracefully hidden
+   System continues to work
+
+✅ Dark Mode Support
+   Logo displays correctly in dark theme
+   Professional appearance in both modes
+
+================================================================================
+                          FILES & LOCATIONS
+================================================================================
+
+Admin Settings: /admin/settings.php
+  → Upload logo here
+  → Enter company name here
+  → All settings in one place
+
+Logo Storage: /uploads/company/logo_[timestamp].[ext]
+  → Auto-created when logo uploaded
+  → Old logos automatically deleted
+  → Typically stores as .png files
+
+Sidebar Code: /includes/sidebar.php
+  → Enhanced with logo display
+  → Automatically fetches from database
+  → No manual editing needed
+
+Dashboard: /index.php
+  → Also displays company logo
+  → Same source as sidebar
+  → Consistent branding
+
+================================================================================
+                          DATABASE QUERY
+================================================================================
+
+The sidebar fetches:
+
+  SELECT logo_path, company_name
+  FROM company_settings
+  WHERE id = 1
+
+Database Values Stored:
+
+  logo_path:    uploads/company/logo_1768959545.png
+  company_name: Your Company Name
+
+================================================================================
+                       COMMON QUESTIONS (FAQ)
+================================================================================
+
+Q: Will the sidebar logo update automatically?
+A: Yes! Once uploaded in Admin Settings, it updates everywhere immediately.
+
+Q: What happens if I delete the logo file?
+A: Sidebar shows just the company name text (no broken image icon).
+
+Q: Can I use different logos for sidebar and dashboard?
+A: No - same logo used everywhere for consistent branding.
+
+Q: How do I change the logo?
+A: Upload new logo in Admin Settings - old one automatically deleted.
+
+Q: What image formats work?
+A: PNG (best), JPG, GIF, SVG all supported.
+
+Q: Will logo work on mobile?
+A: Yes! Fully responsive and mobile-friendly.
+
+Q: Do I need to manually edit sidebar code?
+A: No - all done automatically via Admin Settings.
+
+Q: What's the maximum logo size?
+A: 60px height in sidebar, stores unlimited size but displays at max 60px.
+
+Q: Why is my company name not showing?
+A: Enter it in Admin Settings "Company Name" field.
+
+Q: Why is logo cropped or stretched?
+A: Use wider aspect ratio (3:1 to 5:1). Upload new logo.
+
+================================================================================
+                        STEP-BY-STEP WALKTHROUGH
+================================================================================
+
+TO UPLOAD LOGO FOR FIRST TIME:
+
+1. Click on Admin in sidebar
+   └─ Right side expands showing options
+
+2. Click on "Settings" (under Admin)
+   └─ Goes to Admin Settings page
+
+3. Scroll down to "Company Logo" section
+   └─ Find the upload button
+
+4. Click "Choose File" button
+   └─ Select your logo image
+   └─ Recommended: PNG with transparent background
+
+5. In "Company Name" field
+   └─ Type your company name
+   └─ Example: "ABC Corporation"
+
+6. Scroll down and click "Save"
+   └─ Green success message appears
+   └─ Settings saved to database
+
+7. Go to any page (Dashboard, CRM, etc.)
+   └─ Look at sidebar (left side)
+   └─ Logo displays at top!
+
+8. If not showing:
+   └─ Press Ctrl + F5 (hard refresh)
+   └─ Clear cache if needed
+   └─ Should appear within seconds
+
+================================================================================
+                          PROFESSIONAL TIPS
+================================================================================
+
+Tip 1: Use PNG Format
+   • PNG supports transparency
+   • Looks clean on dark sidebar background
+   • Export from Photoshop/Illustrator as PNG-24
+
+Tip 2: Wide Aspect Ratio
+   • Use 3:1 to 5:1 ratio
+   • Example: 240×80 pixels perfect
+   • Don't use square logos
+
+Tip 3: Color Contrast
+   • Ensure logo visible on dark background
+   • Use light colors in logo
+   • Test on actual dark theme
+
+Tip 4: Optimize File Size
+   • Keep under 100 KB
+   • Faster loading
+   • Better performance
+   • Use image optimization tools
+
+Tip 5: Consistent Branding
+   • Use same logo in Admin Settings
+   • Displays in sidebar AND dashboard
+   • Creates unified brand presence
+
+================================================================================
+                         SUPPORT & HELP
+================================================================================
+
+Diagnostics Tool: /check_logo.php
+   → Run comprehensive checks
+   → Identifies any issues
+   → Provides solutions
+
+Documentation: SIDEBAR_LOGO_UPDATE.md
+   → Detailed technical documentation
+   → Complete feature overview
+   → Implementation details
+
+Logo Fix Guide: LOGO_FIX_GUIDE.md
+   → Comprehensive troubleshooting
+   → Best practices
+   → FAQ and examples
+
+================================================================================
+                        SUMMARY CHECKLIST
+================================================================================
+
+Setup Complete When:
+
+  ✅ Logo appears in sidebar (below theme toggle)
+  ✅ Company name displays below logo
+  ✅ Logo also displays in dashboard header
+  ✅ Logo works in both light and dark mode
+  ✅ Logo matches company branding
+  ✅ Logo size and position look professional
+
+Maintenance Checklist:
+
+  ✅ Logo is clear and readable
+  ✅ Logo doesn't overlap other elements
+  ✅ Company name is complete and correct
+  ✅ Logo updates when changed in settings
+  ✅ No broken image icons appear
+  ✅ System performance is good
+
+================================================================================
+                           STATUS: COMPLETE ✅
+================================================================================
+
+Your sidebar now displays:
+  ✅ Company logo at top
+  ✅ Company name below logo
+  ✅ Professional branding
+  ✅ Mobile responsive
+  ✅ Dark mode compatible
+  ✅ Easy to update
+
+Next Step: Upload your logo in Admin Settings!
+
+Location: /admin/settings.php
+
+Ready to go! 🚀
+
+================================================================================

@@ -26,7 +26,8 @@ if (!$emp) {
 
 // Calculate gross salary
 $grossSalary = $emp['basic_salary'] + $emp['hra'] + $emp['conveyance'] +
-               $emp['medical_allowance'] + $emp['special_allowance'] + $emp['other_allowance'];
+               $emp['medical_allowance'] + $emp['special_allowance'] + $emp['other_allowance'] +
+               ($emp['performance_allowance'] ?? 0) + ($emp['food_allowance'] ?? 0);
 
 include "../includes/sidebar.php";
 showModal();
@@ -174,7 +175,7 @@ showModal();
             <div class="info-grid">
                 <div class="info-item">
                     <label>Date of Birth</label>
-                    <div class="value"><?= $emp['date_of_birth'] ? date('d M Y', strtotime($emp['date_of_birth'])) : '-' ?></div>
+                    <div class="value"><?= $emp['date_of_birth'] ? date('d-m-Y', strtotime($emp['date_of_birth'])) : '-' ?></div>
                 </div>
                 <div class="info-item">
                     <label>Gender</label>
@@ -278,7 +279,7 @@ showModal();
                 </div>
                 <div class="info-item">
                     <label>Date of Joining</label>
-                    <div class="value"><?= date('d M Y', strtotime($emp['date_of_joining'])) ?></div>
+                    <div class="value"><?= date('d-m-Y', strtotime($emp['date_of_joining'])) ?></div>
                 </div>
                 <div class="info-item">
                     <label>Reporting To</label>
@@ -370,6 +371,14 @@ showModal();
                 <tr>
                     <td class="label">Other Allowance</td>
                     <td class="amount"><?= number_format($emp['other_allowance'], 2) ?></td>
+                </tr>
+                <tr>
+                    <td class="label">Performance Allowance</td>
+                    <td class="amount"><?= number_format($emp['performance_allowance'] ?? 0, 2) ?></td>
+                </tr>
+                <tr>
+                    <td class="label">Food Allowance</td>
+                    <td class="amount"><?= number_format($emp['food_allowance'] ?? 0, 2) ?></td>
                 </tr>
                 <tr class="total">
                     <td class="label">Gross Salary</td>

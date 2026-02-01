@@ -1,9 +1,6 @@
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 include "../includes/dialog.php";
-
-showModal();
 
 $part_no = $_GET['part_no'] ?? null;
 $errors = [];
@@ -55,28 +52,43 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     if (empty($errors)) {
+        // Sanitize input
+        $part_name = trim($_POST['part_name'] ?? '');
+        $part_id_val = trim($_POST['part_id'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $uom = trim($_POST['uom'] ?? '');
+        $category = trim($_POST['category'] ?? '');
+        $rate = $_POST['rate'] ?? 0;
+        $hsn_code = trim($_POST['hsn_code'] ?? '');
+        $gst = $_POST['gst'] ?? 0;
+
         $stmt = $pdo->prepare("
             UPDATE part_master
             SET part_name=?, part_id=?, description=?, uom=?, category=?, rate=?, hsn_code=?, gst=?, attachment_path=?
             WHERE part_no=?
         ");
         $stmt->execute([
-            $_POST['part_name'],
-            $_POST['part_id'],
-            $_POST['description'],
-            $_POST['uom'],
-            $_POST['category'],
-            $_POST['rate'],
-            $_POST['hsn_code'],
-            $_POST['gst'],
+            $part_name,
+            $part_id_val,
+            $description,
+            $uom,
+            $category,
+            $rate,
+            $hsn_code,
+            $gst,
             $attachmentPath,
             $part_no
         ]);
 
+        setModal("Success", "Part updated successfully!");
         header("Location: list.php");
         exit;
     }
 }
+
+// Include sidebar AFTER all redirects
+include "../includes/sidebar.php";
+showModal();
 ?>
 <!DOCTYPE html>
 <html>
@@ -123,16 +135,28 @@ if (toggle) {
     <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data">
-        Part Name <input name="part_name" value="<?= htmlspecialchars($part['part_name']) ?>" required><br><br>
-        Part ID <input name="part_id" value="<?= htmlspecialchars($part['part_id']) ?>"><br><br>
-        Description <input name="description" value="<?= htmlspecialchars($part['description']) ?>"><br><br>
-        UOM <input name="uom" value="<?= htmlspecialchars($part['uom']) ?>"><br><br>
+        Part Name <input type="text" name="part_name" value="<?= htmlspecialchars($part['part_name'] ?? '') ?>" required><br><br>
+        Part ID <input type="text" name="part_id" value="<?= htmlspecialchars($part['part_id'] ?? '') ?>"><br><br>
+        Description <input type="text" name="description" value="<?= htmlspecialchars($part['description'] ?? '') ?>"><br><br>
+        UOM (Unit of Measure)
+        <select name="uom" required>
+            <option value="">-- Select UOM --</option>
+            <?php
+            $uomOptions = ['Nos' => 'Nos (Numbers)', 'Mtr' => 'Mtr (Meter)', 'Kg' => 'Kg (Kilogram)', 'Gm' => 'Gm (Gram)', 'Ltr' => 'Ltr (Litre)', 'Ml' => 'Ml (Millilitre)', 'Pcs' => 'Pcs (Pieces)', 'Set' => 'Set', 'Box' => 'Box', 'Roll' => 'Roll', 'Pair' => 'Pair', 'Ft' => 'Ft (Feet)', 'Sqm' => 'Sqm (Square Meter)', 'Sqft' => 'Sqft (Square Feet)'];
+            $currentUom = $part['uom'] ?? '';
+            foreach ($uomOptions as $value => $label):
+            ?>
+            <option value="<?= $value ?>" <?= $currentUom === $value ? 'selected' : '' ?>><?= $label ?></option>
+            <?php endforeach; ?>
+        </select><br><br>
         Category
         <select name="category" required>
             <option value="">-- Select Category --</option>
             <option value="Assembly" <?= $part['category'] === 'Assembly' ? 'selected' : '' ?>>Assembly</option>
-            <option value="Machining" <?= $part['category'] === 'Machining' ? 'selected' : '' ?>>Machining</option>
             <option value="Brought Out" <?= $part['category'] === 'Brought Out' ? 'selected' : '' ?>>Brought Out</option>
+            <option value="Finished Good" <?= $part['category'] === 'Finished Good' ? 'selected' : '' ?>>Finished Good</option>
+            <option value="Manufacturing" <?= $part['category'] === 'Manufacturing' ? 'selected' : '' ?>>Manufacturing</option>
+            <option value="Printing" <?= $part['category'] === 'Printing' ? 'selected' : '' ?>>Printing</option>
         </select><br><br>
         Rate <input name="rate" type="number" step="0.01" value="<?= htmlspecialchars($part['rate']) ?>"><br><br>
         HSN Code <input name="hsn_code" value="<?= htmlspecialchars($part['hsn_code'] ?? '') ?>"><br><br>

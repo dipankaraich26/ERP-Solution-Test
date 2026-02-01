@@ -194,6 +194,7 @@ showModal();
         <h1>User Management</h1>
 
         <p>
+            <a href="user_permissions.php" class="btn btn-primary">User Permissions</a>
             <a href="settings.php" class="btn btn-secondary">Company Settings</a>
             <a href="/" class="btn btn-secondary">Back to Dashboard</a>
         </p>
@@ -218,15 +219,33 @@ showModal();
                     <input type="hidden" name="user_id" value="<?= $editUser['id'] ?>">
                 <?php endif; ?>
 
+                <!-- Employee Search Section -->
+                <?php if (!$editUser): ?>
+                <div class="employee-search-section" style="margin-bottom: 20px; padding: 15px; background: #e8f4fd; border-radius: 8px; border: 1px solid #3498db;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #2980b9;">
+                        Search Employee (Optional)
+                    </label>
+                    <div style="position: relative;">
+                        <input type="text" id="employeeSearch" placeholder="Type employee name or ID to search..."
+                               style="width: 100%; padding: 10px; border: 1px solid #3498db; border-radius: 4px; font-size: 14px;"
+                               autocomplete="off">
+                        <div id="employeeResults" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; border-radius: 0 0 4px 4px; max-height: 250px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>
+                    </div>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        Select an employee to auto-fill their name, email, and phone. Leave empty to enter manually.
+                    </small>
+                </div>
+                <?php endif; ?>
+
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Username *</label>
-                        <input type="text" name="username" required
+                        <input type="text" name="username" id="username" required
                                value="<?= htmlspecialchars($editUser['username'] ?? '') ?>">
                     </div>
                     <div class="form-group">
                         <label>Full Name *</label>
-                        <input type="text" name="full_name" required
+                        <input type="text" name="full_name" id="full_name" required
                                value="<?= htmlspecialchars($editUser['full_name'] ?? '') ?>">
                     </div>
                     <div class="form-group">
@@ -235,12 +254,12 @@ showModal();
                     </div>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" name="email"
+                        <input type="email" name="email" id="email"
                                value="<?= htmlspecialchars($editUser['email'] ?? '') ?>">
                     </div>
                     <div class="form-group">
                         <label>Phone</label>
-                        <input type="text" name="phone"
+                        <input type="text" name="phone" id="phone"
                                value="<?= htmlspecialchars($editUser['phone'] ?? '') ?>">
                     </div>
                     <div class="form-group">
@@ -305,6 +324,9 @@ showModal();
                     <td><?= $u['last_login'] ? date('d-M-Y H:i', strtotime($u['last_login'])) : 'Never' ?></td>
                     <td>
                         <a href="?edit=<?= $u['id'] ?>" class="btn btn-sm">Edit</a>
+                        <?php if ($u['role'] !== 'admin'): ?>
+                        <a href="user_permissions.php?user_id=<?= $u['id'] ?>" class="btn btn-sm btn-primary">Permissions</a>
+                        <?php endif; ?>
                         <?php if ($u['id'] !== 1): ?>
                         <form method="post" style="display: inline;"
                               onsubmit="return confirm('Delete user <?= htmlspecialchars($u['username']) ?>?')">
@@ -327,9 +349,107 @@ showModal();
                 <li><strong>User:</strong> Can view and create in limited modules</li>
                 <li><strong>Viewer:</strong> Read-only access to allowed modules</li>
             </ul>
+            <p style="margin-top: 15px; color: #3498db;">
+                <strong>Tip:</strong> Use the <a href="user_permissions.php" style="color: #2980b9;">User Permissions</a> page to set module-specific permissions for individual users (View, Create, Edit, Delete per module).
+            </p>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('employeeSearch');
+    const resultsDiv = document.getElementById('employeeResults');
+
+    if (!searchInput) return; // Only on add form
+
+    let searchTimeout = null;
+
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+
+        clearTimeout(searchTimeout);
+
+        if (query.length < 1) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            fetch('/api/search_employees.php?q=' + encodeURIComponent(query))
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.data.length > 0) {
+                        resultsDiv.innerHTML = data.data.map(emp => `
+                            <div class="employee-result" data-employee='${JSON.stringify(emp)}'
+                                 style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #eee; transition: background 0.2s;">
+                                <div style="font-weight: bold; color: #2c3e50;">${emp.full_name}</div>
+                                <div style="font-size: 0.85em; color: #666;">
+                                    ${emp.emp_id}${emp.department ? ' • ' + emp.department : ''}${emp.email ? ' • ' + emp.email : ''}
+                                </div>
+                            </div>
+                        `).join('');
+                        resultsDiv.style.display = 'block';
+
+                        // Add hover effects and click handlers
+                        resultsDiv.querySelectorAll('.employee-result').forEach(item => {
+                            item.addEventListener('mouseenter', () => item.style.background = '#f0f7ff');
+                            item.addEventListener('mouseleave', () => item.style.background = 'white');
+                            item.addEventListener('click', () => selectEmployee(JSON.parse(item.dataset.employee)));
+                        });
+                    } else {
+                        resultsDiv.innerHTML = '<div style="padding: 12px; color: #666; text-align: center;">No employees found</div>';
+                        resultsDiv.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    console.error('Search error:', err);
+                    resultsDiv.style.display = 'none';
+                });
+        }, 300);
+    });
+
+    // Hide results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+            resultsDiv.style.display = 'none';
+        }
+    });
+
+    // Show results on focus if there's text
+    searchInput.addEventListener('focus', function() {
+        if (this.value.trim().length >= 1 && resultsDiv.innerHTML) {
+            resultsDiv.style.display = 'block';
+        }
+    });
+
+    function selectEmployee(emp) {
+        // Fill in the form fields
+        document.getElementById('full_name').value = emp.full_name;
+        document.getElementById('email').value = emp.email || '';
+        document.getElementById('phone').value = emp.phone || '';
+
+        // Suggest username from employee ID (lowercase, no special chars)
+        const usernameField = document.getElementById('username');
+        if (!usernameField.value) {
+            usernameField.value = emp.emp_id.toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        // Update search field to show selected
+        searchInput.value = emp.display;
+        resultsDiv.style.display = 'none';
+
+        // Highlight filled fields briefly
+        ['full_name', 'email', 'phone'].forEach(id => {
+            const field = document.getElementById(id);
+            if (field && field.value) {
+                field.style.background = '#d4edda';
+                setTimeout(() => field.style.background = '', 1500);
+            }
+        });
+    }
+});
+</script>
 
 </body>
 </html>

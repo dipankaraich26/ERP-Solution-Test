@@ -8,6 +8,21 @@ if (!$so_no) {
     exit;
 }
 
+// Check if release checklist is completed
+try {
+    $stmt = $pdo->prepare("SELECT checklist_completed FROM so_release_checklist WHERE so_no = ?");
+    $stmt->execute([$so_no]);
+    $checklist = $stmt->fetch();
+
+    if (!$checklist || !$checklist['checklist_completed']) {
+        setModal("Error", "Release checklist must be completed before releasing this Sales Order.");
+        header("Location: release_checklist.php?so_no=" . urlencode($so_no));
+        exit;
+    }
+} catch (PDOException $e) {
+    // Table might not exist, allow release without checklist for backward compatibility
+}
+
 $pdo->beginTransaction();
 
 try {

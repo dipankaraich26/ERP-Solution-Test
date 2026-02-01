@@ -1,6 +1,12 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
 include "../includes/dialog.php";
+
+// Get current user info
+$currentUserId = getUserId();
+$currentUserRole = getUserRole();
+$isAdmin = ($currentUserRole === 'admin');
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -19,10 +25,78 @@ if (!$lead) {
     exit;
 }
 
+// Access control: Any logged-in user can view leads
+// Note: assigned_user_id is from employees table, not users table
+// For stricter control, link users to employees via employee_id column in users table
+
+// Check if status is locked (converted with released invoice OR hot with released PI)
+$statusLocked = false;
+$lockReason = '';
+$lockDocNo = null;
+
+// Scenario 1: Converted lead with released invoice
+if (strtolower($lead['lead_status']) === 'converted') {
+    try {
+        $invoiceCheckStmt = $pdo->prepare("
+            SELECT im.invoice_no
+            FROM invoice_master im
+            JOIN sales_orders so ON so.so_no = im.so_no
+            JOIN quote_master q ON q.id = so.linked_quote_id
+            WHERE q.reference = ? AND im.status = 'released'
+            LIMIT 1
+        ");
+        $invoiceCheckStmt->execute([$lead['lead_no']]);
+        $releasedInvoice = $invoiceCheckStmt->fetch(PDO::FETCH_ASSOC);
+        if ($releasedInvoice) {
+            $statusLocked = true;
+            $lockReason = 'invoice';
+            $lockDocNo = $releasedInvoice['invoice_no'];
+        }
+    } catch (Exception $e) {
+        // Silently continue if query fails
+    }
+}
+
+// Scenario 2: Hot lead with released PI
+if (strtolower($lead['lead_status']) === 'hot') {
+    try {
+        $piCheckStmt = $pdo->prepare("
+            SELECT pi_no
+            FROM quote_master
+            WHERE reference = ? AND status = 'released'
+            LIMIT 1
+        ");
+        $piCheckStmt->execute([$lead['lead_no']]);
+        $releasedPI = $piCheckStmt->fetch(PDO::FETCH_ASSOC);
+        if ($releasedPI) {
+            $statusLocked = true;
+            $lockReason = 'pi';
+            $lockDocNo = $releasedPI['pi_no'];
+        }
+    } catch (Exception $e) {
+        // Silently continue if query fails
+    }
+}
+
 // Fetch requirements
 $reqStmt = $pdo->prepare("SELECT * FROM crm_lead_requirements WHERE lead_id = ? ORDER BY priority DESC, id");
 $reqStmt->execute([$id]);
 $requirements = $reqStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch YID parts for product requirements dropdown
+// Match parts where part_no OR part_id starts with 'YID'
+$yidParts = [];
+try {
+    $yidParts = $pdo->query("
+        SELECT part_no, part_name, part_id, description, hsn_code, uom, rate
+        FROM part_master
+        WHERE status = 'active'
+          AND (UPPER(part_no) LIKE 'YID%' OR UPPER(part_id) LIKE 'YID%')
+        ORDER BY part_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table may not exist
+}
 
 // Fetch interactions
 $intStmt = $pdo->prepare("SELECT * FROM crm_lead_interactions WHERE lead_id = ? ORDER BY interaction_date DESC");
@@ -93,69 +167,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    if ($_POST['action'] === 'update_status') {
-        $new_status = $_POST['new_status'];
-
-        // Update lead status
-        $pdo->prepare("UPDATE crm_leads SET lead_status = ? WHERE id = ?")
-            ->execute([$new_status, $id]);
-
-        $message = "Status updated to " . ucfirst($new_status);
-
-        // If status changed to HOT, convert to customer
-        if ($new_status === 'hot') {
-            // Check if already converted (by phone number in customers table)
-            $checkStmt = $pdo->prepare("SELECT id, customer_id FROM customers WHERE contact = ?");
-            $checkStmt->execute([$lead['phone']]);
-            $existingCustomer = $checkStmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($existingCustomer) {
-                // Already exists - link to existing customer
-                $pdo->prepare("UPDATE crm_leads SET converted_customer_id = ? WHERE id = ?")
-                    ->execute([$existingCustomer['id'], $id]);
-                $message .= "\n\nNote: Customer already exists in database as " . $existingCustomer['customer_id'];
-            } else {
-                // Create new customer
-                $maxCustNo = $pdo->query("
-                    SELECT COALESCE(MAX(CAST(SUBSTRING(customer_id, 6) AS UNSIGNED)), 0)
-                    FROM customers WHERE customer_id LIKE 'CUST-%'
-                ")->fetchColumn();
-                $new_customer_id = 'CUST-' . ($maxCustNo + 1);
-
-                $custStmt = $pdo->prepare("
-                    INSERT INTO customers
-                    (customer_id, company_name, customer_name, contact, address1, address2, city, pincode, state, gstin, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-
-                $custStmt->execute([
-                    $new_customer_id,
-                    $lead['company_name'] ?: '',
-                    $lead['contact_person'],
-                    $lead['phone'],
-                    $lead['address1'] ?: null,
-                    $lead['address2'] ?: null,
-                    $lead['city'] ?: null,
-                    $lead['pincode'] ?: null,
-                    $lead['state'] ?: null,
-                    '', // gstin
-                    'active' // status
-                ]);
-
-                $newCustId = $pdo->lastInsertId();
-
-                // Link lead to the new customer
-                $pdo->prepare("UPDATE crm_leads SET converted_customer_id = ? WHERE id = ?")
-                    ->execute([$newCustId, $id]);
-
-                $message .= "\n\nLead converted to Customer: " . $new_customer_id;
-            }
-        }
-
-        setModal("Success", $message);
-        header("Location: view.php?id=$id");
-        exit;
-    }
+    // Note: Status updates are now automatic through the workflow:
+    // Cold → Warm (Quotation creation) → Hot (PI release) → Converted (Invoice release)
 }
 
 // Calculate total potential value
@@ -336,24 +349,6 @@ showModal();
             box-sizing: border-box;
         }
 
-        .quick-status {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .quick-status button {
-            padding: 8px 15px;
-            border: none;
-            border-radius: 20px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        .quick-status .btn-cold { background: #bdc3c7; }
-        .quick-status .btn-warm { background: #f39c12; color: #fff; }
-        .quick-status .btn-hot { background: #e74c3c; color: #fff; }
-        .quick-status .btn-converted { background: #27ae60; color: #fff; }
-        .quick-status .btn-lost { background: #7f8c8d; color: #fff; }
-
         .potential-value {
             background: #27ae60;
             color: #fff;
@@ -364,6 +359,38 @@ showModal();
         }
         .potential-value .amount { font-size: 1.8em; font-weight: bold; }
         .potential-value .label { opacity: 0.9; }
+
+        /* Searchable Part Dropdown Styles */
+        .part-search-container { position: relative; }
+        .part-search {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .part-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .part-option {
+            padding: 8px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+        .part-option:hover { background: #e8f4fc; }
+        .part-option.hidden { display: none; }
     </style>
 </head>
 <body>
@@ -389,24 +416,36 @@ showModal();
     </div>
 
     <!-- Action Buttons -->
-    <div style="margin-bottom: 20px;">
+    <div style="margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #ddd;">
         <a href="index.php" class="btn btn-secondary">Back to Leads</a>
         <a href="edit.php?id=<?= $id ?>" class="btn btn-primary">Edit Lead</a>
+        <a href="print.php?id=<?= $id ?>" class="btn btn-success" target="_blank">Print / PDF</a>
     </div>
 
-    <!-- Quick Status Change -->
-    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-        <strong style="margin-right: 15px;">Quick Status:</strong>
-        <form method="post" style="display: inline;" class="quick-status">
-            <input type="hidden" name="action" value="update_status">
-            <?php foreach (['cold', 'warm', 'hot', 'converted', 'lost'] as $s): ?>
-                <button type="submit" name="new_status" value="<?= $s ?>"
-                        class="btn-<?= $s ?>"
-                        <?= $lead['lead_status'] === $s ? 'disabled style="opacity:0.5"' : '' ?>>
-                    <?= ucfirst($s) ?>
-                </button>
-            <?php endforeach; ?>
-        </form>
+    <!-- Status Workflow Info -->
+    <div style="margin-bottom: 25px; padding: 15px 20px; background: #e8f4fd; border-radius: 8px; border: 1px solid #b8daff;">
+        <strong style="display: block; margin-bottom: 8px; color: #004085;">Status Workflow (Automatic):</strong>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.9em;">
+            <span style="padding: 5px 12px; background: #bdc3c7; border-radius: 4px;">Cold</span>
+            <span style="color: #666;">→ Quotation →</span>
+            <span style="padding: 5px 12px; background: #f39c12; color: #fff; border-radius: 4px;">Warm</span>
+            <span style="color: #666;">→ PI Release →</span>
+            <span style="padding: 5px 12px; background: #e74c3c; color: #fff; border-radius: 4px;">Hot</span>
+            <span style="color: #666;">→ Invoice →</span>
+            <span style="padding: 5px 12px; background: #27ae60; color: #fff; border-radius: 4px;">Converted</span>
+        </div>
+        <p style="margin: 10px 0 0; font-size: 0.85em; color: #666;">
+            Current Status: <strong class="lead-status status-<?= strtolower($lead['lead_status']) ?>"><?= ucfirst($lead['lead_status']) ?></strong>
+            <?php if (strtolower($lead['lead_status']) === 'converted'): ?>
+                — Lead successfully converted!
+            <?php elseif (strtolower($lead['lead_status']) === 'hot'): ?>
+                — Release an Invoice to convert this lead
+            <?php elseif (strtolower($lead['lead_status']) === 'warm'): ?>
+                — Release a PI to move to Hot status
+            <?php elseif (strtolower($lead['lead_status']) === 'cold'): ?>
+                — Create a Quotation to move to Warm status
+            <?php endif; ?>
+        </p>
     </div>
 
     <!-- Potential Value -->
@@ -476,6 +515,10 @@ showModal();
             <div class="info-row">
                 <span class="info-label">Lead Source</span>
                 <span class="info-value"><?= htmlspecialchars($lead['lead_source'] ?? '-') ?></span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Market</span>
+                <span class="info-value"><?= htmlspecialchars($lead['market_classification'] ?? '-') ?></span>
             </div>
             <div class="info-row">
                 <span class="info-label">Decision Maker</span>
@@ -660,13 +703,31 @@ showModal();
         <form method="post">
             <input type="hidden" name="action" value="add_requirement">
             <div class="modal-grid">
-                <div class="form-group">
-                    <label>Part No</label>
-                    <input type="text" name="part_no" placeholder="If known">
+                <div class="form-group part-search-container">
+                    <label>Part No (YID Parts)</label>
+                    <input type="text" id="reqPartSearch" class="part-search" placeholder="Search YID parts..." autocomplete="off"
+                           onfocus="showReqPartDropdown()" oninput="filterReqParts()">
+                    <input type="hidden" name="part_no" id="reqPartNoHidden">
+                    <div id="reqPartDropdown" class="part-dropdown" style="display:none;">
+                        <?php foreach ($yidParts as $p): ?>
+                            <div class="part-option"
+                                 data-part-no="<?= htmlspecialchars($p['part_no']) ?>"
+                                 data-name="<?= htmlspecialchars($p['part_name']) ?>"
+                                 data-description="<?= htmlspecialchars($p['description'] ?? '') ?>"
+                                 data-uom="<?= htmlspecialchars($p['uom'] ?? '') ?>"
+                                 data-rate="<?= $p['rate'] ?? 0 ?>"
+                                 onclick="selectReqPart(this)">
+                                <?= htmlspecialchars($p['part_no']) ?> - <?= htmlspecialchars($p['part_name']) ?>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php if (empty($yidParts)): ?>
+                            <div style="padding: 10px; color: #666;">No YID parts available</div>
+                        <?php endif; ?>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Product Name *</label>
-                    <input type="text" name="product_name" required>
+                    <input type="text" name="product_name" id="reqProductName" required>
                 </div>
                 <div class="form-group full-width">
                     <label>Description</label>
@@ -678,7 +739,7 @@ showModal();
                 </div>
                 <div class="form-group">
                     <label>Unit</label>
-                    <input type="text" name="unit" placeholder="pcs, kg, etc.">
+                    <input type="text" name="unit" id="reqUnit" placeholder="pcs, kg, etc.">
                 </div>
                 <div class="form-group">
                     <label>Target Price (Customer's)</label>
@@ -800,6 +861,70 @@ if (window.location.hash === '#interactions') {
     document.querySelector('.tab:nth-child(2)').classList.add('active');
     document.querySelector('.tab:nth-child(1)').classList.remove('active');
 }
+
+// =============================
+// Searchable Part Dropdown Functions
+// =============================
+
+function showReqPartDropdown() {
+    document.getElementById('reqPartDropdown').style.display = 'block';
+}
+
+function filterReqParts() {
+    const search = document.getElementById('reqPartSearch').value.toLowerCase();
+    const dropdown = document.getElementById('reqPartDropdown');
+    const options = dropdown.querySelectorAll('.part-option');
+
+    dropdown.style.display = 'block';
+
+    options.forEach(option => {
+        const text = option.textContent.toLowerCase();
+        if (text.includes(search)) {
+            option.classList.remove('hidden');
+        } else {
+            option.classList.add('hidden');
+        }
+    });
+}
+
+function selectReqPart(option) {
+    const partNo = option.getAttribute('data-part-no');
+    const name = option.getAttribute('data-name');
+    const description = option.getAttribute('data-description');
+    const uom = option.getAttribute('data-uom');
+    const rate = option.getAttribute('data-rate');
+
+    // Set the search input to show selected part
+    document.getElementById('reqPartSearch').value = partNo + ' - ' + name;
+
+    // Set the hidden field with the actual part_no
+    document.getElementById('reqPartNoHidden').value = partNo;
+
+    // Auto-populate product name
+    document.getElementById('reqProductName').value = name;
+
+    // Auto-populate description if available
+    const descField = document.querySelector('textarea[name="req_description"]');
+    if (descField && description) {
+        descField.value = description;
+    }
+
+    // Auto-populate unit if available
+    if (uom) {
+        document.getElementById('reqUnit').value = uom;
+    }
+
+    // Hide dropdown
+    document.getElementById('reqPartDropdown').style.display = 'none';
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const container = document.querySelector('.part-search-container');
+    if (container && !container.contains(e.target)) {
+        document.getElementById('reqPartDropdown').style.display = 'none';
+    }
+});
 </script>
 
 </body>

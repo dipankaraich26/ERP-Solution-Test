@@ -4,19 +4,21 @@ include "../db.php";
 $errors = [];
 $success = false;
 
-// Fetch customers for dropdown
+// Fetch customers for search
 $customers = $pdo->query("
-    SELECT customer_id, company_name, customer_name
+    SELECT customer_id, company_name, customer_name, city, contact
     FROM customers
     WHERE status = 'active'
     ORDER BY company_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch released PIs for optional linking
+// Fetch released PIs that are not already linked to other POs
 $pis = $pdo->query("
     SELECT id, pi_no, quote_no, customer_id
     FROM quote_master
-    WHERE status = 'released'
+    WHERE status = 'released' AND id NOT IN (
+        SELECT linked_quote_id FROM customer_po WHERE linked_quote_id IS NOT NULL
+    )
     ORDER BY released_at DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -31,6 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validation
     if ($po_no === '') {
         $errors[] = "PO Number is required";
+    }
+
+    if ($customer_id === '') {
+        $errors[] = "Customer is required";
+    }
+
+    if (!$linked_quote_id) {
+        $errors[] = "Linking to a Proforma Invoice is mandatory";
     }
 
     // Handle file upload (required for customer PO)
@@ -78,6 +88,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Convert data to JSON for JavaScript
+$customersJson = json_encode($customers);
+$pisJson = json_encode($pis);
+
 include "../includes/sidebar.php";
 ?>
 
@@ -88,7 +102,7 @@ include "../includes/sidebar.php";
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         .form-section {
-            max-width: 600px;
+            max-width: 700px;
             padding: 20px;
             background: #fafafa;
             border: 1px solid #ddd;
@@ -104,6 +118,101 @@ include "../includes/sidebar.php";
             box-sizing: border-box;
         }
         .form-group textarea { min-height: 100px; }
+
+        /* Customer Search Styles */
+        .search-container {
+            position: relative;
+            width: 100%;
+        }
+        .customer-search-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .search-results.active {
+            display: block;
+        }
+        .search-result-item {
+            padding: 12px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .search-result-item:hover {
+            background: #f0f7ff;
+        }
+        .customer-name {
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+        .customer-details {
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+        }
+        .no-results {
+            padding: 15px;
+            text-align: center;
+            color: #666;
+        }
+        .search-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+        .selected-customer {
+            padding: 12px;
+            background: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+        .selected-customer.active {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .selected-customer-info {
+            flex: 1;
+        }
+        .selected-customer-name {
+            font-weight: bold;
+            color: #2e7d32;
+        }
+        .selected-customer-detail {
+            font-size: 12px;
+            color: #555;
+        }
+        .clear-selection {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .clear-selection:hover {
+            background: #d32f2f;
+        }
     </style>
 </head>
 <body>
@@ -121,7 +230,7 @@ include "../includes/sidebar.php";
         </div>
     <?php endif; ?>
 
-    <form method="post" enctype="multipart/form-data" class="form-section">
+    <form method="post" enctype="multipart/form-data" class="form-section" id="poForm">
 
         <div class="form-group">
             <label>Customer PO Number *</label>
@@ -129,16 +238,25 @@ include "../includes/sidebar.php";
         </div>
 
         <div class="form-group">
-            <label>Customer</label>
-            <select name="customer_id">
-                <option value="">-- Select Customer (Optional) --</option>
-                <?php foreach ($customers as $c): ?>
-                    <option value="<?= htmlspecialchars($c['customer_id']) ?>">
-                        <?= htmlspecialchars($c['company_name']) ?>
-                        (<?= htmlspecialchars($c['customer_name']) ?>)
-                    </option>
-                <?php endforeach; ?>
-            </select>
+            <label>Customer *</label>
+            <div class="search-container">
+                <input type="text" class="customer-search-input" id="customer_search"
+                       placeholder="Search by dealer name or owner name..."
+                       onkeyup="searchCustomers(this)"
+                       onfocus="showCustomerResults()"
+                       autocomplete="off">
+                <div class="search-results" id="customer_results"></div>
+            </div>
+            <input type="hidden" name="customer_id" id="customer_id" required>
+            <p class="search-hint">Type to search by company/dealer name or owner name</p>
+
+            <div class="selected-customer" id="selected_customer">
+                <div class="selected-customer-info">
+                    <div class="selected-customer-name" id="selected_customer_name"></div>
+                    <div class="selected-customer-detail" id="selected_customer_detail"></div>
+                </div>
+                <button type="button" class="clear-selection" onclick="clearCustomerSelection()">Clear</button>
+            </div>
         </div>
 
         <div class="form-group">
@@ -147,16 +265,16 @@ include "../includes/sidebar.php";
         </div>
 
         <div class="form-group">
-            <label>Link to Proforma Invoice (Optional)</label>
-            <select name="linked_quote_id">
-                <option value="">-- No Link --</option>
+            <label>Link to Proforma Invoice (Mandatory) *</label>
+            <select name="linked_quote_id" id="pi_select" required>
+                <option value="">-- Select a Proforma Invoice --</option>
                 <?php foreach ($pis as $pi): ?>
-                    <option value="<?= $pi['id'] ?>">
+                    <option value="<?= $pi['id'] ?>" data-customer-id="<?= htmlspecialchars($pi['customer_id']) ?>" style="display: none;">
                         <?= htmlspecialchars($pi['pi_no']) ?> (Quote: <?= htmlspecialchars($pi['quote_no']) ?>)
                     </option>
                 <?php endforeach; ?>
             </select>
-            <small style="color: #666;">Optionally link this PO to a released Proforma Invoice</small>
+            <small style="color: #666;">Select a Proforma Invoice for this customer - Linking is mandatory</small>
         </div>
 
         <div class="form-group">
@@ -174,6 +292,179 @@ include "../includes/sidebar.php";
         <a href="index.php" class="btn btn-secondary">Cancel</a>
     </form>
 </div>
+
+<script>
+// Customer data from PHP
+const allCustomers = <?= $customersJson ?>;
+const allPIs = <?= $pisJson ?>;
+
+function searchCustomers(input) {
+    if (input.readOnly) return;
+
+    const query = input.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('customer_results');
+
+    if (!query) {
+        showAllCustomers();
+        return;
+    }
+
+    // Search by company_name (dealer) or customer_name (owner)
+    const results = allCustomers.filter(customer => {
+        const dealerMatch = customer.company_name && customer.company_name.toLowerCase().includes(query);
+        const ownerMatch = customer.customer_name && customer.customer_name.toLowerCase().includes(query);
+        const cityMatch = customer.city && customer.city.toLowerCase().includes(query);
+        const phoneMatch = customer.contact && customer.contact.includes(query);
+        return dealerMatch || ownerMatch || cityMatch || phoneMatch;
+    });
+
+    if (results.length === 0) {
+        resultsDiv.innerHTML = '<div class="no-results">No customers found</div>';
+    } else {
+        resultsDiv.innerHTML = results.map(customer => `
+            <div class="search-result-item" onclick="selectCustomer('${customer.customer_id}', '${escapeHtml(customer.company_name)}', '${escapeHtml(customer.customer_name || '')}', '${escapeHtml(customer.city || '')}', '${escapeHtml(customer.contact || '')}')">
+                <div class="customer-name">${escapeHtml(customer.company_name)}</div>
+                <div class="customer-details">
+                    Owner: ${escapeHtml(customer.customer_name || 'N/A')}
+                    ${customer.city ? ' | ' + escapeHtml(customer.city) : ''}
+                    ${customer.contact ? ' | ' + escapeHtml(customer.contact) : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    resultsDiv.classList.add('active');
+}
+
+function showAllCustomers() {
+    const resultsDiv = document.getElementById('customer_results');
+
+    if (allCustomers.length === 0) {
+        resultsDiv.innerHTML = '<div class="no-results">No customers available</div>';
+    } else {
+        resultsDiv.innerHTML = allCustomers.slice(0, 20).map(customer => `
+            <div class="search-result-item" onclick="selectCustomer('${customer.customer_id}', '${escapeHtml(customer.company_name)}', '${escapeHtml(customer.customer_name || '')}', '${escapeHtml(customer.city || '')}', '${escapeHtml(customer.contact || '')}')">
+                <div class="customer-name">${escapeHtml(customer.company_name)}</div>
+                <div class="customer-details">
+                    Owner: ${escapeHtml(customer.customer_name || 'N/A')}
+                    ${customer.city ? ' | ' + escapeHtml(customer.city) : ''}
+                </div>
+            </div>
+        `).join('');
+
+        if (allCustomers.length > 20) {
+            resultsDiv.innerHTML += '<div class="no-results">Type to search more...</div>';
+        }
+    }
+
+    resultsDiv.classList.add('active');
+}
+
+function showCustomerResults() {
+    const input = document.getElementById('customer_search');
+    if (input.readOnly) return;
+
+    if (input.value.trim()) {
+        searchCustomers(input);
+    } else {
+        showAllCustomers();
+    }
+}
+
+function selectCustomer(customerId, companyName, ownerName, city, contact) {
+    const hiddenInput = document.getElementById('customer_id');
+    const searchInput = document.getElementById('customer_search');
+    const resultsDiv = document.getElementById('customer_results');
+    const selectedDiv = document.getElementById('selected_customer');
+    const selectedName = document.getElementById('selected_customer_name');
+    const selectedDetail = document.getElementById('selected_customer_detail');
+
+    // Set values
+    hiddenInput.value = customerId;
+    searchInput.value = companyName;
+    searchInput.readOnly = true;
+    searchInput.style.background = '#e8f5e9';
+
+    // Show selected customer info
+    selectedName.textContent = companyName;
+    let detailText = 'Owner: ' + (ownerName || 'N/A');
+    if (city) detailText += ' | ' + city;
+    if (contact) detailText += ' | ' + contact;
+    selectedDetail.textContent = detailText;
+    selectedDiv.classList.add('active');
+
+    // Hide results
+    resultsDiv.classList.remove('active');
+
+    // Filter PIs for this customer
+    filterPIsForCustomer(customerId);
+}
+
+function clearCustomerSelection() {
+    const hiddenInput = document.getElementById('customer_id');
+    const searchInput = document.getElementById('customer_search');
+    const selectedDiv = document.getElementById('selected_customer');
+    const piSelect = document.getElementById('pi_select');
+
+    // Clear values
+    hiddenInput.value = '';
+    searchInput.value = '';
+    searchInput.readOnly = false;
+    searchInput.style.background = '';
+    selectedDiv.classList.remove('active');
+
+    // Reset PI dropdown
+    piSelect.value = '';
+    const piOptions = piSelect.querySelectorAll('option[data-customer-id]');
+    piOptions.forEach(option => {
+        option.style.display = 'none';
+    });
+
+    searchInput.focus();
+}
+
+function filterPIsForCustomer(customerId) {
+    const piSelect = document.getElementById('pi_select');
+    const piOptions = piSelect.querySelectorAll('option');
+
+    piOptions.forEach(option => {
+        if (option.value === '') {
+            option.style.display = 'block';
+        } else if (option.getAttribute('data-customer-id') === customerId) {
+            option.style.display = 'block';
+        } else {
+            option.style.display = 'none';
+        }
+    });
+
+    // Clear PI selection
+    piSelect.value = '';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML.replace(/'/g, "\\'");
+}
+
+// Close search results when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.search-container')) {
+        document.getElementById('customer_results').classList.remove('active');
+    }
+});
+
+// Form validation
+document.getElementById('poForm').addEventListener('submit', function(e) {
+    const customerId = document.getElementById('customer_id').value;
+    if (!customerId) {
+        e.preventDefault();
+        alert('Please select a customer');
+        return false;
+    }
+});
+</script>
 
 </body>
 </html>

@@ -4,6 +4,29 @@ include "../includes/dialog.php";
 
 $errors = [];
 
+// Fetch states for dropdown
+$states = [];
+try {
+    $states = $pdo->query("SELECT id, state_name FROM states WHERE is_active = 1 ORDER BY state_name")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table may not exist, will use text input as fallback
+}
+
+// Fetch YID parts for product requirements
+// Match parts where part_no OR part_id starts with 'YID'
+$yidParts = [];
+try {
+    $yidParts = $pdo->query("
+        SELECT part_no, part_name, part_id, description, hsn_code, uom, rate
+        FROM part_master
+        WHERE status = 'active'
+          AND (UPPER(part_no) LIKE 'YID%' OR UPPER(part_id) LIKE 'YID%')
+        ORDER BY part_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table may not exist
+}
+
 /* =========================
    HANDLE FORM SUBMISSION
 ========================= */
@@ -27,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Lead details
     $lead_status = $_POST['lead_status'] ?? 'cold';
     $lead_source = trim($_POST['lead_source'] ?? '');
+    $market_classification = trim($_POST['market_classification'] ?? '');
     $industry = trim($_POST['industry'] ?? '');
 
     // Buying intent
@@ -36,7 +60,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Follow-up & notes
     $next_followup_date = $_POST['next_followup_date'] ?? '';
-    $assigned_to = trim($_POST['assigned_to'] ?? '');
+    $assigned_user_id = !empty($_POST['assigned_user_id']) ? (int)$_POST['assigned_user_id'] : null;
+    $assigned_to = null;
+
+    // Fetch assigned person name from employees table
+    if ($assigned_user_id) {
+        $empStmt = $pdo->prepare("SELECT CONCAT(first_name, ' ', last_name) as full_name FROM employees WHERE id = ?");
+        $empStmt->execute([$assigned_user_id]);
+        $empData = $empStmt->fetch();
+        $assigned_to = $empData ? $empData['full_name'] : null;
+    }
+
     $notes = trim($_POST['notes'] ?? '');
 
     // Validation
@@ -48,6 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($customer_type === 'B2B' && $company_name === '') {
         $errors[] = "Company name is required for B2B leads";
+    }
+    if (!$assigned_user_id) {
+        $errors[] = "Assigning to a person is mandatory";
     }
 
     if (empty($errors)) {
@@ -63,16 +100,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 lead_no, customer_type, company_name, contact_person, designation,
                 phone, email,
                 address1, address2, city, state, pincode, country,
-                lead_status, lead_source, industry,
+                lead_status, lead_source, market_classification, industry,
                 buying_timeline, budget_range, decision_maker,
-                next_followup_date, assigned_to, notes
+                next_followup_date, assigned_to, assigned_user_id, notes
             ) VALUES (
                 ?, ?, ?, ?, ?,
                 ?, ?,
                 ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?
+                ?, ?, ?, ?
             )
         ");
 
@@ -80,12 +117,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lead_no, $customer_type, $company_name ?: null, $contact_person, $designation ?: null,
             $phone, $email ?: null,
             $address1 ?: null, $address2 ?: null, $city ?: null, $state ?: null, $pincode ?: null, $country,
-            $lead_status, $lead_source ?: null, $industry ?: null,
+            $lead_status, $lead_source ?: null, $market_classification ?: null, $industry ?: null,
             $buying_timeline, $budget_range ?: null, $decision_maker,
-            $next_followup_date ?: null, $assigned_to ?: null, $notes ?: null
+            $next_followup_date ?: null, $assigned_to ?: null, $assigned_user_id, $notes ?: null
         ]);
 
         $newId = $pdo->lastInsertId();
+
+        // Insert product requirements if any
+        if (!empty($_POST['req_part_no']) && is_array($_POST['req_part_no'])) {
+            $reqStmt = $pdo->prepare("
+                INSERT INTO crm_lead_requirements
+                (lead_id, part_no, product_name, description, estimated_qty, unit, target_price, priority)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'medium')
+            ");
+
+            foreach ($_POST['req_part_no'] as $i => $partNo) {
+                if (empty(trim($partNo))) continue;
+
+                $reqStmt->execute([
+                    $newId,
+                    $partNo,
+                    $_POST['req_product_name'][$i] ?? '',
+                    $_POST['req_description'][$i] ?? '',
+                    $_POST['req_qty'][$i] ?? null,
+                    $_POST['req_unit'][$i] ?? null,
+                    $_POST['req_price'][$i] ?? null
+                ]);
+            }
+        }
 
         setModal("Success", "Lead $lead_no created successfully!");
         header("Location: view.php?id=$newId");
@@ -190,6 +250,40 @@ showModal();
             margin-bottom: 20px;
         }
         .error-box ul { margin: 0; padding-left: 20px; }
+
+        /* Product Requirements Styles */
+        .req-table { width: 100%; border-collapse: collapse; margin-top: 10px; overflow: visible; }
+        .req-table th, .req-table td { padding: 8px; border: 1px solid #ddd; text-align: left; overflow: visible; }
+        .req-table td.part-search-container { position: relative; overflow: visible; }
+        .req-table th { background: #3498db; color: white; font-size: 0.9em; }
+        .req-table input { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+        .req-table input[readonly] { background: #f5f5f5; }
+
+        .part-search-container { position: relative; }
+        .part-search { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
+        .part-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .part-dropdown.show { display: block !important; }
+        .part-option {
+            padding: 8px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+        .part-option:hover { background: #e8f4fc; }
+        .part-option.hidden { display: none; }
     </style>
 </head>
 <body>
@@ -267,13 +361,44 @@ showModal();
                     </div>
                     <div class="form-group">
                         <label>Designation</label>
-                        <input type="text" name="designation" id="designation"
-                               placeholder="e.g., Manager, Director, Owner">
+                        <select name="designation" id="designation">
+                            <option value="">-- Select Designation --</option>
+                            <option value="Chairman">Chairman</option>
+                            <option value="Managing Director">Managing Director</option>
+                            <option value="Director">Director</option>
+                            <option value="Owner">Owner</option>
+                            <option value="Partner">Partner</option>
+                            <option value="CEO">CEO</option>
+                            <option value="CFO">CFO</option>
+                            <option value="COO">COO</option>
+                            <option value="General Manager">General Manager</option>
+                            <option value="Manager">Manager</option>
+                            <option value="Assistant Manager">Assistant Manager</option>
+                            <option value="Salesperson">Salesperson</option>
+                            <option value="Purchase Manager">Purchase Manager</option>
+                            <option value="Accountant">Accountant</option>
+                            <option value="Administrator">Administrator</option>
+                            <option value="Receptionist">Receptionist</option>
+                            <option value="Other">Other</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Industry</label>
-                        <input type="text" name="industry" id="industry"
-                               placeholder="e.g., Manufacturing, Healthcare, IT">
+                        <select name="industry" id="industry">
+                            <option value="">-- Select Industry --</option>
+                            <option value="Multi-Specialty Hospital">Multi-Specialty Hospital</option>
+                            <option value="Super-Specialty Hospital">Super-Specialty Hospital</option>
+                            <option value="Medical College">Medical College</option>
+                            <option value="Nursing Home">Nursing Home</option>
+                            <option value="Eye Hospital">Eye Hospital</option>
+                            <option value="Medical Equipment Dealer">Medical Equipment Dealer</option>
+                            <option value="Hospital Supply Chain">Hospital Supply Chain</option>
+                            <option value="Lab Equipment Supplier">Lab Equipment Supplier</option>
+                            <option value="Surgical Instrument Dealer">Surgical Instrument Dealer</option>
+                            <option value="Medical Device Manufacturing">Medical Device Manufacturing</option>
+                            <option value="Medical E-commerce">Medical E-commerce</option>
+                            <option value="Other">Other</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Contact Number *</label>
@@ -300,12 +425,28 @@ showModal();
                         <input type="text" name="address2" id="address2" placeholder="Area, landmark">
                     </div>
                     <div class="form-group">
-                        <label>City</label>
-                        <input type="text" name="city" id="city">
+                        <label>State</label>
+                        <?php if (!empty($states)): ?>
+                        <select name="state" id="state" onchange="loadCitiesByState(this.value)">
+                            <option value="">-- Select State --</option>
+                            <?php foreach ($states as $st): ?>
+                                <option value="<?= htmlspecialchars($st['state_name']) ?>"><?= htmlspecialchars($st['state_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php else: ?>
+                        <input type="text" name="state" id="state" placeholder="Enter state">
+                        <small style="color: #e74c3c;">Run <a href="/admin/install_locations.php">location installer</a> to enable dropdown</small>
+                        <?php endif; ?>
                     </div>
                     <div class="form-group">
-                        <label>State</label>
-                        <input type="text" name="state" id="state">
+                        <label>City</label>
+                        <?php if (!empty($states)): ?>
+                        <select name="city" id="city">
+                            <option value="">-- Select State First --</option>
+                        </select>
+                        <?php else: ?>
+                        <input type="text" name="city" id="city" placeholder="Enter city">
+                        <?php endif; ?>
                     </div>
                     <div class="form-group">
                         <label>Pincode</label>
@@ -329,15 +470,14 @@ showModal();
                             <input type="radio" name="lead_status" value="cold" checked>
                             <span>Cold</span>
                         </label>
-                        <label class="status-warm">
-                            <input type="radio" name="lead_status" value="warm">
-                            <span>Warm</span>
-                        </label>
-                        <label class="status-hot">
-                            <input type="radio" name="lead_status" value="hot">
-                            <span>Hot</span>
-                        </label>
                     </div>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        <strong>Status Progression:</strong><br>
+                        • New leads start as <strong>Cold</strong><br>
+                        • Cold → Warm: When creating a quotation<br>
+                        • Warm → Hot: When PI is released<br>
+                        • Hot → Converted: When Invoice is generated
+                    </small>
                 </div>
 
                 <div class="form-grid" style="margin-top: 15px;">
@@ -345,14 +485,34 @@ showModal();
                         <label>Lead Source</label>
                         <select name="lead_source">
                             <option value="">-- Select Source --</option>
+                            <option value="Existing Customer">Existing Customer</option>
+                            <option value="Existing Lead">Existing Lead</option>
                             <option value="Website">Website</option>
                             <option value="Referral">Referral</option>
                             <option value="Cold Call">Cold Call</option>
                             <option value="Trade Show">Trade Show</option>
+                            <option value="Exhibition">Exhibition</option>
                             <option value="Social Media">Social Media</option>
                             <option value="Email Campaign">Email Campaign</option>
+                            <option value="WhatsApp">WhatsApp</option>
                             <option value="Walk-in">Walk-in</option>
+                            <option value="Newspaper Ad">Newspaper Ad</option>
+                            <option value="Online Ad">Online Ad</option>
+                            <option value="Direct Mail">Direct Mail</option>
+                            <option value="Partner">Partner</option>
                             <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Market Classification</label>
+                        <select name="market_classification">
+                            <option value="">-- Select Market --</option>
+                            <option value="GEMS or Tenders">GEMS or Tenders</option>
+                            <option value="Export Orders">Export Orders</option>
+                            <option value="Corporate Customers">Corporate Customers</option>
+                            <option value="Private Hospitals">Private Hospitals</option>
+                            <option value="Medical Colleges">Medical Colleges</option>
+                            <option value="NGO or Others">NGO or Others</option>
                         </select>
                     </div>
                 </div>
@@ -398,14 +558,93 @@ showModal();
                         <input type="date" name="next_followup_date">
                     </div>
                     <div class="form-group">
-                        <label>Assigned To</label>
-                        <input type="text" name="assigned_to" placeholder="Sales person name">
+                        <label>Assigned To *</label>
+                        <select name="assigned_user_id" id="assigned_engineer" required>
+                            <option value="">-- Select Person --</option>
+                            <?php
+                            // Fetch all active employees
+                            $allStaff = $pdo->query("
+                                SELECT id, emp_id, first_name, last_name, department, designation
+                                FROM employees
+                                WHERE status = 'Active'
+                                ORDER BY first_name, last_name
+                            ")->fetchAll(PDO::FETCH_ASSOC);
+                            foreach ($allStaff as $emp) {
+                                $empName = htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']);
+                                $empInfo = $emp['designation'] ?: $emp['department'];
+                                if ($empInfo) {
+                                    $empName .= ' (' . htmlspecialchars($empInfo) . ')';
+                                }
+                                echo '<option value="' . $emp['id'] . '" data-name="' . htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) . '">' . $empName . '</option>';
+                            }
+                            ?>
+                        </select>
+                        <small style="color: #666;">Select the person responsible for this lead</small>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>Notes</label>
                     <textarea name="notes" placeholder="Any initial notes about this lead..."></textarea>
                 </div>
+            </div>
+
+            <!-- Product Requirements Section -->
+            <div class="form-section">
+                <h3>Product Requirements (Optional)</h3>
+                <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                    Add product requirements for this lead. Only YID parts are available.
+                </p>
+
+                <?php if (empty($yidParts)): ?>
+                    <div style="background: #fff3cd; padding: 10px; border-radius: 5px; color: #856404;">
+                        No YID parts available. <a href="/part_master/add.php">Add parts first</a>.
+                    </div>
+                <?php else: ?>
+                <table class="req-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 20%;">Part Number</th>
+                            <th style="width: 18%;">Product Name</th>
+                            <th style="width: 20%;">Description</th>
+                            <th style="width: 10%;">Qty</th>
+                            <th style="width: 8%;">Unit</th>
+                            <th style="width: 14%;">Target Price</th>
+                            <th style="width: 10%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="reqTableBody">
+                        <tr class="req-row">
+                            <td class="part-search-container">
+                                <input type="text" class="part-search" placeholder="Search part..." autocomplete="off"
+                                       onfocus="showReqPartDropdown(this)" oninput="filterReqParts(this)">
+                                <input type="hidden" name="req_part_no[]" class="req-part-no-hidden">
+                                <div class="part-dropdown" style="display:none;">
+                                    <?php foreach ($yidParts as $p): ?>
+                                        <div class="part-option"
+                                             data-part-no="<?= htmlspecialchars($p['part_no']) ?>"
+                                             data-name="<?= htmlspecialchars($p['part_name']) ?>"
+                                             data-description="<?= htmlspecialchars($p['description'] ?? '') ?>"
+                                             data-uom="<?= htmlspecialchars($p['uom'] ?? '') ?>"
+                                             data-rate="<?= $p['rate'] ?? 0 ?>"
+                                             onclick="selectReqPart(this)">
+                                            <?= htmlspecialchars($p['part_no']) ?> - <?= htmlspecialchars($p['part_name']) ?>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </td>
+                            <td><input type="text" name="req_product_name[]" class="req-product-name" readonly placeholder="Auto-filled"></td>
+                            <td><input type="text" name="req_description[]" class="req-description" placeholder="Optional details..."></td>
+                            <td><input type="number" name="req_qty[]" class="req-qty" step="0.01" min="0" placeholder="Qty"></td>
+                            <td><input type="text" name="req_unit[]" class="req-unit" readonly placeholder="Unit"></td>
+                            <td><input type="number" name="req_price[]" class="req-price" step="0.01" min="0" placeholder="Price"></td>
+                            <td style="text-align: center;">
+                                <button type="button" onclick="removeReqRow(this)" class="btn btn-danger" style="padding: 3px 8px;">-</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <button type="button" onclick="addReqRow()" class="btn btn-secondary" style="margin-top: 10px;">+ Add Requirement</button>
+                <?php endif; ?>
             </div>
 
             <div style="margin-top: 20px;">
@@ -466,9 +705,24 @@ function importCustomerData() {
                 // Fill address
                 document.getElementById('address1').value = data.address1 || '';
                 document.getElementById('address2').value = data.address2 || '';
-                document.getElementById('city').value = data.city || '';
-                document.getElementById('state').value = data.state || '';
                 document.getElementById('pincode').value = data.pincode || '';
+
+                // Set state first, then load cities and set city value
+                const stateSelect = document.getElementById('state');
+                const cityValue = data.city || '';
+
+                if (stateSelect.tagName === 'SELECT') {
+                    // State is a dropdown
+                    stateSelect.value = data.state || '';
+                    if (data.state) {
+                        // Load cities and then set the city value
+                        loadCitiesByState(data.state, cityValue);
+                    }
+                } else {
+                    // State is a text input (fallback)
+                    stateSelect.value = data.state || '';
+                    document.getElementById('city').value = cityValue;
+                }
 
                 alert('Customer data imported successfully!');
             }
@@ -518,6 +772,171 @@ document.addEventListener('DOMContentLoaded', function() {
         timeout = setTimeout(checkPhoneDuplicate, 500);
     });
 });
+
+// Load cities based on selected state
+// Optional selectedCity parameter to auto-select a city after loading
+function loadCitiesByState(stateName, selectedCity = null) {
+    const citySelect = document.getElementById('city');
+
+    if (!stateName) {
+        citySelect.innerHTML = '<option value="">-- Select State First --</option>';
+        return;
+    }
+
+    citySelect.innerHTML = '<option value="">Loading...</option>';
+
+    fetch('../api/get_cities.php?state=' + encodeURIComponent(stateName))
+        .then(response => response.json())
+        .then(data => {
+            citySelect.innerHTML = '<option value="">-- Select City --</option>';
+
+            if (data.success && data.cities && data.cities.length > 0) {
+                data.cities.forEach(city => {
+                    const opt = document.createElement('option');
+                    opt.value = city.city_name;
+                    opt.textContent = city.city_name;
+                    // Auto-select the city if it matches
+                    if (selectedCity && city.city_name === selectedCity) {
+                        opt.selected = true;
+                    }
+                    citySelect.appendChild(opt);
+                });
+            } else {
+                // Allow manual entry if no cities found
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '-- No cities found, type below --';
+                citySelect.appendChild(opt);
+            }
+
+            // If selectedCity was provided but not found in the list, add it as an option
+            if (selectedCity && citySelect.value !== selectedCity) {
+                const opt = document.createElement('option');
+                opt.value = selectedCity;
+                opt.textContent = selectedCity;
+                opt.selected = true;
+                citySelect.appendChild(opt);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading cities:', error);
+            citySelect.innerHTML = '<option value="">-- Error loading cities --</option>';
+        });
+}
+
+// ========== Product Requirements Functions ==========
+function showReqPartDropdown(input) {
+    // First hide all other dropdowns
+    document.querySelectorAll('.part-dropdown').forEach(d => {
+        d.style.display = 'none';
+        d.classList.remove('show');
+    });
+
+    const container = input.closest('.part-search-container');
+    const dropdown = container.querySelector('.part-dropdown');
+    dropdown.style.display = 'block';
+    dropdown.classList.add('show');
+
+    // Show all options when first focused
+    const options = dropdown.querySelectorAll('.part-option');
+    options.forEach(opt => opt.classList.remove('hidden'));
+}
+
+function filterReqParts(input) {
+    const searchTerm = input.value.toLowerCase().trim();
+    const container = input.closest('.part-search-container');
+    const dropdown = container.querySelector('.part-dropdown');
+    const options = dropdown.querySelectorAll('.part-option');
+
+    dropdown.style.display = 'block';
+
+    options.forEach(opt => {
+        const partNo = opt.dataset.partNo.toLowerCase();
+        const partName = opt.dataset.name.toLowerCase();
+
+        if (partNo.includes(searchTerm) || partName.includes(searchTerm)) {
+            opt.classList.remove('hidden');
+        } else {
+            opt.classList.add('hidden');
+        }
+    });
+}
+
+function selectReqPart(option) {
+    const container = option.closest('.part-search-container');
+    const row = option.closest('tr');
+    const searchInput = container.querySelector('.part-search');
+    const hiddenInput = container.querySelector('.req-part-no-hidden');
+    const dropdown = container.querySelector('.part-dropdown');
+
+    // Set values
+    searchInput.value = option.dataset.partNo + ' - ' + option.dataset.name;
+    hiddenInput.value = option.dataset.partNo;
+
+    // Populate product name, description and unit
+    row.querySelector('.req-product-name').value = option.dataset.name || '';
+    row.querySelector('.req-description').value = option.dataset.description || '';
+    row.querySelector('.req-unit').value = option.dataset.uom || '';
+
+    // Hide dropdown
+    dropdown.style.display = 'none';
+    dropdown.classList.remove('show');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.part-search-container')) {
+        document.querySelectorAll('.part-dropdown').forEach(d => {
+            d.style.display = 'none';
+            d.classList.remove('show');
+        });
+    }
+});
+
+function addReqRow() {
+    const tbody = document.getElementById('reqTableBody');
+    const firstRow = tbody.querySelector('.req-row');
+    const clone = firstRow.cloneNode(true);
+
+    // Clear all values
+    clone.querySelector('.part-search').value = '';
+    clone.querySelector('.req-part-no-hidden').value = '';
+    clone.querySelector('.req-product-name').value = '';
+    clone.querySelector('.req-description').value = '';
+    clone.querySelector('.req-qty').value = '';
+    clone.querySelector('.req-unit').value = '';
+    clone.querySelector('.req-price').value = '';
+
+    // Hide dropdown and reset its state
+    const dropdown = clone.querySelector('.part-dropdown');
+    dropdown.style.display = 'none';
+    dropdown.classList.remove('show');
+
+    // Re-show all part options (in case they were filtered)
+    dropdown.querySelectorAll('.part-option').forEach(opt => opt.classList.remove('hidden'));
+
+    tbody.appendChild(clone);
+}
+
+function removeReqRow(btn) {
+    const row = btn.closest('tr');
+    const tbody = document.getElementById('reqTableBody');
+    const rows = tbody.querySelectorAll('.req-row');
+
+    if (rows.length <= 1) {
+        // Clear values instead of removing the last row
+        row.querySelector('.part-search').value = '';
+        row.querySelector('.req-part-no-hidden').value = '';
+        row.querySelector('.req-product-name').value = '';
+        row.querySelector('.req-description').value = '';
+        row.querySelector('.req-qty').value = '';
+        row.querySelector('.req-unit').value = '';
+        row.querySelector('.req-price').value = '';
+        return;
+    }
+
+    row.remove();
+}
 </script>
 
 </body>

@@ -6,6 +6,7 @@ showModal();
 
 /* =========================
    FETCH CUSTOMER POs (for creating new SO)
+   Exclude POs that already have a Sales Order
 ========================= */
 $customerPOs = $pdo->query("
     SELECT cp.id, cp.po_no, cp.customer_id, c.company_name, c.customer_name,
@@ -14,6 +15,7 @@ $customerPOs = $pdo->query("
     LEFT JOIN customers c ON cp.customer_id = c.customer_id
     LEFT JOIN quote_master q ON cp.linked_quote_id = q.id
     WHERE cp.status = 'active'
+      AND cp.id NOT IN (SELECT DISTINCT customer_po_id FROM sales_orders WHERE customer_po_id IS NOT NULL)
     ORDER BY cp.id DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -248,6 +250,20 @@ include "../includes/sidebar.php";
     <!-- =========================
          CREATE SALES ORDER
     ========================= -->
+    <?php
+    // Count available Customer POs (with linked PI)
+    $availablePOs = array_filter($customerPOs, function($cpo) {
+        return !empty($cpo['linked_quote_id']);
+    });
+    ?>
+
+    <?php if (empty($availablePOs)): ?>
+    <div style="background: #fff3cd; border: 2px solid #ffc107; padding: 12px 15px; border-radius: 5px; margin-bottom: 20px; color: #856404; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <span><strong>No Customer POs Available!</strong> — Need a Customer PO linked to PI without existing Sales Order.</span>
+        <a href="/customer_po/index.php" class="btn btn-primary">Go to Customer POs</a>
+    </div>
+    <?php endif; ?>
+
     <form method="post" class="form-box">
         <h3>Create Sales Order from Customer PO</h3>
 
@@ -268,7 +284,7 @@ include "../includes/sidebar.php";
                 <?php endif; ?>
             <?php endforeach; ?>
         </select>
-        <small style="color: #666;">Only Customer POs linked to a PI are shown</small>
+        <small style="color: #666;">Only Customer POs linked to a PI without existing Sales Orders are shown</small>
 
         <div id="poDetails" style="display: none; margin-top: 15px; padding: 10px; background: #e8f4e8; border-radius: 5px;">
             <strong>Customer:</strong> <span id="detailCustomer"></span><br>
@@ -293,6 +309,13 @@ include "../includes/sidebar.php";
          SALES ORDER LIST
     ========================= -->
     <h3>Sales Orders</h3>
+
+    <!-- Search Box -->
+    <div style="margin-bottom: 15px;">
+        <input type="text" id="searchInput" placeholder="Search by SO No, Customer PO, PI No, Customer..."
+               style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 350px;">
+    </div>
+
     <div style="overflow-x: auto;">
     <table border="1" cellpadding="8">
         <tr>
@@ -388,6 +411,30 @@ function showPODetails(select) {
         details.style.display = 'none';
     }
 }
+
+// Dynamic search filtering
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const table = document.querySelector('table');
+    const rows = table.querySelectorAll('tr:not(:first-child)');
+
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            let found = false;
+
+            cells.forEach(cell => {
+                if (cell.textContent.toLowerCase().includes(searchTerm)) {
+                    found = true;
+                }
+            });
+
+            row.style.display = found ? '' : 'none';
+        });
+    });
+});
 </script>
 
 </body>

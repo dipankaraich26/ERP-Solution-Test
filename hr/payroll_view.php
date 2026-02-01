@@ -1,5 +1,7 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
 include "../includes/dialog.php";
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -257,35 +259,43 @@ showModal();
                     <table class="salary-table">
                         <tr>
                             <td>Basic Salary</td>
-                            <td class="amount"><?= number_format($payroll['basic_salary'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['basic_salary'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td>HRA</td>
-                            <td class="amount"><?= number_format($payroll['hra'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['hra'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td>Conveyance</td>
-                            <td class="amount"><?= number_format($payroll['conveyance'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['conveyance'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td>Medical Allowance</td>
-                            <td class="amount"><?= number_format($payroll['medical_allowance'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['medical_allowance'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td>Special Allowance</td>
-                            <td class="amount"><?= number_format($payroll['special_allowance'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['special_allowance'] ?? 0, 2) ?></td>
                         </tr>
                         <tr>
                             <td>Other Allowance</td>
-                            <td class="amount"><?= number_format($payroll['other_allowance'], 2) ?></td>
+                            <td class="amount"><?= number_format($payroll['other_allowance'] ?? 0, 2) ?></td>
                         </tr>
-                        <?php if ($payroll['overtime_pay'] > 0): ?>
+                        <tr>
+                            <td>Performance Allowance</td>
+                            <td class="amount"><?= number_format($payroll['performance_allowance'] ?? 0, 2) ?></td>
+                        </tr>
+                        <tr>
+                            <td>Food Allowance</td>
+                            <td class="amount"><?= number_format($payroll['food_allowance'] ?? 0, 2) ?></td>
+                        </tr>
+                        <?php if (($payroll['overtime_pay'] ?? 0) > 0): ?>
                         <tr>
                             <td>Overtime</td>
                             <td class="amount"><?= number_format($payroll['overtime_pay'], 2) ?></td>
                         </tr>
                         <?php endif; ?>
-                        <?php if ($payroll['bonus'] > 0): ?>
+                        <?php if (($payroll['bonus'] ?? 0) > 0): ?>
                         <tr>
                             <td>Bonus</td>
                             <td class="amount"><?= number_format($payroll['bonus'], 2) ?></td>

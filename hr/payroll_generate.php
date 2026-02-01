@@ -1,5 +1,7 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
 include "../includes/dialog.php";
 
 $selectedMonth = $_GET['month'] ?? date('Y-m');
@@ -30,6 +32,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($employeeIds)) {
         setModal("Error", "Please select at least one employee");
     } else {
+        // Ensure performance_allowance and food_allowance columns exist
+        try {
+            $columns = $pdo->query("SHOW COLUMNS FROM payroll LIKE 'performance_allowance'")->fetch();
+            if (!$columns) {
+                $pdo->exec("ALTER TABLE payroll ADD COLUMN performance_allowance DECIMAL(10,2) DEFAULT 0 AFTER other_allowance");
+                $pdo->exec("ALTER TABLE payroll ADD COLUMN food_allowance DECIMAL(10,2) DEFAULT 0 AFTER performance_allowance");
+            }
+            $empColumns = $pdo->query("SHOW COLUMNS FROM employees LIKE 'performance_allowance'")->fetch();
+            if (!$empColumns) {
+                $pdo->exec("ALTER TABLE employees ADD COLUMN performance_allowance DECIMAL(10,2) DEFAULT 0 AFTER other_allowance");
+                $pdo->exec("ALTER TABLE employees ADD COLUMN food_allowance DECIMAL(10,2) DEFAULT 0 AFTER performance_allowance");
+            }
+        } catch (Exception $e) {
+            // Columns may already exist
+        }
         $generated = 0;
         $skipped = 0;
 
@@ -75,8 +92,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $medical = round($emp['medical_allowance'] * $salaryRatio, 2);
             $special = round($emp['special_allowance'] * $salaryRatio, 2);
             $other = round($emp['other_allowance'] * $salaryRatio, 2);
+            $performance = round(($emp['performance_allowance'] ?? 0) * $salaryRatio, 2);
+            $food = round(($emp['food_allowance'] ?? 0) * $salaryRatio, 2);
 
-            $grossEarnings = $basic + $hra + $conveyance + $medical + $special + $other;
+            $grossEarnings = $basic + $hra + $conveyance + $medical + $special + $other + $performance + $food;
 
             // Calculate deductions
             $pfEmployee = round($basic * 0.12, 2); // 12% of basic
@@ -94,14 +113,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("
                 INSERT INTO payroll (
                     employee_id, payroll_month, working_days, days_present, days_absent, leaves_taken, holidays,
-                    basic_salary, hra, conveyance, medical_allowance, special_allowance, other_allowance,
+                    basic_salary, hra, conveyance, medical_allowance, special_allowance, other_allowance, performance_allowance, food_allowance,
                     gross_earnings, pf_employee, pf_employer, esi_employee, esi_employer, professional_tax,
                     total_deductions, net_pay, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft')
             ");
             $stmt->execute([
                 $empId, $monthStart, $workingDays, $daysPresent, $daysAbsent, $leavesTaken, $holidays,
-                $basic, $hra, $conveyance, $medical, $special, $other,
+                $basic, $hra, $conveyance, $medical, $special, $other, $performance, $food,
                 $grossEarnings, $pfEmployee, $pfEmployer, $esiEmployee, $esiEmployer, $professionalTax,
                 $totalDeductions, $netPay
             ]);
@@ -119,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $employees = $pdo->prepare("
     SELECT e.id, e.emp_id, e.first_name, e.last_name, e.department, e.designation,
            e.basic_salary, e.hra, e.conveyance, e.medical_allowance, e.special_allowance, e.other_allowance,
+           e.performance_allowance, e.food_allowance,
            (SELECT COUNT(*) FROM payroll p WHERE p.employee_id = e.id AND p.payroll_month = ?) as has_payroll
     FROM employees e
     WHERE e.status = 'Active'
@@ -200,7 +220,8 @@ showModal();
                 <tbody>
                     <?php foreach ($employees as $emp):
                         $gross = $emp['basic_salary'] + $emp['hra'] + $emp['conveyance'] +
-                                 $emp['medical_allowance'] + $emp['special_allowance'] + $emp['other_allowance'];
+                                 $emp['medical_allowance'] + $emp['special_allowance'] + $emp['other_allowance'] +
+                                 ($emp['performance_allowance'] ?? 0) + ($emp['food_allowance'] ?? 0);
                         $hasPayroll = $emp['has_payroll'] > 0;
                     ?>
                     <tr>

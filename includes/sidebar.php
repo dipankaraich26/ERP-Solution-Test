@@ -4,19 +4,43 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 ?>
 
 <style>
+.sidebar-logo-section {
+    padding: 10px;
+    text-align: center;
+    border-bottom: 1px solid #34495e;
+    margin-bottom: 5px;
+}
+.sidebar-logo-img {
+    max-width: 100%;
+    max-height: 45px;
+    object-fit: contain;
+    margin-bottom: 5px;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+.sidebar-company-name {
+    font-size: 0.8em;
+    color: #ecf0f1;
+    font-weight: 600;
+    word-wrap: break-word;
+    line-height: 1.1;
+}
+
 .sidebar-group {
-    margin-bottom: 8px;
+    margin-bottom: 0;
     border-bottom: 1px solid #34495e;
 }
 .sidebar-group-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 15px;
+    padding: 8px 12px;
     color: #ecf0f1;
     cursor: pointer;
     transition: background 0.2s;
     font-weight: bold;
+    font-size: 0.9em;
     border-left: 3px solid transparent;
 }
 .sidebar-group-header:hover {
@@ -28,7 +52,17 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 }
 .sidebar-group-header .arrow {
     transition: transform 0.2s;
-    font-size: 0.8em;
+    font-size: 0.7em;
+    cursor: pointer;
+    padding: 3px;
+}
+.sidebar-group-header a.module-link {
+    flex: 1;
+    color: inherit;
+    text-decoration: none;
+}
+.sidebar-group-header a.module-link:hover {
+    text-decoration: underline;
 }
 .sidebar-group.open .arrow {
     transform: rotate(90deg);
@@ -42,8 +76,8 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 }
 .sidebar-group-items a {
     display: block;
-    padding: 12px 15px 12px 30px !important;
-    font-size: 0.9em;
+    padding: 6px 12px 6px 25px !important;
+    font-size: 0.85em;
     border-left: 3px solid transparent;
     color: #bdc3c7;
 }
@@ -62,13 +96,45 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
     🌙 Dark Mode
     </button>
 
+    <!-- Company Logo & Name Section -->
+    <?php
+    // Get company settings for logo
+    $company_settings = null;
+    try {
+        $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        // Settings table might not exist, continue without logo
+    }
+    ?>
+    <div class="sidebar-logo-section">
+        <?php if ($company_settings && !empty($company_settings['logo_path'])): ?>
+            <?php
+                $logo_path = $company_settings['logo_path'];
+                if (!preg_match('~^(https?:|/)~', $logo_path)) {
+                    $logo_path = '/' . $logo_path;
+                }
+            ?>
+            <img src="<?= htmlspecialchars($logo_path) ?>" alt="Company Logo" class="sidebar-logo-img" onerror="this.style.display='none'">
+        <?php endif; ?>
+        <?php if ($company_settings && !empty($company_settings['company_name'])): ?>
+            <div class="sidebar-company-name"><?= htmlspecialchars($company_settings['company_name']) ?></div>
+        <?php else: ?>
+            <div class="sidebar-company-name">ERP System</div>
+        <?php endif; ?>
+    </div>
+
     <a id="sidebar-ERP-title" href="/">ERP</a>
 
+    <!-- Executive Dashboard -->
+    <a href="/ceo_dashboard.php" class="<?= $current === 'ceo_dashboard.php' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: bold; display: block; padding: 10px 12px; margin: 5px 8px; border-radius: 8px; text-align: center; text-decoration: none;">
+        Executive Dashboard
+    </a>
+
     <!-- Sales -->
-    <div class="sidebar-group <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers']) ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Sales</span>
-            <span class="arrow">▶</span>
+    <div class="sidebar-group <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers', 'installations']) ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers', 'installations']) ? 'active' : '' ?>">
+            <a href="/crm/dashboard.php" class="module-link">Sales & CRM</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/crm/index.php" class="<?= $currentDir === 'crm' ? 'active' : '' ?>">CRM</a>
@@ -78,17 +144,19 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/customer_po/index.php" class="<?= $currentDir === 'customer_po' ? 'active' : '' ?>">Customer PO</a>
             <a href="/sales_orders/index.php" class="<?= $currentDir === 'sales_orders' ? 'active' : '' ?>">Sales Orders</a>
             <a href="/invoices/index.php" class="<?= $currentDir === 'invoices' ? 'active' : '' ?>">Invoice</a>
+            <a href="/installations/index.php" class="<?= $currentDir === 'installations' ? 'active' : '' ?>">Installations</a>
         </div>
     </div>
 
     <!-- Purchase & Procurement -->
     <div class="sidebar-group <?= in_array($currentDir, ['suppliers', 'purchase', 'procurement']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['suppliers', 'purchase', 'procurement']) ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Purchase & SCM</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= in_array($currentDir, ['suppliers', 'purchase', 'procurement']) ? 'active' : '' ?>">
+            <a href="/purchase/dashboard.php" class="module-link">Purchase & SCM</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/suppliers/index.php" class="<?= $currentDir === 'suppliers' ? 'active' : '' ?>">Suppliers</a>
+            <a href="/purchase/supplier_pricing.php" class="<?= $currentDir === 'purchase' && $current === 'supplier_pricing.php' ? 'active' : '' ?>">Supplier Pricing</a>
             <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' ? 'active' : '' ?>">Purchase Orders</a>
             <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">Procurement Planning</a>
         </div>
@@ -96,14 +164,14 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 
     <!-- Inventory -->
     <div class="sidebar-group <?= in_array($currentDir, ['part_master', 'stock_entry', 'depletion', 'reports', 'inventory']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['part_master', 'stock_entry', 'depletion', 'reports', 'inventory']) ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Inventory</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= in_array($currentDir, ['part_master', 'stock_entry', 'depletion', 'reports', 'inventory']) ? 'active' : '' ?>">
+            <a href="/inventory/dashboard.php" class="module-link">Inventory</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/part_master/list.php" class="<?= $currentDir === 'part_master' ? 'active' : '' ?>">Part Master</a>
             <a href="/stock_entry/index.php" class="<?= $currentDir === 'stock_entry' ? 'active' : '' ?>">Stock Entries</a>
-            <a href="/depletion/index.php" class="<?= $currentDir === 'depletion' ? 'active' : '' ?>">Depletion</a>
+            <a href="/depletion/stock_adjustment.php" class="<?= $currentDir === 'depletion' ? 'active' : '' ?>">Stock Adjustment</a>
             <a href="/reports/monthly.php" class="<?= $currentDir === 'reports' ? 'active' : '' ?>">Reports</a>
             <a href="/inventory/index.php" class="<?= $currentDir === 'inventory' ? 'active' : '' ?>">Current Stock</a>
         </div>
@@ -111,9 +179,9 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 
     <!-- Operations -->
     <div class="sidebar-group <?= in_array($currentDir, ['bom', 'work_orders']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['bom', 'work_orders']) ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Operations</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= in_array($currentDir, ['bom', 'work_orders']) ? 'active' : '' ?>">
+            <a href="/bom/dashboard.php" class="module-link">Operations</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/bom/index.php" class="<?= $currentDir === 'bom' ? 'active' : '' ?>">Bill of Materials</a>
@@ -123,22 +191,26 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 
     <!-- HR -->
     <div class="sidebar-group <?= $currentDir === 'hr' ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= $currentDir === 'hr' ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>HR</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= $currentDir === 'hr' ? 'active' : '' ?>">
+            <a href="/hr/dashboard.php" class="module-link">HR</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
-            <a href="/hr/employees.php" class="<?= $currentDir === 'hr' && in_array($current, ['employees.php', 'employee_add.php', 'employee_view.php', 'employee_edit.php']) ? 'active' : '' ?>">Employees</a>
+            <a href="/hr/employees.php" class="<?= $currentDir === 'hr' && in_array($current, ['employees.php', 'employee_add.php', 'employee_view.php', 'employee_edit.php', 'employee_import.php']) ? 'active' : '' ?>">Employees</a>
+            <a href="/hr/employee_documents.php" class="<?= $currentDir === 'hr' && $current === 'employee_documents.php' ? 'active' : '' ?>">Employee Documents</a>
+            <a href="/hr/skills.php" class="<?= $currentDir === 'hr' && $current === 'skills.php' ? 'active' : '' ?>">Skills</a>
             <a href="/hr/attendance.php" class="<?= $currentDir === 'hr' && in_array($current, ['attendance.php', 'attendance_mark.php', 'holidays.php']) ? 'active' : '' ?>">Attendance</a>
+            <a href="/hr/leaves.php" class="<?= $currentDir === 'hr' && in_array($current, ['leaves.php', 'leave_apply.php', 'leave_view.php', 'leave_balance.php', 'leave_types.php']) ? 'active' : '' ?>">Leave Management</a>
             <a href="/hr/payroll.php" class="<?= $currentDir === 'hr' && in_array($current, ['payroll.php', 'payroll_generate.php', 'payroll_view.php', 'payroll_edit.php']) ? 'active' : '' ?>">Payroll</a>
+            <a href="/hr/appraisal_cycles.php" class="<?= $currentDir === 'hr' && in_array($current, ['appraisal_cycles.php', 'appraisals.php', 'appraisal_form.php', 'appraisal_criteria.php']) ? 'active' : '' ?>">Appraisals</a>
         </div>
     </div>
 
     <!-- Marketing -->
     <div class="sidebar-group <?= $currentDir === 'marketing' ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= $currentDir === 'marketing' ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Marketing</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= $currentDir === 'marketing' ? 'active' : '' ?>">
+            <a href="/marketing/dashboard.php" class="module-link">Marketing</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/marketing/catalogs.php" class="<?= $currentDir === 'marketing' && in_array($current, ['catalogs.php', 'catalog_add.php', 'catalog_view.php', 'catalog_edit.php']) ? 'active' : '' ?>">Catalogs</a>
@@ -150,9 +222,9 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 
     <!-- Service -->
     <div class="sidebar-group <?= $currentDir === 'service' ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= $currentDir === 'service' ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Service</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= $currentDir === 'service' ? 'active' : '' ?>">
+            <a href="/service/dashboard.php" class="module-link">Service</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/service/complaints.php" class="<?= $currentDir === 'service' && in_array($current, ['complaints.php', 'complaint_add.php', 'complaint_view.php', 'complaint_edit.php']) ? 'active' : '' ?>">Complaints</a>
@@ -161,16 +233,104 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
         </div>
     </div>
 
+    <!-- QMS (Quality Management System) -->
+    <?php
+    $qmsParentDir = dirname($currentDir);
+    $isQmsSection = ($currentDir === 'qms' || $qmsParentDir === 'qms' || in_array($currentDir, ['cdsco', 'iso', 'icmed']));
+    ?>
+    <div class="sidebar-group <?= $isQmsSection ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $isQmsSection ? 'active' : '' ?>">
+            <a href="/qms/dashboard.php" class="module-link">QMS</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/qms/cdsco/products.php" class="<?= $currentDir === 'cdsco' ? 'active' : '' ?>">CDSCO</a>
+            <a href="/qms/iso/certifications.php" class="<?= $currentDir === 'iso' ? 'active' : '' ?>">ISO</a>
+            <a href="/qms/icmed/certifications.php" class="<?= $currentDir === 'icmed' ? 'active' : '' ?>">ICMED</a>
+        </div>
+    </div>
+
+    <!-- Tasks -->
+    <div class="sidebar-group <?= $currentDir === 'tasks' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'tasks' ? 'active' : '' ?>">
+            <a href="/tasks/dashboard.php" class="module-link">Tasks</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/tasks/index.php" class="<?= $currentDir === 'tasks' && in_array($current, ['index.php', 'view.php', 'edit.php']) ? 'active' : '' ?>">All Tasks</a>
+            <a href="/tasks/calendar.php" class="<?= $currentDir === 'tasks' && in_array($current, ['calendar.php', 'schedule_table.php']) ? 'active' : '' ?>">Task Calendar</a>
+            <a href="/tasks/add.php" class="<?= $currentDir === 'tasks' && $current === 'add.php' ? 'active' : '' ?>">New Task</a>
+            <a href="/tasks/categories.php" class="<?= $currentDir === 'tasks' && $current === 'categories.php' ? 'active' : '' ?>">Categories</a>
+        </div>
+    </div>
+
+    <!-- Product Engineering -->
+    <div class="sidebar-group <?= $currentDir === 'project_management' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'project_management' ? 'active' : '' ?>">
+            <a href="/project_management/dashboard.php" class="module-link">Product Engineering</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/project_management/index.php" class="<?= $currentDir === 'project_management' && in_array($current, ['index.php', 'view.php', 'edit.php', 'add.php']) ? 'active' : '' ?>">Projects</a>
+            <a href="/project_management/reviews.php" class="<?= $currentDir === 'project_management' && in_array($current, ['reviews.php', 'review_add.php', 'review_view.php', 'review_edit.php']) ? 'active' : '' ?>">Engineering Reviews</a>
+            <a href="/project_management/change_requests.php" class="<?= $currentDir === 'project_management' && in_array($current, ['change_requests.php', 'eco_add.php', 'eco_view.php', 'eco_edit.php']) ? 'active' : '' ?>">Change Requests</a>
+            <a href="/project_management/findings.php" class="<?= $currentDir === 'project_management' && $current === 'findings.php' ? 'active' : '' ?>">Review Findings</a>
+            <a href="/project_management/part_id_series.php" class="<?= $currentDir === 'project_management' && $current === 'part_id_series.php' ? 'active' : '' ?>">Part ID Series</a>
+        </div>
+    </div>
+
+    <!-- Quality Control -->
+    <div class="sidebar-group <?= $currentDir === 'quality_control' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'quality_control' ? 'active' : '' ?>">
+            <a href="/quality_control/dashboard.php" class="module-link">Quality Control</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/quality_control/issues.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['issues.php', 'issue_add.php', 'issue_view.php', 'issue_edit.php']) ? 'active' : '' ?>">Quality Issues</a>
+            <a href="/quality_control/checklists.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['checklists.php', 'checklist_add.php', 'checklist_view.php', 'checklist_edit.php']) ? 'active' : '' ?>">Checklists</a>
+            <a href="/quality_control/inspections.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['inspections.php', 'inspection_add.php', 'inspection_view.php']) ? 'active' : '' ?>">Incoming Inspections</a>
+            <a href="/quality_control/ppap.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['ppap.php', 'ppap_add.php', 'ppap_view.php', 'ppap_edit.php']) ? 'active' : '' ?>">PPAP</a>
+            <a href="/quality_control/part_submissions.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['part_submissions.php', 'part_submission_add.php', 'part_submission_view.php']) ? 'active' : '' ?>">Part Submissions</a>
+            <a href="/quality_control/ncrs.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['ncrs.php', 'ncr_add.php', 'ncr_view.php', 'ncr_edit.php']) ? 'active' : '' ?>">Supplier NCRs</a>
+            <a href="/quality_control/supplier_ratings.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['supplier_ratings.php', 'rating_add.php']) ? 'active' : '' ?>">Supplier Ratings</a>
+            <a href="/quality_control/audits.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['audits.php', 'audit_add.php', 'audit_view.php']) ? 'active' : '' ?>">Supplier Audits</a>
+            <a href="/quality_control/calibration.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['calibration.php', 'calibration_add.php']) ? 'active' : '' ?>">Calibration</a>
+        </div>
+    </div>
+
+    <!-- Accounts & Finance -->
+    <div class="sidebar-group <?= $currentDir === 'accounts' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'accounts' ? 'active' : '' ?>">
+            <a href="/accounts/dashboard.php" class="module-link">Accounts & Finance</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/accounts/ledgers.php" class="<?= $currentDir === 'accounts' && in_array($current, ['ledgers.php', 'ledger_add.php', 'ledger_edit.php']) ? 'active' : '' ?>">Chart of Accounts</a>
+            <a href="/accounts/vouchers.php" class="<?= $currentDir === 'accounts' && in_array($current, ['vouchers.php', 'voucher_add.php', 'voucher_view.php']) ? 'active' : '' ?>">Vouchers</a>
+            <a href="/accounts/expenses.php" class="<?= $currentDir === 'accounts' && in_array($current, ['expenses.php', 'expense_add.php', 'expense_view.php']) ? 'active' : '' ?>">Expenses</a>
+            <a href="/accounts/bank_reconciliation.php" class="<?= $currentDir === 'accounts' && $current === 'bank_reconciliation.php' ? 'active' : '' ?>">Bank Reconciliation</a>
+            <a href="/accounts/gst.php" class="<?= $currentDir === 'accounts' && in_array($current, ['gst.php', 'gstr1.php', 'gstr3b.php']) ? 'active' : '' ?>">GST</a>
+            <a href="/accounts/tds.php" class="<?= $currentDir === 'accounts' && in_array($current, ['tds.php', 'tds_add.php', 'tds_view.php']) ? 'active' : '' ?>">TDS</a>
+            <a href="/accounts/trial_balance.php" class="<?= $currentDir === 'accounts' && $current === 'trial_balance.php' ? 'active' : '' ?>">Trial Balance</a>
+            <a href="/accounts/profit_loss.php" class="<?= $currentDir === 'accounts' && $current === 'profit_loss.php' ? 'active' : '' ?>">Profit & Loss</a>
+            <a href="/accounts/balance_sheet.php" class="<?= $currentDir === 'accounts' && $current === 'balance_sheet.php' ? 'active' : '' ?>">Balance Sheet</a>
+        </div>
+    </div>
+
     <!-- Admin -->
     <div class="sidebar-group <?= $currentDir === 'admin' ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= $currentDir === 'admin' ? 'active' : '' ?>" onclick="toggleGroup(this)">
-            <span>Admin</span>
-            <span class="arrow">▶</span>
+        <div class="sidebar-group-header <?= $currentDir === 'admin' ? 'active' : '' ?>">
+            <a href="/admin/settings.php" class="module-link">Admin</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">▶</span>
         </div>
         <div class="sidebar-group-items">
             <a href="/admin/settings.php" class="<?= $currentDir === 'admin' && $current === 'settings.php' ? 'active' : '' ?>">Company Settings</a>
             <a href="/admin/users.php" class="<?= $currentDir === 'admin' && $current === 'users.php' ? 'active' : '' ?>">User Management</a>
+            <a href="/admin/user_permissions.php" class="<?= $currentDir === 'admin' && $current === 'user_permissions.php' ? 'active' : '' ?>">User Permissions</a>
             <a href="/admin/locations.php" class="<?= $currentDir === 'admin' && $current === 'locations.php' ? 'active' : '' ?>">Location Management</a>
+            <a href="/admin/attendance_settings.php" class="<?= $currentDir === 'admin' && $current === 'attendance_settings.php' ? 'active' : '' ?>">Attendance Settings</a>
+            <a href="/admin/wo_approvers.php" class="<?= $currentDir === 'admin' && $current === 'wo_approvers.php' ? 'active' : '' ?>">WO Approvers</a>
+            <a href="/admin/po_inspection_approvers.php" class="<?= $currentDir === 'admin' && in_array($current, ['po_inspection_approvers.php', 'setup_po_inspection.php']) ? 'active' : '' ?>">PO Inspection Approvers</a>
         </div>
     </div>
 
@@ -182,7 +342,8 @@ function toggleGroup(header) {
     group.classList.toggle('open');
 
     // Save state to localStorage
-    const groupName = header.querySelector('span').textContent;
+    const moduleLink = header.querySelector('a.module-link');
+    const groupName = moduleLink ? moduleLink.textContent : 'unknown';
     const isOpen = group.classList.contains('open');
     localStorage.setItem('sidebar_' + groupName, isOpen ? 'open' : 'closed');
 }
@@ -190,7 +351,8 @@ function toggleGroup(header) {
 // Restore saved states on page load
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.sidebar-group').forEach(group => {
-        const groupName = group.querySelector('.sidebar-group-header span').textContent;
+        const moduleLink = group.querySelector('.sidebar-group-header a.module-link');
+        const groupName = moduleLink ? moduleLink.textContent : 'unknown';
         const savedState = localStorage.getItem('sidebar_' + groupName);
 
         // If there's a saved state, use it (unless the group has an active item)
@@ -202,4 +364,3 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-

@@ -11,18 +11,20 @@ if (!$so_no) {
 // Fetch company settings
 $settings = $pdo->query("SELECT * FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
 
-// Fetch sales order items with part details
+// Fetch sales order items with part details and current stock
 $stmt = $pdo->prepare("
     SELECT so.*, p.part_name, p.hsn_code, p.uom,
            c.company_name, c.customer_name, c.address1, c.address2,
            c.city, c.state, c.pincode, c.gstin, c.contact,
            cp.po_no as customer_po_no, cp.po_date,
-           q.pi_no, q.quote_no
+           q.pi_no, q.quote_no,
+           COALESCE(inv.qty, 0) as current_stock
     FROM sales_orders so
     JOIN part_master p ON p.part_no = so.part_no
     LEFT JOIN customers c ON c.id = so.customer_id
     LEFT JOIN customer_po cp ON cp.id = so.customer_po_id
     LEFT JOIN quote_master q ON q.id = so.linked_quote_id
+    LEFT JOIN inventory inv ON inv.part_no = so.part_no
     WHERE so.so_no = ?
     ORDER BY so.id
 ");
@@ -106,6 +108,10 @@ $document_title = 'SALES ORDER';
         .status-released { background: #28a745; color: #fff; }
         .status-open { background: #17a2b8; color: #fff; }
 
+        .stock-ok { color: #28a745; font-weight: bold; }
+        .stock-low { color: #dc3545; font-weight: bold; }
+        .stock-warning { color: #ffc107; font-weight: bold; }
+
         .signature-section {
             display: flex;
             justify-content: space-between;
@@ -144,7 +150,10 @@ $document_title = 'SALES ORDER';
 </head>
 <body>
 
-<button class="print-btn" onclick="window.print()">Print</button>
+<div style="position: fixed; top: 20px; right: 20px;">
+    <button class="print-btn" style="background: #6c757d; margin-right: 10px;" onclick="window.location.href='view.php?so_no=<?= urlencode($so_no) ?>'">Back</button>
+    <button class="print-btn" onclick="window.print()">Print</button>
+</div>
 
 <div class="print-container">
 
@@ -191,14 +200,31 @@ $document_title = 'SALES ORDER';
                 <th>Part No</th>
                 <th>Description</th>
                 <th>HSN</th>
-                <th style="width: 70px;">Quantity</th>
+                <th style="width: 70px;">Req Qty</th>
                 <th style="width: 50px;">Unit</th>
+                <th style="width: 80px;">Current Stock</th>
+                <th style="width: 60px;">Status</th>
             </tr>
         </thead>
         <tbody>
-            <?php $totalQty = 0; ?>
+            <?php $totalQty = 0; $stockIssues = 0; ?>
             <?php foreach ($items as $i => $item): ?>
-            <?php $totalQty += $item['qty']; ?>
+            <?php
+                $totalQty += $item['qty'];
+                $currentStock = $item['current_stock'];
+                $requiredQty = $item['qty'];
+                $stockClass = 'stock-ok';
+                $stockStatus = 'OK';
+
+                if ($currentStock < $requiredQty) {
+                    $stockClass = 'stock-low';
+                    $stockStatus = 'LOW';
+                    $stockIssues++;
+                } elseif ($currentStock < ($requiredQty * 1.5)) {
+                    $stockClass = 'stock-warning';
+                    $stockStatus = 'Limited';
+                }
+            ?>
             <tr>
                 <td><?= $i + 1 ?></td>
                 <td><?= htmlspecialchars($item['part_no']) ?></td>
@@ -206,6 +232,8 @@ $document_title = 'SALES ORDER';
                 <td><?= htmlspecialchars($item['hsn_code'] ?? '') ?></td>
                 <td class="number"><?= number_format($item['qty'], 2) ?></td>
                 <td><?= htmlspecialchars($item['uom'] ?? 'Nos') ?></td>
+                <td class="number <?= $stockClass ?>"><?= number_format($currentStock, 2) ?></td>
+                <td class="<?= $stockClass ?>" style="text-align: center;"><?= $stockStatus ?></td>
             </tr>
             <?php endforeach; ?>
         </tbody>
@@ -214,6 +242,13 @@ $document_title = 'SALES ORDER';
                 <td colspan="4" style="text-align: right;">Total Items: <?= count($items) ?></td>
                 <td class="number"><?= number_format($totalQty, 2) ?></td>
                 <td></td>
+                <td colspan="2" style="text-align: center;">
+                    <?php if ($stockIssues > 0): ?>
+                        <span class="stock-low"><?= $stockIssues ?> item(s) low</span>
+                    <?php else: ?>
+                        <span class="stock-ok">All OK</span>
+                    <?php endif; ?>
+                </td>
             </tr>
         </tfoot>
     </table>

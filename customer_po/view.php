@@ -76,6 +76,7 @@ include "../includes/sidebar.php";
         <div class="action-buttons">
             <a href="index.php" class="btn btn-secondary">Back to List</a>
             <a href="edit.php?id=<?= $id ?>" class="btn btn-primary">Edit</a>
+            <a href="print.php?id=<?= $id ?>" class="btn btn-success" target="_blank">Print / PDF</a>
             <?php if ($po['attachment_path']): ?>
                 <a href="../<?= htmlspecialchars($po['attachment_path']) ?>" target="_blank" class="btn btn-secondary">Download Attachment</a>
             <?php endif; ?>
