@@ -192,7 +192,7 @@ $settings = $pdo->query("SELECT company_name, logo_path FROM company_settings WH
     </form>
 
     <p class="footer-note">
-        Default login: admin / admin123
+        <!-- Default login: admin / admin123 -->
     </p>
 
     <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
