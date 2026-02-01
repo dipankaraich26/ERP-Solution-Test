@@ -2,3 +2,5 @@ migr.php
 db.php
 uploads
 .claude
+migration*
+Dump*
