@@ -50,12 +50,13 @@ $stats = [
 ];
 ?>
 
-<div class="content">
+<div class="content" style="overflow-y: auto; height: calc(100vh - 60px);">
     <style>
         .stats-row {
             display: flex;
             gap: 20px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
         .stat-box {
             background: white;
@@ -88,9 +89,33 @@ $stats = [
         }
         .filters input[type="text"] { width: 250px; }
 
-        .emp-table { width: 100%; border-collapse: collapse; }
-        .emp-table th, .emp-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        .emp-table th { background: #f5f5f5; font-weight: bold; }
+        /* Table container for horizontal scroll */
+        .table-container {
+            overflow-x: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .emp-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 900px; /* Ensures horizontal scroll on small screens */
+        }
+        .emp-table th, .emp-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            white-space: nowrap;
+        }
+        .emp-table th {
+            background: #f5f5f5;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
         .emp-table tr:hover { background: #fafafa; }
 
         .emp-photo {
@@ -101,7 +126,7 @@ $stats = [
             background: #ddd;
         }
         .emp-info { display: flex; align-items: center; gap: 12px; }
-        .emp-name { font-weight: bold; }
+        .emp-name { font-weight: bold; white-space: nowrap; }
         .emp-id { color: #7f8c8d; font-size: 0.85em; }
 
         .status-badge {
@@ -110,12 +135,29 @@ $stats = [
             border-radius: 12px;
             font-size: 0.85em;
             font-weight: bold;
+            white-space: nowrap;
         }
         .status-Active { background: #d4edda; color: #155724; }
         .status-Inactive { background: #f8d7da; color: #721c24; }
         .status-On-Leave { background: #fff3cd; color: #856404; }
         .status-Resigned { background: #e2e3e5; color: #383d41; }
         .status-Terminated { background: #f8d7da; color: #721c24; }
+
+        /* Scrollbar styling */
+        .table-container::-webkit-scrollbar {
+            height: 8px;
+        }
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        .table-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
     </style>
 
     <h1>Employee Management</h1>
@@ -169,57 +211,60 @@ $stats = [
         </div>
     </div>
 
-    <table class="emp-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Department</th>
-                <th>Designation</th>
-                <th>Phone</th>
-                <th>Joined</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (empty($employees)): ?>
-                <tr><td colspan="7" style="text-align: center; padding: 40px; color: #7f8c8d;">No employees found</td></tr>
-            <?php else: ?>
-                <?php foreach ($employees as $emp): ?>
+    <!-- Table with horizontal scroll -->
+    <div class="table-container">
+        <table class="emp-table">
+            <thead>
                 <tr>
-                    <td>
-                        <div class="emp-info">
-                            <?php if (!empty($emp['photo_path'])): ?>
-                                <img src="../<?= htmlspecialchars($emp['photo_path']) ?>" class="emp-photo" alt="">
-                            <?php else: ?>
-                                <div class="emp-photo" style="display: flex; align-items: center; justify-content: center; color: #fff; background: #3498db;">
-                                    <?= strtoupper(substr($emp['first_name'], 0, 1)) ?>
-                                </div>
-                            <?php endif; ?>
-                            <div>
-                                <div class="emp-name"><?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?></div>
-                                <div class="emp-id"><?= htmlspecialchars($emp['emp_id']) ?></div>
-                            </div>
-                        </div>
-                    </td>
-                    <td><?= htmlspecialchars($emp['department'] ?? '-') ?></td>
-                    <td><?= htmlspecialchars($emp['designation'] ?? '-') ?></td>
-                    <td><?= htmlspecialchars($emp['phone']) ?></td>
-                    <td><?= $emp['date_of_joining'] ? date('d M Y', strtotime($emp['date_of_joining'])) : '-' ?></td>
-                    <td>
-                        <span class="status-badge status-<?= str_replace(' ', '-', $emp['status']) ?>">
-                            <?= $emp['status'] ?>
-                        </span>
-                    </td>
-                    <td>
-                        <a href="employee_view.php?id=<?= $emp['id'] ?>" class="btn btn-sm">View</a>
-                        <a href="employee_edit.php?id=<?= $emp['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
-                    </td>
+                    <th>Employee</th>
+                    <th>Department</th>
+                    <th>Designation</th>
+                    <th>Phone</th>
+                    <th>Joined</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                 </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php if (empty($employees)): ?>
+                    <tr><td colspan="7" style="text-align: center; padding: 40px; color: #7f8c8d;">No employees found</td></tr>
+                <?php else: ?>
+                    <?php foreach ($employees as $emp): ?>
+                    <tr>
+                        <td>
+                            <div class="emp-info">
+                                <?php if (!empty($emp['photo_path'])): ?>
+                                    <img src="../<?= htmlspecialchars($emp['photo_path']) ?>" class="emp-photo" alt="">
+                                <?php else: ?>
+                                    <div class="emp-photo" style="display: flex; align-items: center; justify-content: center; color: #fff; background: #3498db;">
+                                        <?= strtoupper(substr($emp['first_name'], 0, 1)) ?>
+                                    </div>
+                                <?php endif; ?>
+                                <div>
+                                    <div class="emp-name"><?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?></div>
+                                    <div class="emp-id"><?= htmlspecialchars($emp['emp_id']) ?></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td><?= htmlspecialchars($emp['department'] ?? '-') ?></td>
+                        <td><?= htmlspecialchars($emp['designation'] ?? '-') ?></td>
+                        <td><?= htmlspecialchars($emp['phone']) ?></td>
+                        <td><?= $emp['date_of_joining'] ? date('d M Y', strtotime($emp['date_of_joining'])) : '-' ?></td>
+                        <td>
+                            <span class="status-badge status-<?= str_replace(' ', '-', $emp['status']) ?>">
+                                <?= $emp['status'] ?>
+                            </span>
+                        </td>
+                        <td style="white-space: nowrap;">
+                            <a href="employee_view.php?id=<?= $emp['id'] ?>" class="btn btn-sm">View</a>
+                            <a href="employee_edit.php?id=<?= $emp['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <?php include "../includes/footer.php"; ?>
