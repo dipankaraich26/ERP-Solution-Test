@@ -1,8 +1,13 @@
 <?php
+// TEMPORARY: Enable error display
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 include "../db.php";
 
 $error = '';
+$debug = '';
 
 // If already logged in, redirect to portal
 if (isset($_SESSION['emp_attendance_id'])) {
@@ -36,9 +41,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['emp_attendance_designation'] = $employee['designation'];
                 $_SESSION['emp_attendance_photo'] = $employee['photo_path'];
 
+                // DEBUG: Show what was set before redirect
+                // Remove this after debugging
+                $debug = "Login successful! Redirecting... (Session ID: " . session_id() . ")";
+
                 header("Location: attendance_portal.php");
                 exit;
             } else {
+                // DEBUG: Show what emp_ids exist in database
+                $allEmps = $pdo->query("SELECT emp_id, phone FROM employees LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+                $debug = "Sample emp_ids in DB: " . implode(', ', array_column($allEmps, 'emp_id'));
                 // Debug: Check if employee exists with that ID
                 $check = $pdo->prepare("SELECT emp_id, phone, status FROM employees WHERE emp_id = ?");
                 $check->execute([$emp_id]);
@@ -217,6 +229,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <?php if ($error): ?>
         <div class="error-message"><?= htmlspecialchars($error) ?></div>
+    <?php endif; ?>
+
+    <?php if (!empty($debug)): ?>
+        <div style="background: #e3f2fd; color: #1565c0; padding: 12px 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.85em;">
+            <strong>DEBUG:</strong> <?= htmlspecialchars($debug) ?>
+        </div>
     <?php endif; ?>
 
     <form method="post">
