@@ -12,8 +12,8 @@ echo "<h3>Testing Database Connection...</h3>";
 // These are your LOCAL credentials - they won't work online!
 $host = "localhost";
 $db   = "yashka_erpsystem";
-$user = "root";  // <-- This is wrong for online server
-$pass = "";      // <-- This is wrong for online server
+$user = "yashka_erpmaster";  // <-- This is wrong for online server
+$pass = "erp4236$@#^";      // <-- This is wrong for online server
 $port = "3306";
 
 echo "<p>Attempting to connect with:</p>";
