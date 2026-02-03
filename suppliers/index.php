@@ -14,7 +14,7 @@ $max = $pdo->query("
 ")->fetchColumn();
 
 $next = $max ? ((int)$max + 1) : 1;
-$supplier_code = 'SUP-' . str_pad($next, 3, '0', STR_PAD_LEFT);
+$supplier_code = 'SUP' . str_pad($next, 3, '0', STR_PAD_LEFT);
 
 /* =========================
    HANDLE ADD SUPPLIER
