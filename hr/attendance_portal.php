@@ -1,5 +1,9 @@
 <?php
 session_start();
+
+// Set timezone to India Standard Time
+date_default_timezone_set('Asia/Kolkata');
+
 include "../db.php";
 include "../includes/dialog.php";
 
