@@ -59,7 +59,7 @@ $total_pages = ceil($total_count / $per_page);
 
 $stmt = $pdo->prepare("
     SELECT * FROM suppliers
-    ORDER BY supplier_name
+    ORDER BY supplier_code DESC
     LIMIT :limit OFFSET :offset
 ");
 $stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
