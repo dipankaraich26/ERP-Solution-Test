@@ -8,13 +8,13 @@ $error = '';
    GENERATE NEXT SUPPLIER ID
 ========================= */
 $max = $pdo->query("
-    SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED))
+    SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED))
     FROM suppliers
-    WHERE supplier_code LIKE 'SUP-%'
+    WHERE supplier_code LIKE 'SUP%'
 ")->fetchColumn();
 
 $next = $max ? ((int)$max + 1) : 1;
-$supplier_code = 'SUP-' . str_pad($next, 4, '0', STR_PAD_LEFT);
+$supplier_code = 'SUP-' . str_pad($next, 3, '0', STR_PAD_LEFT);
 
 /* =========================
    HANDLE ADD SUPPLIER
