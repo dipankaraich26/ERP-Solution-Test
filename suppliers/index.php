@@ -5,10 +5,22 @@ include "../includes/dialog.php";
 $error = '';
 
 /* =========================
+   GENERATE NEXT SUPPLIER ID
+========================= */
+$max = $pdo->query("
+    SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED))
+    FROM suppliers
+    WHERE supplier_code LIKE 'SUP%'
+")->fetchColumn();
+
+$next = $max ? ((int)$max + 1) : 1;
+$supplier_code = 'SUP' . str_pad($next, 3, '0', STR_PAD_LEFT);
+
+/* =========================
    HANDLE ADD SUPPLIER
 ========================= */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $code = $_POST['supplier_code'];
+    $code = $_POST['supplier_code']; // This will be the auto-generated code
     $name = $_POST['supplier_name'];
     $contact = $_POST['contact_person'];
     $phone = $_POST['phone'];
@@ -80,8 +92,8 @@ showModal();
 
     <!-- ADD SUPPLIER FORM -->
     <form method="post" class="form-grid" style="max-width: 600px; margin-bottom: 30px;">
-        <label>Code</label>
-        <input name="supplier_code" required>
+        <label>Supplier ID</label>
+        <input name="supplier_code" value="<?= htmlspecialchars($supplier_code) ?>" readonly style="background: #f0f0f0; cursor: not-allowed;">
 
         <label>Name</label>
         <input name="supplier_name" required>

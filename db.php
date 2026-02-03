@@ -1,4 +1,7 @@
 <?php
+// Set timezone to India Standard Time
+date_default_timezone_set('Asia/Kolkata');
+
 $host = "localhost";
 $db   = "yashka_erpsystem";
 $user = "root";
