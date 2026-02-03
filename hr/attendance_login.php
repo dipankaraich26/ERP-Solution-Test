@@ -17,28 +17,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($emp_id) || empty($phone)) {
         $error = "Please enter both Employee ID and Phone Number";
     } else {
-        // Verify employee credentials
-        $stmt = $pdo->prepare("
-            SELECT id, emp_id, first_name, last_name, phone, department, designation, photo_path
-            FROM employees
-            WHERE emp_id = ? AND phone = ? AND status = 'Active'
-        ");
-        $stmt->execute([$emp_id, $phone]);
-        $employee = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            // Verify employee credentials
+            $stmt = $pdo->prepare("
+                SELECT id, emp_id, first_name, last_name, phone, department, designation, photo_path
+                FROM employees
+                WHERE emp_id = ? AND phone = ? AND status = 'Active'
+            ");
+            $stmt->execute([$emp_id, $phone]);
+            $employee = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($employee) {
-            // Set session
-            $_SESSION['emp_attendance_id'] = $employee['id'];
-            $_SESSION['emp_attendance_emp_id'] = $employee['emp_id'];
-            $_SESSION['emp_attendance_name'] = $employee['first_name'] . ' ' . $employee['last_name'];
-            $_SESSION['emp_attendance_dept'] = $employee['department'];
-            $_SESSION['emp_attendance_designation'] = $employee['designation'];
-            $_SESSION['emp_attendance_photo'] = $employee['photo_path'];
+            if ($employee) {
+                // Set session
+                $_SESSION['emp_attendance_id'] = $employee['id'];
+                $_SESSION['emp_attendance_emp_id'] = $employee['emp_id'];
+                $_SESSION['emp_attendance_name'] = $employee['first_name'] . ' ' . $employee['last_name'];
+                $_SESSION['emp_attendance_dept'] = $employee['department'];
+                $_SESSION['emp_attendance_designation'] = $employee['designation'];
+                $_SESSION['emp_attendance_photo'] = $employee['photo_path'];
 
-            header("Location: attendance_portal.php");
-            exit;
-        } else {
-            $error = "Invalid Employee ID or Phone Number";
+                header("Location: attendance_portal.php");
+                exit;
+            } else {
+                // Debug: Check if employee exists with that ID
+                $check = $pdo->prepare("SELECT emp_id, phone, status FROM employees WHERE emp_id = ?");
+                $check->execute([$emp_id]);
+                $emp_check = $check->fetch(PDO::FETCH_ASSOC);
+
+                if ($emp_check) {
+                    if ($emp_check['phone'] !== $phone) {
+                        $error = "Invalid Phone Number. Please check and try again.";
+                    } elseif ($emp_check['status'] !== 'Active') {
+                        $error = "Your account is not active. Please contact HR.";
+                    }
+                } else {
+                    $error = "Invalid Employee ID. Please check and try again.";
+                }
+            }
+        } catch (Exception $e) {
+            $error = "Login error. Please contact support. (Error: " . $e->getMessage() . ")";
+            error_log("Attendance login error: " . $e->getMessage());
         }
     }
 }
