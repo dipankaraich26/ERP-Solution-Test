@@ -4,8 +4,8 @@ date_default_timezone_set('Asia/Kolkata');
 
 $host = "localhost";
 $db   = "yashka_erpsystem";
-$user = "root";
-$pass = "";
+$user = "yashka_erpmaster";
+$pass = "erp4236$@#^";
 $port = "3306";
 
 try {
