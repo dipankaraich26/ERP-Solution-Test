@@ -225,7 +225,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             border-radius: 8px;
             max-height: 300px;
             overflow-y: auto;
-            z-index: 9999;
+            z-index: 999999;
             display: none;
             box-shadow: 0 8px 24px rgba(0,0,0,0.2);
             margin-top: 4px;
