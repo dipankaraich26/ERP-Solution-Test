@@ -11,6 +11,88 @@ if (!$wo_id) {
 $success = '';
 $error = '';
 
+// ── Auto-create quality checklist tables if they don't exist ──
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS wo_quality_checklists (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            work_order_id INT NOT NULL,
+            checklist_no VARCHAR(30) NOT NULL UNIQUE,
+            inspector_name VARCHAR(100),
+            inspection_date DATE,
+            overall_result ENUM('Pass','Fail','Pending') DEFAULT 'Pending',
+            remarks TEXT,
+            status ENUM('Draft','Submitted','Approved','Rejected') DEFAULT 'Draft',
+            created_by INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            submitted_at DATETIME
+        )
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS wo_quality_checklist_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            checklist_id INT NOT NULL,
+            item_no INT NOT NULL,
+            checkpoint VARCHAR(255) NOT NULL,
+            specification VARCHAR(255),
+            result ENUM('OK','Not OK','NA','Pending') DEFAULT 'Pending',
+            actual_value VARCHAR(100),
+            remarks TEXT
+        )
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS wo_quality_checkpoint_templates (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            item_no INT NOT NULL,
+            checkpoint VARCHAR(255) NOT NULL,
+            specification VARCHAR(255),
+            category VARCHAR(100),
+            is_mandatory TINYINT(1) DEFAULT 1,
+            is_active TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS wo_closing_approvals (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            work_order_id INT NOT NULL,
+            checklist_id INT,
+            requested_by INT,
+            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            approver_id INT NOT NULL,
+            status ENUM('Pending','Approved','Rejected') DEFAULT 'Pending',
+            approved_at DATETIME,
+            remarks TEXT
+        )
+    ");
+
+    // Populate default checkpoint templates if empty
+    $tplCount = $pdo->query("SELECT COUNT(*) FROM wo_quality_checkpoint_templates")->fetchColumn();
+    if ($tplCount == 0) {
+        $ins = $pdo->prepare("INSERT INTO wo_quality_checkpoint_templates (item_no, checkpoint, specification, category, is_mandatory) VALUES (?,?,?,?,?)");
+        $defaults = [
+            [1,  'Raw Material Inspection',          'Verify raw material grade & certificate',       'Incoming',    1],
+            [2,  'Dimensional Accuracy',              'As per drawing tolerance ±0.05mm',              'Dimensional', 1],
+            [3,  'Surface Finish Quality',            'Ra value within spec, no scratches/dents',      'Visual',      1],
+            [4,  'Weight Check',                      'Within ±2% of specified weight',                'Measurement', 1],
+            [5,  'Hardness Test',                     'HRC/HRB within specified range',                'Testing',     1],
+            [6,  'Visual Inspection – Coating/Paint', 'Uniform coverage, no peeling/bubbling',         'Visual',      1],
+            [7,  'Assembly Fitment Check',            'All components fit as per assembly drawing',     'Assembly',    1],
+            [8,  'Fastener Torque Verification',      'Torque values as per spec sheet',               'Assembly',    1],
+            [9,  'Functional / Operation Test',       'Operates correctly under rated conditions',      'Functional',  1],
+            [10, 'Leak / Pressure Test',              'No leaks at specified test pressure',            'Testing',     0],
+            [11, 'Electrical Continuity / Insulation','Resistance & insulation per safety std',         'Electrical',  0],
+            [12, 'Noise & Vibration Level',           'Within acceptable dB / vibration limits',        'Functional',  0],
+            [13, 'Packaging & Labeling',              'Correct labels, barcodes, packing list',         'Packaging',   1],
+            [14, 'Traceability – Serial / Batch No.', 'Serial & batch numbers recorded & matched',     'Documentation',1],
+            [15, 'Final Approval / Sign-off',         'QC Manager sign-off before dispatch',           'Approval',    1],
+        ];
+        foreach ($defaults as $d) { $ins->execute($d); }
+    }
+} catch (PDOException $e) {
+    // Tables may already exist – ignore errors
+}
+
 // Fetch work order details
 $woStmt = $pdo->prepare("
     SELECT w.*, p.part_name, b.bom_no, b.description as bom_desc,
