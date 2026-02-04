@@ -281,6 +281,63 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 15px;
             align-items: center;
         }
+
+        .part-selector-wrapper {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        #globalSearchResults {
+            margin-top: 10px;
+            background: white;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        #globalSearchResults table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        #globalSearchResults th {
+            background: #3498db;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        #globalSearchResults td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        #globalSearchResults tr:hover {
+            background: #f0f8ff;
+        }
+
+        .add-part-btn {
+            padding: 6px 15px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .add-part-btn:hover {
+            background: #229954;
+        }
     </style>
 </head>
 <body>
@@ -313,6 +370,21 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
         <?php endif; ?>
 
         <form method="post" id="poForm">
+            <!-- Part Selector Section -->
+            <div class="part-selector-wrapper">
+                <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Search & Add Parts</h3>
+                <div style="position: relative; margin-bottom: 20px;">
+                    <input type="text"
+                           id="globalPartSearch"
+                           placeholder="Search by part number or part name..."
+                           autocomplete="off"
+                           style="width: 100%; padding: 12px 15px; border: 2px solid #3498db; border-radius: 8px; font-size: 15px;">
+                    <div id="globalSearchResults" style="display: none;">
+                        <!-- Search results will appear here -->
+                    </div>
+                </div>
+            </div>
+
             <div class="items-table-wrapper">
                 <table class="items-table">
                 <thead>
@@ -577,9 +649,130 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Global part search functionality
+function initGlobalSearch() {
+    const searchInput = document.getElementById('globalPartSearch');
+    const resultsDiv = document.getElementById('globalSearchResults');
+
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+
+        if (query.length < 1) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        const matches = partsData.filter(p =>
+            p.part_no.toLowerCase().includes(query) ||
+            p.part_name.toLowerCase().includes(query)
+        ).slice(0, 20);
+
+        if (matches.length === 0) {
+            resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">No parts found</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
+
+        const tableHtml = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Part Number</th>
+                        <th>Part Name</th>
+                        <th style="width: 100px; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${matches.map(p => `
+                        <tr>
+                            <td><strong>${escapeHtml(p.part_no)}</strong></td>
+                            <td>${escapeHtml(p.part_name)}</td>
+                            <td style="text-align: center;">
+                                <button type="button" class="add-part-btn"
+                                        onclick="addPartToTable('${escapeHtml(p.part_no)}', '${escapeHtml(p.part_name)}')">
+                                    + Add
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+
+        resultsDiv.innerHTML = tableHtml;
+        resultsDiv.style.display = 'block';
+    });
+
+    // Hide results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+            resultsDiv.style.display = 'none';
+        }
+    });
+}
+
+// Add selected part to the main table
+function addPartToTable(partNo, partName) {
+    const tbody = document.getElementById('itemsTableBody');
+    const newRow = document.createElement('tr');
+    newRow.className = 'item-row';
+    newRow.innerHTML = `
+        <td>${rowIndex + 1}</td>
+        <td>
+            <div class="autocomplete-wrapper">
+                <input type="text"
+                       name="items[${rowIndex}][part_no]"
+                       class="part-input part-no-input"
+                       value="${partNo}"
+                       placeholder="Type to search..."
+                       autocomplete="off"
+                       required>
+                <div class="autocomplete-results"></div>
+            </div>
+        </td>
+        <td>
+            <div class="autocomplete-wrapper">
+                <input type="text"
+                       class="part-input part-name-input"
+                       value="${partName}"
+                       placeholder="Type to search..."
+                       autocomplete="off">
+                <div class="autocomplete-results"></div>
+                <input type="hidden" name="items[${rowIndex}][part_name]" class="part-name-hidden" value="${partName}">
+            </div>
+        </td>
+        <td>
+            <input type="number"
+                   name="items[${rowIndex}][qty]"
+                   class="qty-input"
+                   step="0.001"
+                   min="0.001"
+                   required>
+        </td>
+        <td>
+            <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)">Remove</button>
+        </td>
+    `;
+    tbody.appendChild(newRow);
+    rowIndex++;
+    updateRowNumbers();
+
+    // Initialize autocomplete for the newly added row
+    setTimeout(() => {
+        initAutocomplete(newRow);
+        // Focus on the quantity input
+        newRow.querySelector('.qty-input').focus();
+    }, 10);
+
+    // Clear search and hide results
+    document.getElementById('globalPartSearch').value = '';
+    document.getElementById('globalSearchResults').style.display = 'none';
+}
+
 // Initialize autocomplete on page load
 document.addEventListener('DOMContentLoaded', function() {
     initAutocomplete();
+    initGlobalSearch();
 });
 </script>
 
