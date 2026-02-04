@@ -1,8 +1,13 @@
 <?php
+// TEMPORARY: Enable error display
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 include "../db.php";
 
 $error = '';
+$debug = '';
 
 // If already logged in, redirect to portal
 if (isset($_SESSION['emp_attendance_id'])) {
@@ -36,9 +41,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['emp_attendance_designation'] = $employee['designation'];
                 $_SESSION['emp_attendance_photo'] = $employee['photo_path'];
 
+                // DEBUG MODE: Add ?debug=1 to URL to see debug info instead of redirect
+                if (isset($_GET['debug'])) {
+                    echo "<h2>DEBUG: Login Successful</h2>";
+                    echo "<p>Session ID: " . session_id() . "</p>";
+                    echo "<p>Employee ID: " . $employee['id'] . " (" . $employee['emp_id'] . ")</p>";
+                    echo "<p>Name: " . $employee['first_name'] . ' ' . $employee['last_name'] . "</p>";
+                    echo "<h3>Session Data:</h3><pre>" . print_r($_SESSION, true) . "</pre>";
+                    echo "<p><a href='attendance_portal.php'>Click here to go to portal manually</a></p>";
+                    exit;
+                }
+
                 header("Location: attendance_portal.php");
                 exit;
             } else {
+                // DEBUG: Show what emp_ids exist in database
+                $allEmps = $pdo->query("SELECT emp_id, phone FROM employees LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+                $debug = "Sample emp_ids in DB: " . implode(', ', array_column($allEmps, 'emp_id'));
                 // Debug: Check if employee exists with that ID
                 $check = $pdo->prepare("SELECT emp_id, phone, status FROM employees WHERE emp_id = ?");
                 $check->execute([$emp_id]);
@@ -219,11 +238,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="error-message"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
 
+    <?php if (!empty($debug)): ?>
+        <div style="background: #e3f2fd; color: #1565c0; padding: 12px 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.85em;">
+            <strong>DEBUG:</strong> <?= htmlspecialchars($debug) ?>
+        </div>
+    <?php endif; ?>
+
     <form method="post">
         <div class="form-group">
             <label>Employee ID</label>
-            <input type="text" name="emp_id" placeholder="Enter your Employee ID"
+            <input type="text" name="emp_id" placeholder="e.g. EMP-0001"
                    value="<?= htmlspecialchars($_POST['emp_id'] ?? '') ?>" required autofocus>
+            <small style="color: #7f8c8d; font-size: 0.85em; margin-top: 5px; display: block;">Format: EMP-0001, EMP-0002, etc.</small>
         </div>
 
         <div class="form-group">

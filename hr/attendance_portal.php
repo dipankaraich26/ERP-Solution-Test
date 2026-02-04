@@ -1,15 +1,51 @@
 <?php
+// TEMPORARY: Debug
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 
 // Set timezone to India Standard Time
 date_default_timezone_set('Asia/Kolkata');
+
+// EARLY DEBUG: Show session status immediately (before any includes)
+if (isset($_GET['debug'])) {
+    echo "<h2>ATTENDANCE PORTAL - Debug Mode</h2>";
+    echo "<p>Session ID: " . session_id() . "</p>";
+    echo "<p>emp_attendance_id: " . (isset($_SESSION['emp_attendance_id']) ? $_SESSION['emp_attendance_id'] : 'NOT SET') . "</p>";
+    echo "<h3>Full Session Data:</h3><pre>" . print_r($_SESSION, true) . "</pre>";
+    echo "<h3>Cookies:</h3><pre>" . print_r($_COOKIE, true) . "</pre>";
+    if (!isset($_SESSION['emp_attendance_id'])) {
+        echo "<p style='color:red;font-weight:bold;'>Session is empty - this is why you get redirected!</p>";
+        echo "<p>Possible causes:</p>";
+        echo "<ul>";
+        echo "<li>Session cookie not being saved</li>";
+        echo "<li>Session save path not writable</li>";
+        echo "<li>Different session IDs between pages</li>";
+        echo "</ul>";
+    }
+    echo "<p><a href='session_test.php'>Run Full Session Diagnostic</a></p>";
+    exit;
+}
 
 include "../db.php";
 include "../includes/dialog.php";
 
 // Check if logged in
 if (!isset($_SESSION['emp_attendance_id'])) {
-    header("Location: attendance_login.php");
+    // Show debug info before redirect
+    echo "<!DOCTYPE html><html><head><title>Session Debug</title></head><body>";
+    echo "<h2>Session Not Found</h2>";
+    echo "<p>Session ID: " . session_id() . "</p>";
+    echo "<p>Session data:</p><pre>" . print_r($_SESSION, true) . "</pre>";
+    echo "<p>This means either:</p>";
+    echo "<ul>";
+    echo "<li>You haven't logged in yet</li>";
+    echo "<li>The session was lost between login and this page</li>";
+    echo "<li>Cookies are not being saved properly</li>";
+    echo "</ul>";
+    echo "<p><a href='attendance_login.php'>Go to Login</a> | <a href='session_test.php'>Run Diagnostic Test</a></p>";
+    echo "</body></html>";
     exit;
 }
 
