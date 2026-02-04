@@ -175,6 +175,7 @@ if (toggle) {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">Purchase Order <?= htmlspecialchars($po['po_no']) ?></h1>
         <div class="no-print" style="display: flex; gap: 10px;">
+            <a href="edit_po.php?po_no=<?= urlencode($po['po_no']) ?>" class="btn btn-secondary">Edit PO</a>
             <button onclick="window.print()" class="btn btn-primary">Print</button>
             <button onclick="shareToWhatsApp()" class="btn btn-success">Share via WhatsApp</button>
         </div>
