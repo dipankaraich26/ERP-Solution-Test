@@ -149,10 +149,12 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
         .items-table-wrapper {
             overflow-x: auto;
+            overflow-y: visible;
             background: white;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             padding: 20px;
+            padding-bottom: 350px;
             margin: 20px 0;
         }
 
@@ -178,6 +180,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             padding: 15px 12px;
             border-bottom: 1px solid #e9ecef;
             vertical-align: middle;
+            overflow: visible;
         }
 
         .items-table tr:hover {
@@ -222,7 +225,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             border-radius: 8px;
             max-height: 300px;
             overflow-y: auto;
-            z-index: 1000;
+            z-index: 9999;
             display: none;
             box-shadow: 0 8px 24px rgba(0,0,0,0.2);
             margin-top: 4px;
