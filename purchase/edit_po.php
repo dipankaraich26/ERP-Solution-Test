@@ -473,7 +473,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_no.toLowerCase().includes(query) ||
                 p.part_name.toLowerCase().includes(query)
-            ).slice(0, 5);
+            ).slice(0, 50);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
@@ -534,7 +534,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_name.toLowerCase().includes(query) ||
                 p.part_no.toLowerCase().includes(query)
-            ).slice(0, 5);
+            ).slice(0, 50);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
