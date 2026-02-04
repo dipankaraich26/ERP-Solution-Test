@@ -217,18 +217,18 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
         .autocomplete-results {
             position: absolute;
-            bottom: 100%;
+            top: 100%;
             left: 0;
             min-width: 400px;
             background: white;
             border: 2px solid #3498db;
             border-radius: 8px;
-            max-height: 300px;
+            max-height: 200px;
             overflow-y: auto;
             z-index: 999999;
             display: none;
             box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            margin-bottom: 4px;
+            margin-top: 4px;
         }
 
         .autocomplete-results.show {
@@ -473,7 +473,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_no.toLowerCase().includes(query) ||
                 p.part_name.toLowerCase().includes(query)
-            ).slice(0, 50);
+            ).slice(0, 20);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
@@ -534,7 +534,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_name.toLowerCase().includes(query) ||
                 p.part_no.toLowerCase().includes(query)
-            ).slice(0, 50);
+            ).slice(0, 20);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
