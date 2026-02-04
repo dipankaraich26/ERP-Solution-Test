@@ -101,6 +101,14 @@ if ($paise > 0) {
 }
 $amountInWords .= ' Only';
 
+// Fetch active signatories
+$signatories = [];
+try {
+    $signatories = $pdo->query("SELECT * FROM signatories WHERE is_active = 1 ORDER BY sort_order, name")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table may not exist yet
+}
+
 $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
 ?>
 <!DOCTYPE html>
@@ -684,15 +692,15 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
 
         /* Signature Section */
         .signature-section {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
             margin-top: 50px;
             padding: 30px 0;
             border-top: 2px dashed #e2e8f0;
         }
 
         .signature-box {
-            width: 220px;
             text-align: center;
         }
 
@@ -1343,16 +1351,35 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
 
         <!-- Signature Section -->
         <div class="signature-section">
+            <!-- Customer Signature -->
             <div class="signature-box">
                 <div class="signature-area"></div>
                 <div class="signature-line">Customer Acceptance</div>
                 <div class="signature-subtitle">Signature & Company Seal</div>
             </div>
-            <div class="signature-box company">
-                <div class="signature-area"></div>
-                <div class="signature-line">For <?= htmlspecialchars($settings['company_name'] ?? 'Company') ?></div>
-                <div class="signature-subtitle">Authorized Signatory</div>
-            </div>
+
+            <!-- Company Signatories -->
+            <?php if (!empty($signatories)): ?>
+                <?php foreach ($signatories as $signatory): ?>
+                <div class="signature-box company">
+                    <div class="signature-area"></div>
+                    <div class="signature-line"><?= htmlspecialchars($signatory['name']) ?></div>
+                    <div class="signature-subtitle">
+                        <?= htmlspecialchars($signatory['designation'] ?: 'Authorized Signatory') ?>
+                        <?php if ($signatory['department']): ?>
+                            | <?= htmlspecialchars($signatory['department']) ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <!-- Fallback if no signatories defined -->
+                <div class="signature-box company">
+                    <div class="signature-area"></div>
+                    <div class="signature-line">For <?= htmlspecialchars($settings['company_name'] ?? 'Company') ?></div>
+                    <div class="signature-subtitle">Authorized Signatory</div>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
