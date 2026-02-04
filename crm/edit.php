@@ -25,10 +25,15 @@ if (!$lead) {
     exit;
 }
 
-// Auto-populate designation and industry from customers table if empty
-if ((empty($lead['designation']) || empty($lead['industry'])) && !empty($lead['phone'])) {
+// Auto-populate missing fields from customers table if empty
+if (!empty($lead['phone'])) {
     try {
-        $customerStmt = $pdo->prepare("SELECT designation, industry FROM customers WHERE contact = ? LIMIT 1");
+        $customerStmt = $pdo->prepare("
+            SELECT designation, industry, state, city, address1, address2, pincode
+            FROM customers
+            WHERE contact = ?
+            LIMIT 1
+        ");
         $customerStmt->execute([$lead['phone']]);
         $customerData = $customerStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -36,16 +41,53 @@ if ((empty($lead['designation']) || empty($lead['industry'])) && !empty($lead['p
             $updateFields = [];
             $updateValues = [];
 
+            // Auto-populate designation
             if (empty($lead['designation']) && !empty($customerData['designation'])) {
                 $updateFields[] = "designation = ?";
                 $updateValues[] = $customerData['designation'];
                 $lead['designation'] = $customerData['designation'];
             }
 
+            // Auto-populate industry
             if (empty($lead['industry']) && !empty($customerData['industry'])) {
                 $updateFields[] = "industry = ?";
                 $updateValues[] = $customerData['industry'];
                 $lead['industry'] = $customerData['industry'];
+            }
+
+            // Auto-populate state
+            if (empty($lead['state']) && !empty($customerData['state'])) {
+                $updateFields[] = "state = ?";
+                $updateValues[] = $customerData['state'];
+                $lead['state'] = $customerData['state'];
+            }
+
+            // Auto-populate city
+            if (empty($lead['city']) && !empty($customerData['city'])) {
+                $updateFields[] = "city = ?";
+                $updateValues[] = $customerData['city'];
+                $lead['city'] = $customerData['city'];
+            }
+
+            // Auto-populate address1
+            if (empty($lead['address1']) && !empty($customerData['address1'])) {
+                $updateFields[] = "address1 = ?";
+                $updateValues[] = $customerData['address1'];
+                $lead['address1'] = $customerData['address1'];
+            }
+
+            // Auto-populate address2
+            if (empty($lead['address2']) && !empty($customerData['address2'])) {
+                $updateFields[] = "address2 = ?";
+                $updateValues[] = $customerData['address2'];
+                $lead['address2'] = $customerData['address2'];
+            }
+
+            // Auto-populate pincode
+            if (empty($lead['pincode']) && !empty($customerData['pincode'])) {
+                $updateFields[] = "pincode = ?";
+                $updateValues[] = $customerData['pincode'];
+                $lead['pincode'] = $customerData['pincode'];
             }
 
             // Update the lead record with customer data
