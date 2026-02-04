@@ -194,11 +194,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         foreach ($components as $comp) {
                             $depleteQty = (float)$comp['component_qty'] * $woQty;
 
+                            // Ensure inventory row exists first (with 0 if new)
                             $pdo->prepare("
-                                INSERT INTO inventory (part_no, qty)
-                                VALUES (?, ?)
-                                ON DUPLICATE KEY UPDATE qty = qty - ?
-                            ")->execute([$comp['component_part_no'], -$depleteQty, $depleteQty]);
+                                INSERT IGNORE INTO inventory (part_no, qty) VALUES (?, 0)
+                            ")->execute([$comp['component_part_no']]);
+
+                            // Now safely subtract
+                            $pdo->prepare("
+                                UPDATE inventory SET qty = qty - ? WHERE part_no = ?
+                            ")->execute([$depleteQty, $comp['component_part_no']]);
 
                             $pdo->prepare("
                                 INSERT INTO depletion (part_no, qty, reason, issue_no, issue_date)
@@ -553,7 +557,7 @@ if (toggle) {
 
     <?php if ($error): ?>
         <div style="background: #fee2e2; border: 1px solid #ef4444; color: #991b1b; padding: 12px 15px; border-radius: 6px; margin-bottom: 15px;">
-            <?= htmlspecialchars($error) ?>
+            <?= $error ?>
         </div>
     <?php endif; ?>
 
