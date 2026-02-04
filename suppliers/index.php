@@ -84,18 +84,15 @@ $stmt = $pdo->prepare("
     SELECT * FROM suppliers
     $whereClause
     ORDER BY supplier_code DESC
-    LIMIT :limit OFFSET :offset
+    LIMIT ? OFFSET ?
 ");
 
-// Bind search parameters
-if (!empty($searchParams)) {
-    foreach ($searchParams as $key => $value) {
-        $stmt->bindValue($key + 1, $value, PDO::PARAM_STR);
-    }
-}
-$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-$stmt->execute();
+// Build execute parameters array
+$executeParams = $searchParams;
+$executeParams[] = $per_page;
+$executeParams[] = $offset;
+
+$stmt->execute($executeParams);
 $suppliers = $stmt;
 
 include "../includes/sidebar.php";
