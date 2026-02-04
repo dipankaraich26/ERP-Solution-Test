@@ -284,6 +284,59 @@ showModal();
         }
         .part-option:hover { background: #e8f4fc; }
         .part-option.hidden { display: none; }
+
+        /* Customer Search Dropdown */
+        #customer_search_results {
+            margin-top: 10px;
+            background: white;
+            border: 2px solid #2196f3;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        #customer_search_results table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        #customer_search_results th {
+            background: #2196f3;
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            font-size: 0.9em;
+        }
+
+        #customer_search_results td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+
+        #customer_search_results tr:hover {
+            background: #e3f2fd;
+        }
+
+        .import-customer-btn {
+            padding: 5px 12px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85em;
+            transition: background 0.2s;
+        }
+
+        .import-customer-btn:hover {
+            background: #229954;
+        }
     </style>
 </head>
 <body>
@@ -329,22 +382,13 @@ showModal();
                 <!-- Import Customer Section -->
                 <div style="background: #e3f2fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
                     <strong>Import Existing Customer Data</strong>
-                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
-                        <select id="customer_select" style="flex: 1; padding: 8px;">
-                            <option value="">-- Select Existing Customer --</option>
-                            <?php
-                            $customers = $pdo->query("SELECT id, customer_id, customer_name, company_name, contact FROM customers ORDER BY customer_name")->fetchAll();
-                            foreach ($customers as $cust) {
-                                $displayName = $cust['customer_name'];
-                                if ($cust['company_name']) {
-                                    $displayName .= ' (' . $cust['company_name'] . ')';
-                                }
-                                $displayName .= ' - ' . $cust['customer_id'];
-                                echo '<option value="' . $cust['id'] . '">' . htmlspecialchars($displayName) . '</option>';
-                            }
-                            ?>
-                        </select>
-                        <button type="button" class="btn btn-primary" onclick="importCustomerData()">Import Data</button>
+                    <div style="position: relative; margin-top: 10px;">
+                        <input type="text"
+                               id="customer_search"
+                               placeholder="Search by customer name, company, phone, or customer ID..."
+                               autocomplete="off"
+                               style="width: 100%; padding: 10px; border: 2px solid #2196f3; border-radius: 4px; font-size: 14px;">
+                        <div id="customer_search_results" style="display: none;"></div>
                     </div>
                 </div>
 
@@ -674,12 +718,94 @@ document.querySelectorAll('input[name="customer_type"]').forEach(radio => {
     });
 });
 
-// Import customer data
-function importCustomerData() {
-    const customerId = document.getElementById('customer_select').value;
+// Customer search functionality
+const customersData = <?php
+$customers = $pdo->query("SELECT id, customer_id, customer_name, company_name, contact, email FROM customers ORDER BY customer_name")->fetchAll(PDO::FETCH_ASSOC);
+echo json_encode($customers);
+?>;
 
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('customer_search');
+    const resultsDiv = document.getElementById('customer_search_results');
+
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+
+        if (query.length < 2) {
+            resultsDiv.style.display = 'none';
+            return;
+        }
+
+        const matches = customersData.filter(c => {
+            const customerName = (c.customer_name || '').toLowerCase();
+            const companyName = (c.company_name || '').toLowerCase();
+            const customerId = (c.customer_id || '').toLowerCase();
+            const contact = (c.contact || '').toLowerCase();
+
+            return customerName.includes(query) ||
+                   companyName.includes(query) ||
+                   customerId.includes(query) ||
+                   contact.includes(query);
+        }).slice(0, 20);
+
+        if (matches.length === 0) {
+            resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">No customers found</div>';
+            resultsDiv.style.display = 'block';
+            return;
+        }
+
+        const tableHtml = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Customer ID</th>
+                        <th>Name</th>
+                        <th>Company</th>
+                        <th>Phone</th>
+                        <th style="width: 80px; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${matches.map(c => `
+                        <tr>
+                            <td><strong>${escapeHtml(c.customer_id || '-')}</strong></td>
+                            <td>${escapeHtml(c.customer_name || '-')}</td>
+                            <td>${escapeHtml(c.company_name || '-')}</td>
+                            <td>${escapeHtml(c.contact || '-')}</td>
+                            <td style="text-align: center;">
+                                <button type="button" class="import-customer-btn"
+                                        onclick="importCustomerData(${c.id})">
+                                    Import
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+
+        resultsDiv.innerHTML = tableHtml;
+        resultsDiv.style.display = 'block';
+    });
+
+    // Hide results when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+            resultsDiv.style.display = 'none';
+        }
+    });
+});
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+// Import customer data
+function importCustomerData(customerId) {
     if (!customerId) {
-        alert('Please select a customer first');
+        alert('Invalid customer ID');
         return;
     }
 
@@ -723,6 +849,10 @@ function importCustomerData() {
                     stateSelect.value = data.state || '';
                     document.getElementById('city').value = cityValue;
                 }
+
+                // Clear search and hide results
+                document.getElementById('customer_search').value = '';
+                document.getElementById('customer_search_results').style.display = 'none';
 
                 alert('Customer data imported successfully!');
             }
