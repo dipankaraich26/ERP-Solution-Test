@@ -25,6 +25,41 @@ if (!$lead) {
     exit;
 }
 
+// Auto-populate designation and industry from customers table if empty
+if ((empty($lead['designation']) || empty($lead['industry'])) && !empty($lead['phone'])) {
+    try {
+        $customerStmt = $pdo->prepare("SELECT designation, industry FROM customers WHERE contact = ? LIMIT 1");
+        $customerStmt->execute([$lead['phone']]);
+        $customerData = $customerStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($customerData) {
+            $updateFields = [];
+            $updateValues = [];
+
+            if (empty($lead['designation']) && !empty($customerData['designation'])) {
+                $updateFields[] = "designation = ?";
+                $updateValues[] = $customerData['designation'];
+                $lead['designation'] = $customerData['designation'];
+            }
+
+            if (empty($lead['industry']) && !empty($customerData['industry'])) {
+                $updateFields[] = "industry = ?";
+                $updateValues[] = $customerData['industry'];
+                $lead['industry'] = $customerData['industry'];
+            }
+
+            // Update the lead record with customer data
+            if (!empty($updateFields)) {
+                $updateValues[] = $id;
+                $updateSql = "UPDATE crm_leads SET " . implode(", ", $updateFields) . " WHERE id = ?";
+                $pdo->prepare($updateSql)->execute($updateValues);
+            }
+        }
+    } catch (PDOException $e) {
+        // Silently continue if customer lookup fails
+    }
+}
+
 // Access control: Any logged-in user can edit leads
 // Note: assigned_user_id is from employees table, not users table
 // For stricter control, link users to employees via employee_id column in users table
