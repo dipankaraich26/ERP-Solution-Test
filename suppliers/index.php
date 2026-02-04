@@ -52,21 +52,47 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 
 /* =========================
-   SUPPLIER LIST WITH PAGINATION
+   SUPPLIER LIST WITH PAGINATION AND SEARCH
 ========================= */
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page = max(1, $page);
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
-$total_count = $pdo->query("SELECT COUNT(*) FROM suppliers")->fetchColumn();
+// Build WHERE clause for search
+$whereClause = "";
+$searchParams = [];
+if (!empty($search)) {
+    $whereClause = " WHERE supplier_code LIKE ? OR supplier_name LIKE ? OR contact_person LIKE ? OR phone LIKE ? OR email LIKE ? OR city LIKE ? OR state LIKE ?";
+    $searchTerm = "%$search%";
+    $searchParams = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm];
+}
+
+// Get total count with search
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM suppliers" . $whereClause);
+if (!empty($searchParams)) {
+    $countStmt->execute($searchParams);
+} else {
+    $countStmt->execute();
+}
+$total_count = $countStmt->fetchColumn();
 $total_pages = ceil($total_count / $per_page);
 
+// Get suppliers with search and pagination
 $stmt = $pdo->prepare("
     SELECT * FROM suppliers
+    $whereClause
     ORDER BY supplier_code DESC
     LIMIT :limit OFFSET :offset
 ");
+
+// Bind search parameters
+if (!empty($searchParams)) {
+    foreach ($searchParams as $key => $value) {
+        $stmt->bindValue($key + 1, $value, PDO::PARAM_STR);
+    }
+}
 $stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
@@ -86,9 +112,25 @@ showModal();
 <div class="content">
     <h1>Suppliers</h1>
 
-    <div style="margin-bottom: 20px;">
-        <a href="import.php" class="btn btn-primary">Import from Excel</a>
-        <a href="download_template.php" class="btn btn-secondary">Download Template</a>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <a href="import.php" class="btn btn-primary">Import from Excel</a>
+            <a href="download_template.php" class="btn btn-secondary">Download Template</a>
+        </div>
+        <div>
+            <form method="get" style="display: flex; gap: 10px;" id="searchForm">
+                <input type="text"
+                       name="search"
+                       id="searchInput"
+                       value="<?= htmlspecialchars($search) ?>"
+                       placeholder="Search suppliers..."
+                       style="padding: 8px 15px; border: 1px solid #ddd; border-radius: 4px; width: 300px;">
+                <button type="submit" class="btn btn-primary">Search</button>
+                <?php if (!empty($search)): ?>
+                    <a href="index.php" class="btn btn-secondary">Clear</a>
+                <?php endif; ?>
+            </form>
+        </div>
     </div>
 
     <?php if (!empty($error)): ?>
