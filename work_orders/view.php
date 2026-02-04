@@ -136,13 +136,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if (empty($error)) {
+            // Pre-check: verify sufficient stock for all BOM components
+            $woStmt = $pdo->prepare("SELECT wo_no, part_no, qty, bom_id FROM work_orders WHERE id = ?");
+            $woStmt->execute([$id]);
+            $woData = $woStmt->fetch();
+
+            if ($woData && $woData['bom_id']) {
+                $checkStmt = $pdo->prepare("
+                    SELECT bi.component_part_no, bi.qty as component_qty, pm.part_name, COALESCE(inv.qty, 0) as current_stock
+                    FROM bom_items bi
+                    LEFT JOIN part_master pm ON bi.component_part_no = pm.part_no
+                    LEFT JOIN inventory inv ON inv.part_no = bi.component_part_no
+                    WHERE bi.bom_id = ?
+                ");
+                $checkStmt->execute([$woData['bom_id']]);
+                $checkComponents = $checkStmt->fetchAll(PDO::FETCH_ASSOC);
+                $woQtyCheck = (float)$woData['qty'];
+                $shortParts = [];
+
+                foreach ($checkComponents as $cc) {
+                    $needed = (float)$cc['component_qty'] * $woQtyCheck;
+                    $stock = (float)$cc['current_stock'];
+                    if ($stock < $needed) {
+                        $shortParts[] = $cc['component_part_no'] . ' (' . ($cc['part_name'] ?? 'N/A') . ') - Need: ' . $needed . ', Available: ' . $stock . ', Short: ' . ($needed - $stock);
+                    }
+                }
+
+                if (!empty($shortParts)) {
+                    $error = "Cannot close Work Order. Insufficient stock for the following components:<br><ul style='margin: 10px 0; padding-left: 20px;'>";
+                    foreach ($shortParts as $sp) {
+                        $error .= "<li>" . htmlspecialchars($sp) . "</li>";
+                    }
+                    $error .= "</ul>Please ensure adequate stock before closing.";
+                }
+            }
+        }
+
+        if (empty($error)) {
             try {
                 $pdo->beginTransaction();
-
-                // Get work order details including BOM for stock entry
-                $woStmt = $pdo->prepare("SELECT wo_no, part_no, qty, bom_id FROM work_orders WHERE id = ?");
-                $woStmt->execute([$id]);
-                $woData = $woStmt->fetch();
 
                 if ($woData) {
                     $depleteMessages = [];
