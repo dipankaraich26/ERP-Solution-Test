@@ -466,6 +466,23 @@ $canClose = $approval && $approval['status'] === 'Approved';
         .pill-pending { background: #f3e8ff; color: #7e22ce; }
         .pill-pass { background: #d1fae5; color: #065f46; }
         .pill-fail { background: #fee2e2; color: #991b1b; }
+
+        /* Ensure page scrolls vertically */
+        html, body {
+            height: auto !important;
+            min-height: 100vh;
+            overflow-y: auto !important;
+        }
+        .app-container {
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 100vh;
+        }
+        .content {
+            overflow-y: auto;
+            min-height: 100vh;
+            padding-bottom: 60px;
+        }
     </style>
 </head>
 
@@ -495,7 +512,7 @@ if (toggle) {
 
 <body>
 
-<div class="content" style="overflow-y: auto; height: 100vh;">
+<div class="content">
     <?php if ($success): ?>
         <div style="background: #d1fae5; border: 1px solid #10b981; color: #065f46; padding: 12px 15px; border-radius: 6px; margin-bottom: 15px;">
             <?= $success ?>
