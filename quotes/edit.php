@@ -468,7 +468,7 @@ include "../includes/sidebar.php";
                             <td><input type="number" name="amount[]" class="amount" step="0.01" value="<?= $item['total_amount'] ?>" readonly></td>
                             <td><input type="text" name="lead_time[]" class="lead-time" value="<?= htmlspecialchars($item['lead_time'] ?? '') ?>"></td>
                             <td>
-                                <input type="hidden" name="gst_percent[]" class="gst-percent" value="<?= ($item['cgst_percent'] + $item['sgst_percent']) ?>">
+                                <input type="hidden" name="gst_percent[]" class="gst-percent" value="<?= $currentIsIgst ? $item['igst_percent'] : ($item['cgst_percent'] + $item['sgst_percent']) ?>">
                                 <button type="button" onclick="removeRow(this)" class="btn btn-danger" style="padding: 2px 8px;">-</button>
                             </td>
                         </tr>
