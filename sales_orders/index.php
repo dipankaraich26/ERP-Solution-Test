@@ -106,7 +106,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['create_so'])) {
         $stmt = $pdo->prepare("
             INSERT INTO sales_orders
             (so_no, part_no, qty, sales_date, customer_id, customer_po_id, linked_quote_id, status, stock_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)
         ");
 
         foreach ($parts as $part) {
@@ -227,6 +227,7 @@ include "../includes/sidebar.php";
             font-size: 0.85em;
             font-weight: bold;
         }
+        .status-open { background: #3498db; color: #fff; }
         .status-pending { background: #ffc107; color: #000; }
         .status-released { background: #28a745; color: #fff; }
         .status-completed { background: #17a2b8; color: #fff; }
@@ -358,7 +359,7 @@ include "../includes/sidebar.php";
             </td>
             <td style="white-space: nowrap;">
                 <a class="btn btn-secondary" href="view.php?so_no=<?= urlencode($o['so_no']) ?>">View</a>
-                <?php if ($o['status'] === 'pending'): ?>
+                <?php if ($o['status'] === 'open'): ?>
                     <a class="btn btn-success"
                        href="release.php?so_no=<?= urlencode($o['so_no']) ?>"
                        onclick="return confirm('Release this Sales Order?\n\nInventory will be deducted.')">

@@ -61,6 +61,7 @@ include "../includes/sidebar.php";
             border-radius: 4px;
             font-weight: bold;
         }
+        .status-open { background: #3498db; color: #fff; }
         .status-pending { background: #ffc107; color: #000; }
         .status-released { background: #28a745; color: #fff; }
         .status-completed { background: #17a2b8; color: #fff; }
@@ -98,7 +99,7 @@ include "../includes/sidebar.php";
 
         <div class="action-buttons">
             <a href="index.php" class="btn btn-secondary">Back to List</a>
-            <?php if ($order['status'] === 'pending'): ?>
+            <?php if ($order['status'] === 'open'): ?>
                 <a class="btn btn-success" href="release_checklist.php?so_no=<?= urlencode($so_no) ?>">
                     Release Checklist
                 </a>

@@ -45,8 +45,8 @@ if (!$order) {
     exit;
 }
 
-if ($order['status'] !== 'pending') {
-    setModal("Error", "This Sales Order has already been released or is not in pending status");
+if ($order['status'] !== 'open') {
+    setModal("Error", "This Sales Order has already been released or is not in open status");
     header("Location: view.php?so_no=" . urlencode($so_no));
     exit;
 }
