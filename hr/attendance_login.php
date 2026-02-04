@@ -41,9 +41,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['emp_attendance_designation'] = $employee['designation'];
                 $_SESSION['emp_attendance_photo'] = $employee['photo_path'];
 
-                // DEBUG: Show what was set before redirect
-                // Remove this after debugging
-                $debug = "Login successful! Redirecting... (Session ID: " . session_id() . ")";
+                // DEBUG MODE: Add ?debug=1 to URL to see debug info instead of redirect
+                if (isset($_GET['debug'])) {
+                    echo "<h2>DEBUG: Login Successful</h2>";
+                    echo "<p>Session ID: " . session_id() . "</p>";
+                    echo "<p>Employee ID: " . $employee['id'] . " (" . $employee['emp_id'] . ")</p>";
+                    echo "<p>Name: " . $employee['first_name'] . ' ' . $employee['last_name'] . "</p>";
+                    echo "<h3>Session Data:</h3><pre>" . print_r($_SESSION, true) . "</pre>";
+                    echo "<p><a href='attendance_portal.php'>Click here to go to portal manually</a></p>";
+                    exit;
+                }
 
                 header("Location: attendance_portal.php");
                 exit;
@@ -240,8 +247,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <form method="post">
         <div class="form-group">
             <label>Employee ID</label>
-            <input type="text" name="emp_id" placeholder="Enter your Employee ID"
+            <input type="text" name="emp_id" placeholder="e.g. EMP-0001"
                    value="<?= htmlspecialchars($_POST['emp_id'] ?? '') ?>" required autofocus>
+            <small style="color: #7f8c8d; font-size: 0.85em; margin-top: 5px; display: block;">Format: EMP-0001, EMP-0002, etc.</small>
         </div>
 
         <div class="form-group">
