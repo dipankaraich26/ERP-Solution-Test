@@ -25,12 +25,12 @@ if ($step == 1) {
             so.qty,
             so.sales_date,
             so.stock_status,
-            c.company_name,
-            p.part_name,
+            COALESCE(c.company_name, 'N/A') AS company_name,
+            COALESCE(p.part_name, so.part_no) AS part_name,
             COALESCE(i.qty, 0) AS current_stock
         FROM sales_orders so
-        JOIN customers c ON so.customer_id = c.id
-        JOIN part_master p ON so.part_no = p.part_no
+        LEFT JOIN customers c ON c.id = so.customer_id
+        LEFT JOIN part_master p ON p.part_no = so.part_no
         LEFT JOIN inventory i ON so.part_no = i.part_no
         WHERE so.status IN ('pending', 'open')
         ORDER BY so.sales_date DESC
