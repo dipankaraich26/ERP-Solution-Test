@@ -92,8 +92,8 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 
 <div class="sidebar">
 
-    <button id="themeToggle" class="btn btn-secondary">
-    🌙 Dark Mode
+    <button id="themeToggleBtn" class="btn btn-secondary" style="font-size: 12px; padding: 8px 12px; margin: 8px; width: calc(100% - 16px); text-align: center;">
+    Light
     </button>
 
     <!-- Company Logo & Name Section -->
@@ -363,4 +363,39 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// ===== THEME TOGGLE (Light / Mid / Dark) =====
+const themeOrder = ['light', 'mid', 'dark'];
+const themeLabels = { light: 'Light', mid: 'Dim', dark: 'Dark' };
+const themeIcons = { light: '\u2600', mid: '\uD83C\uDF24', dark: '\uD83C\uDF19' };
+
+function applyTheme(theme) {
+    document.body.classList.remove('mid', 'dark');
+    if (theme === 'mid') {
+        document.body.classList.add('dark', 'mid');
+    } else if (theme === 'dark') {
+        document.body.classList.add('dark');
+    }
+    localStorage.setItem('theme', theme);
+
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) {
+        btn.textContent = themeIcons[theme] + ' ' + themeLabels[theme];
+    }
+}
+
+function cycleTheme() {
+    const current = localStorage.getItem('theme') || 'light';
+    const idx = themeOrder.indexOf(current);
+    const next = themeOrder[(idx + 1) % themeOrder.length];
+    applyTheme(next);
+}
+
+// Apply saved theme on load
+(function() {
+    const saved = localStorage.getItem('theme') || 'light';
+    applyTheme(saved);
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.addEventListener('click', cycleTheme);
+})();
 </script>

@@ -84,6 +84,38 @@ body.dark {
     --input-focus: #3b82f6;
 }
 
+/* ================= MID (DIM) MODE ================= */
+/* body.mid also has .dark class, so this must come AFTER body.dark to override */
+body.mid {
+    --bg: #1e293b;
+    --card: #293548;
+    --text: #e2e8f0;
+    --muted-text: #94a3b8;
+    --border: #475569;
+
+    --sidebar-bg: #0f172a;
+    --sidebar-text: #e5e7eb;
+    --sidebar-hover: #1e293b;
+    --sidebar-active: #6366f1;
+
+    --table-bg: #293548;
+    --table-header-bg: #6366f1;
+    --table-header-text: #ffffff;
+    --row-odd: #293548;
+    --row-even: #334155;
+    --row-hover: #475569;
+
+    --primary: #6366f1;
+    --primary-hover: #4f46e5;
+    --secondary: #64748b;
+    --secondary-hover: #475569;
+
+    --input-bg: #1e293b;
+    --input-text: #e2e8f0;
+    --input-border: #475569;
+    --input-focus: #6366f1;
+}
+
 /* =========================================================
    SIDEBAR
 ========================================================= */
