@@ -7,7 +7,7 @@ $pdo->beginTransaction();
 
 /* Fetch WO */
 $wo = $pdo->query("
-    SELECT * FROM work_orders WHERE id=$id AND status='created'
+    SELECT * FROM work_orders WHERE id=$id AND status IN ('created','open')
 ")->fetch();
 if (!$wo) die("Invalid WO");
 

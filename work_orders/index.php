@@ -29,9 +29,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
                 break;
             case 'close':
                 // Get work order details for stock entry
-                $woStmt = $pdo->prepare("SELECT wo_no, part_no, qty FROM work_orders WHERE id = ?");
+                $woStmt = $pdo->prepare("SELECT wo_no, part_no, qty, status FROM work_orders WHERE id = ?");
                 $woStmt->execute([$woId]);
                 $woData = $woStmt->fetch();
+
+                // Must be in qc_approval status to close
+                if ($woData && $woData['status'] !== 'qc_approval') {
+                    $error = "Work Order must complete Quality Check & Approval before closing.";
+                    break;
+                }
+
+                // Check approval exists
+                $approvalCheck = $pdo->prepare("SELECT status FROM wo_closing_approvals WHERE wo_id = ? ORDER BY id DESC LIMIT 1");
+                $approvalCheck->execute([$woId]);
+                $approvalData = $approvalCheck->fetch();
+
+                if (!$approvalData || $approvalData['status'] !== 'Approved') {
+                    $error = "Cannot close: Work Order closing has not been approved yet.";
+                    break;
+                }
 
                 $pdo->beginTransaction();
 
@@ -214,6 +230,7 @@ if (toggle) {
             'released' => '#6366f1',
             'in_progress' => '#d946ef',
             'completed' => '#16a34a',
+            'qc_approval' => '#0891b2',
             'closed' => '#6b7280',
             'cancelled' => '#dc2626'
         ];
@@ -267,12 +284,14 @@ if (toggle) {
             </form>
 
         <?php elseif ($w['status'] === 'completed'): ?>
-            <form method="post" style="display: inline; margin-left: 5px;">
-                <input type="hidden" name="action" value="close">
-                <input type="hidden" name="wo_id" value="<?= $w['id'] ?>">
-                <button type="submit" class="btn" style="background: #6b7280; color: white; padding: 4px 8px; font-size: 0.85em;"
-                        onclick="return confirm('Close this Work Order?');">Close</button>
-            </form>
+            <a class="btn" href="view.php?id=<?= $w['id'] ?>#closing-workflow" style="background: #0891b2; color: white; padding: 4px 8px; font-size: 0.85em;">
+                QC &amp; Approve
+            </a>
+
+        <?php elseif ($w['status'] === 'qc_approval'): ?>
+            <a class="btn" href="view.php?id=<?= $w['id'] ?>#closing-workflow" style="background: #0891b2; color: white; padding: 4px 8px; font-size: 0.85em;">
+                Review QC
+            </a>
 
         <?php elseif (in_array($w['status'], ['closed', 'cancelled'])): ?>
             <form method="post" style="display: inline; margin-left: 5px;">

@@ -179,8 +179,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->prepare("UPDATE wo_quality_checklists SET overall_result = ? WHERE id = ?")->execute([$overallResult, $checklist['id']]);
 
+            // Move WO to qc_approval status
+            $pdo->prepare("UPDATE work_orders SET status = 'qc_approval' WHERE id = ? AND status = 'completed'")->execute([$wo_id]);
+
             $pdo->commit();
-            $success = "Checklist submitted successfully! Overall Result: $overallResult";
+            $success = "Checklist submitted successfully! Overall Result: $overallResult. Work Order moved to QC & Approval.";
 
             // Refresh checklist
             $existingChecklist->execute([$wo_id]);

@@ -111,18 +111,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'close') {
-        // Check if approval exists and is approved
-        $approvalCheck = $pdo->prepare("
-            SELECT * FROM wo_closing_approvals
-            WHERE work_order_id = ? AND status = 'Approved'
-            ORDER BY id DESC LIMIT 1
-        ");
-        $approvalCheck->execute([$id]);
-        $approvedRequest = $approvalCheck->fetch();
+        // Must be in qc_approval status
+        $statusCheck = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+        $statusCheck->execute([$id]);
+        $currentStatus = $statusCheck->fetchColumn();
 
-        if (!$approvedRequest) {
+        if ($currentStatus !== 'qc_approval') {
+            $error = "Work Order must complete Quality Check & Approval before closing.";
+        }
+
+        // Check if approval exists and is approved
+        if (empty($error)) {
+            $approvalCheck = $pdo->prepare("
+                SELECT * FROM wo_closing_approvals
+                WHERE work_order_id = ? AND status = 'Approved'
+                ORDER BY id DESC LIMIT 1
+            ");
+            $approvalCheck->execute([$id]);
+            $approvedRequest = $approvalCheck->fetch();
+        }
+
+        if (empty($error) && !$approvedRequest) {
             $error = "Cannot close: Work Order closing has not been approved. Please complete the quality checklist and get approval first.";
-        } else {
+        }
+
+        if (empty($error)) {
             try {
                 $pdo->beginTransaction();
 
@@ -512,6 +525,7 @@ if (toggle) {
         'released' => ['bg' => '#e0e7ff', 'border' => '#6366f1', 'color' => '#3730a3', 'text' => 'Released'],
         'in_progress' => ['bg' => '#fae8ff', 'border' => '#d946ef', 'color' => '#86198f', 'text' => 'In Progress'],
         'completed' => ['bg' => '#dcfce7', 'border' => '#16a34a', 'color' => '#166534', 'text' => 'Completed'],
+        'qc_approval' => ['bg' => '#cffafe', 'border' => '#0891b2', 'color' => '#155e75', 'text' => 'QC & Approval'],
         'closed' => ['bg' => '#f3f4f6', 'border' => '#6b7280', 'color' => '#374151', 'text' => 'Closed'],
         'cancelled' => ['bg' => '#fee2e2', 'border' => '#ef4444', 'color' => '#991b1b', 'text' => 'Cancelled']
     ];
@@ -525,7 +539,7 @@ if (toggle) {
     <div class="no-print" style="margin-bottom: 25px; padding: 15px; background: #f3f4f6; border-radius: 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
 
         <!-- Edit Button - Available for all non-terminal statuses -->
-        <?php if (!in_array($wo['status'], ['completed', 'closed', 'cancelled'])): ?>
+        <?php if (!in_array($wo['status'], ['completed', 'qc_approval', 'closed', 'cancelled'])): ?>
             <button onclick="openEditModal()" class="btn" style="background: #6366f1; color: white;">Edit WO</button>
         <?php endif; ?>
 
@@ -578,7 +592,11 @@ if (toggle) {
             </form>
 
         <?php elseif ($wo['status'] === 'completed'): ?>
-            <!-- Completed: Show closing workflow -->
+            <!-- Completed: Proceed to QC workflow -->
+            <span style="color: #0891b2; font-weight: 500;">Complete Quality Check & Approval below to proceed</span>
+
+        <?php elseif ($wo['status'] === 'qc_approval'): ?>
+            <!-- QC Approval: Show close button if approved -->
             <?php if ($canClose): ?>
                 <form method="post" style="display: inline;">
                     <input type="hidden" name="action" value="close">
@@ -588,7 +606,7 @@ if (toggle) {
                     </button>
                 </form>
             <?php else: ?>
-                <span style="color: #92400e; font-weight: 500;">Complete the closing workflow below to close this Work Order</span>
+                <span style="color: #0891b2; font-weight: 500;">QC & Approval in progress - see workflow below</span>
             <?php endif; ?>
 
         <?php elseif ($wo['status'] === 'closed'): ?>
@@ -672,8 +690,8 @@ if (toggle) {
     </div>
     <?php endif; ?>
 
-    <!-- Work Order Closing Workflow (show when status is completed) -->
-    <?php if ($wo['status'] === 'completed'): ?>
+    <!-- Work Order Closing Workflow (show when status is completed or qc_approval) -->
+    <?php if (in_array($wo['status'], ['completed', 'qc_approval'])): ?>
     <div class="closing-card no-print">
         <h3 style="color: #1e40af;">Work Order Closing Workflow</h3>
 
@@ -766,8 +784,8 @@ if (toggle) {
     </div>
     <?php endif; ?>
 
-    <!-- Show closed status info -->
-    <?php if ($wo['status'] === 'closed' && ($checklist || $approval)): ?>
+    <!-- Show closed/qc status info -->
+    <?php if (in_array($wo['status'], ['closed', 'qc_approval']) && ($checklist || $approval)): ?>
     <div class="closing-card" style="background: #f0fdf4; border-color: #10b981;">
         <h3 style="color: #065f46;">Closing Details</h3>
         <?php if ($checklist): ?>

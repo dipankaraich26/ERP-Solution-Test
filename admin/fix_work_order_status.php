@@ -10,7 +10,7 @@ try {
     echo "Step 1: Updating status ENUM values...\n";
     $pdo->exec("
         ALTER TABLE work_orders
-        MODIFY COLUMN status ENUM('open','created','released','in_progress','completed','closed','cancelled')
+        MODIFY COLUMN status ENUM('open','created','released','in_progress','completed','qc_approval','closed','cancelled')
         DEFAULT 'open'
     ");
     echo "  SUCCESS: Status column updated with all values.\n\n";
