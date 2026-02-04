@@ -1,13 +1,21 @@
 <?php
+// TEMPORARY: Enable error display for debugging
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 include "../db.php";
 include "../includes/dialog.php";
 
 $date = $_GET['date'] ?? date('Y-m-d');
 $empFilter = $_GET['emp'] ?? '';
+$debugInfo = [];
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $attendance = $_POST['attendance'] ?? [];
+    $savedCount = 0;
+    $errors = [];
 
     foreach ($attendance as $empId => $data) {
         $status = $data['status'] ?? '';
@@ -16,21 +24,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($status === '') continue;
 
-        // Format check-in and check-out times (convert HH:MM to TIME format)
+        $debugInfo[] = "Processing Employee ID $empId: Status=$status, CheckIn=$checkInInput, CheckOut=$checkOutInput";
+
+        // Format check-in and check-out times
+        // Support both TIME and DATETIME column types
         $checkIn = null;
         $checkOut = null;
 
         if (!empty($checkInInput)) {
             // Validate time format (HH:MM)
             if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkInInput)) {
-                $checkIn = $checkInInput . ':00'; // Add seconds for TIME format
+                // For DATETIME columns: combine date with time
+                // For TIME columns: this will be automatically converted
+                $checkIn = $date . ' ' . $checkInInput . ':00';
             }
         }
 
         if (!empty($checkOutInput)) {
             // Validate time format (HH:MM)
             if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkOutInput)) {
-                $checkOut = $checkOutInput . ':00'; // Add seconds for TIME format
+                // For DATETIME columns: combine date with time
+                // For TIME columns: this will be automatically converted
+                $checkOut = $date . ' ' . $checkOutInput . ':00';
             }
         }
 
@@ -46,26 +61,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Insert or update
-        $stmt = $pdo->prepare("
-            INSERT INTO attendance (employee_id, attendance_date, status, check_in, check_out, working_hours)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                status = VALUES(status),
-                check_in = VALUES(check_in),
-                check_out = VALUES(check_out),
-                working_hours = VALUES(working_hours)
-        ");
-        $stmt->execute([
-            $empId,
-            $date,
-            $status,
-            $checkIn,
-            $checkOut,
-            $workingHours
-        ]);
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO attendance (employee_id, attendance_date, status, check_in, check_out, working_hours)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    status = VALUES(status),
+                    check_in = VALUES(check_in),
+                    check_out = VALUES(check_out),
+                    working_hours = VALUES(working_hours)
+            ");
+            $stmt->execute([
+                $empId,
+                $date,
+                $status,
+                $checkIn,
+                $checkOut,
+                $workingHours
+            ]);
+            $savedCount++;
+            $debugInfo[] = "✓ Saved for Employee ID $empId";
+        } catch (PDOException $e) {
+            // Log the error and continue with other employees
+            $errorMsg = $e->getMessage();
+            error_log("Attendance save error for employee $empId: " . $errorMsg);
+            $errors[] = "Employee ID $empId: " . $errorMsg;
+            $debugInfo[] = "✗ Error for Employee ID $empId: " . $errorMsg;
+        }
     }
 
-    setModal("Success", "Attendance saved for " . date('d M Y', strtotime($date)));
+    if (!empty($errors)) {
+        setModal("Error", "Some records failed to save:\n" . implode("\n", $errors));
+    } else {
+        setModal("Success", "Attendance saved for $savedCount employee(s) on " . date('d M Y', strtotime($date)));
+    }
     header("Location: attendance_mark.php?date=$date");
     exit;
 }
@@ -200,6 +229,13 @@ showModal();
     <p>
         <a href="attendance.php?month=<?= substr($date, 0, 7) ?>" class="btn btn-secondary">Back to Calendar</a>
     </p>
+
+    <?php if (!empty($debugInfo)): ?>
+        <div style="background: #e3f2fd; border: 1px solid #1976d2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+            <strong>DEBUG INFO:</strong>
+            <pre style="margin: 10px 0 0 0; font-size: 0.85em;"><?= htmlspecialchars(implode("\n", $debugInfo)) ?></pre>
+        </div>
+    <?php endif; ?>
 
     <?php if ($holidayName): ?>
         <div class="holiday-notice">
