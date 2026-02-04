@@ -147,22 +147,29 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             left: 0;
             right: 0;
             background: white;
-            border: 1px solid #ddd;
-            max-height: 200px;
+            border: 2px solid #3498db;
+            border-radius: 4px;
+            max-height: 250px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            margin-top: 2px;
         }
         .autocomplete-results.show {
             display: block;
         }
         .autocomplete-item {
-            padding: 8px 10px;
+            padding: 10px 12px;
             cursor: pointer;
             border-bottom: 1px solid #eee;
+            transition: background 0.2s;
         }
         .autocomplete-item:hover {
-            background: #f0f0f0;
+            background: #e3f2fd;
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
         }
         .btn-add-row {
             margin: 10px 0;
@@ -219,6 +226,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                                            class="part-input part-no-input"
                                            value="<?= htmlspecialchars($item['part_no']) ?>"
                                            placeholder="Type to search..."
+                                           autocomplete="off"
                                            required>
                                     <div class="autocomplete-results"></div>
                                 </div>
@@ -273,6 +281,7 @@ function addRow() {
                        name="items[${rowIndex}][part_no]"
                        class="part-input part-no-input"
                        placeholder="Type to search..."
+                       autocomplete="off"
                        required>
                 <div class="autocomplete-results"></div>
             </div>
@@ -295,7 +304,13 @@ function addRow() {
     tbody.appendChild(newRow);
     rowIndex++;
     updateRowNumbers();
-    initAutocomplete(newRow);
+
+    // Initialize autocomplete for the newly added row
+    setTimeout(() => {
+        initAutocomplete(newRow);
+        // Focus on the new part input
+        newRow.querySelector('.part-no-input').focus();
+    }, 10);
 }
 
 function removeRow(btn) {
