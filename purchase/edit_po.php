@@ -417,8 +417,6 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                 </tbody>
             </table>
 
-            <button type="button" class="btn btn-secondary btn-add-row" onclick="addRow()">+ Add New Row</button>
-
             <!-- Part Selector Section -->
             <div class="part-selector-wrapper" style="margin-top: 30px;">
                 <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Search & Add Parts</h3>
