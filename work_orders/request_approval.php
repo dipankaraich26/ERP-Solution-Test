@@ -148,7 +148,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 
-<div class="content">
+<style>
+    html, body {
+        height: auto !important;
+        min-height: 100vh;
+        overflow-y: auto !important;
+    }
+    .app-container {
+        overflow: visible !important;
+        height: auto !important;
+        min-height: 100vh;
+    }
+</style>
+
+<div class="content" style="overflow-y: auto; min-height: 100vh; padding-bottom: 60px;">
     <style>
         .approval-card {
             background: white;
