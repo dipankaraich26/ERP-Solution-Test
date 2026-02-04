@@ -11,16 +11,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     foreach ($attendance as $empId => $data) {
         $status = $data['status'] ?? '';
-        $checkIn = $data['check_in'] ?? null;
-        $checkOut = $data['check_out'] ?? null;
+        $checkInInput = trim($data['check_in'] ?? '');
+        $checkOutInput = trim($data['check_out'] ?? '');
 
         if ($status === '') continue;
+
+        // Format check-in and check-out times (convert HH:MM to TIME format)
+        $checkIn = null;
+        $checkOut = null;
+
+        if (!empty($checkInInput)) {
+            // Validate time format (HH:MM)
+            if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkInInput)) {
+                $checkIn = $checkInInput . ':00'; // Add seconds for TIME format
+            }
+        }
+
+        if (!empty($checkOutInput)) {
+            // Validate time format (HH:MM)
+            if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkOutInput)) {
+                $checkOut = $checkOutInput . ':00'; // Add seconds for TIME format
+            }
+        }
 
         // Calculate working hours
         $workingHours = 0;
         if ($checkIn && $checkOut) {
-            $inTime = strtotime($checkIn);
-            $outTime = strtotime($checkOut);
+            // Use date context for proper time calculation
+            $inTime = strtotime($date . ' ' . $checkIn);
+            $outTime = strtotime($date . ' ' . $checkOut);
             if ($outTime > $inTime) {
                 $workingHours = round(($outTime - $inTime) / 3600, 2);
             }
@@ -40,8 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $empId,
             $date,
             $status,
-            $checkIn ?: null,
-            $checkOut ?: null,
+            $checkIn,
+            $checkOut,
             $workingHours
         ]);
     }
@@ -250,11 +269,11 @@ showModal();
                     </td>
                     <td>
                         <input type="time" name="attendance[<?= $emp['id'] ?>][check_in]"
-                               value="<?= $att['check_in'] ?? '' ?>">
+                               value="<?= $att && $att['check_in'] ? date('H:i', strtotime($att['check_in'])) : '' ?>">
                     </td>
                     <td>
                         <input type="time" name="attendance[<?= $emp['id'] ?>][check_out]"
-                               value="<?= $att['check_out'] ?? '' ?>">
+                               value="<?= $att && $att['check_out'] ? date('H:i', strtotime($att['check_out'])) : '' ?>">
                     </td>
                 </tr>
                 <?php endforeach; ?>
