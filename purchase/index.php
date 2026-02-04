@@ -120,9 +120,10 @@ $stmt = $pdo->prepare("
         po.po_no,
         po.purchase_date,
         s.supplier_name,
-        GROUP_CONCAT(CONCAT(po.id, '::', po.part_no, '::', p.part_name, '::', po.qty) ORDER BY po.id SEPARATOR '|||') AS items,
+        GROUP_CONCAT(CONCAT(po.id, '::', po.part_no, '::', p.part_name, '::', po.qty, '::', po.rate) ORDER BY po.id SEPARATOR '|||') AS items,
         GROUP_CONCAT(DISTINCT po.status) AS status_list,
-        MAX(po.id) AS max_id
+        MAX(po.id) AS max_id,
+        SUM(po.qty * po.rate) AS po_value
     FROM purchase_orders po
     JOIN part_master p ON p.part_no = po.part_no
     JOIN suppliers s ON s.id = po.supplier_id
@@ -419,28 +420,43 @@ showModal();
      PURCHASE ORDER LIST (grouped)
 ========================= -->
 <h2>Purchase Order List</h2>
+
+<div style="margin-bottom: 15px;">
+    <button type="button" class="btn btn-success" onclick="exportSelectedPOs()" id="exportBtn" disabled>
+        Export Selected to Excel
+    </button>
+    <span id="selectedPOCount" style="margin-left: 15px; color: #666; font-weight: bold;"></span>
+</div>
+
 <div style="overflow-x: auto;">
 <table>
     <tr>
+        <th style="width: 50px;">
+            <input type="checkbox" id="selectAllPOs" onchange="toggleSelectAllPOs(this.checked)" style="transform: scale(1.3);">
+        </th>
         <th>PO No</th>
         <th>Parts</th>
         <th>Supplier</th>
         <th>Date</th>
+        <th>PO Value</th>
         <th>Status</th>
         <th>Actions</th>
     </tr>
 
     <?php foreach ($orders as $o): ?>
     <tr>
+        <td style="text-align: center;">
+            <input type="checkbox" class="po-checkbox" value="<?= htmlspecialchars($o['po_no']) ?>" onchange="updateExportButton()" style="transform: scale(1.3);">
+        </td>
         <td><?= htmlspecialchars($o['po_no']) ?></td>
         <td>
             <?php $partsList = $o['items'] ? explode('|||', $o['items']) : []; ?>
             <ul style="margin:0;padding-left:18px;">
             <?php foreach ($partsList as $pitem):
-                list($lineId, $partNo, $partName, $partQty) = explode('::', $pitem);
+                list($lineId, $partNo, $partName, $partQty, $partRate) = explode('::', $pitem);
             ?>
                 <li>
-                    <?= htmlspecialchars($partNo) ?> — <?= htmlspecialchars($partName) ?> (Qty: <?= htmlspecialchars($partQty) ?>)
+                    <?= htmlspecialchars($partNo) ?> — <?= htmlspecialchars($partName) ?> (Qty: <?= htmlspecialchars($partQty) ?> @ ₹<?= number_format($partRate, 2) ?>)
                     &nbsp; <a href="edit.php?id=<?= $lineId ?>">Edit</a>
                 </li>
             <?php endforeach; ?>
@@ -448,6 +464,7 @@ showModal();
         </td>
         <td><?= htmlspecialchars($o['supplier_name']) ?></td>
         <td><?= $o['purchase_date'] ?></td>
+        <td style="font-weight: bold; color: #27ae60;">₹<?= number_format($o['po_value'], 2) ?></td>
         <td><?= htmlspecialchars(implode(', ', explode(',', $o['status_list']))) ?></td>
         <td style="white-space: nowrap;">
             <a class="btn btn-primary" href="view.php?po_no=<?= urlencode($o['po_no']) ?>">View</a>
@@ -896,6 +913,73 @@ function htmlEscape(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+/**
+ * Toggle select all PO checkboxes
+ */
+function toggleSelectAllPOs(checked) {
+    const checkboxes = document.querySelectorAll('.po-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checked;
+    });
+    updateExportButton();
+}
+
+/**
+ * Update export button state based on selected POs
+ */
+function updateExportButton() {
+    const checkboxes = document.querySelectorAll('.po-checkbox:checked');
+    const count = checkboxes.length;
+    const exportBtn = document.getElementById('exportBtn');
+    const countSpan = document.getElementById('selectedPOCount');
+    const selectAllCheckbox = document.getElementById('selectAllPOs');
+
+    if (count > 0) {
+        exportBtn.disabled = false;
+        countSpan.textContent = count + ' PO(s) selected';
+    } else {
+        exportBtn.disabled = true;
+        countSpan.textContent = '';
+    }
+
+    // Update select all checkbox state
+    const allCheckboxes = document.querySelectorAll('.po-checkbox');
+    const checkedCount = checkboxes.length;
+    selectAllCheckbox.checked = checkedCount === allCheckboxes.length && allCheckboxes.length > 0;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+}
+
+/**
+ * Export selected POs to Excel (CSV format)
+ */
+function exportSelectedPOs() {
+    const selectedPOs = [];
+    document.querySelectorAll('.po-checkbox:checked').forEach(cb => {
+        selectedPOs.push(cb.value);
+    });
+
+    if (selectedPOs.length === 0) {
+        alert('Please select at least one PO to export');
+        return;
+    }
+
+    // Create a form and submit to export script
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = 'export_po.php';
+    form.target = '_blank';
+
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'po_numbers';
+    input.value = JSON.stringify(selectedPOs);
+
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
 }
 </script>
 
