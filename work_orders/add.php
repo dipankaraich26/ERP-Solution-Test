@@ -86,17 +86,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         try {
             $stmt = $pdo->prepare("
                 INSERT INTO work_orders (wo_no, part_no, bom_id, qty, assigned_to, status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'open', NOW())
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
             ");
             $stmt->execute([
                 $wo_no,
                 $partNo,
                 $bomId ?: null,
                 $qty,
-                $assignedTo ?: null
+                $assignedTo ?: null,
+                'created'
             ]);
 
-            header("Location: view.php?id=" . $pdo->lastInsertId() . "&success=1");
+            $insertedId = $pdo->lastInsertId();
+
+            // Verify the status was saved
+            $verify = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+            $verify->execute([$insertedId]);
+            $savedStatus = $verify->fetchColumn();
+
+            if ($savedStatus !== 'created') {
+                throw new Exception("Status was not saved correctly");
+            }
+
+            header("Location: view.php?id=" . $insertedId . "&success=1");
             exit;
         } catch (Exception $e) {
             $error = "Error creating work order: " . $e->getMessage();
