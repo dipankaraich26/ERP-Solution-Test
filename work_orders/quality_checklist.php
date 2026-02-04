@@ -315,17 +315,23 @@ if ($wo['bom_id']) {
 }
 ?>
 
-<div class="content" style="overflow-y: auto; height: 100vh;">
+<style>
+    /* ── Hide sidebar, go full-width landscape ── */
+    .sidebar  { display: none !important; }
+    .app-container { display: block !important; }
+    body { overflow: auto !important; }
+</style>
+
+<div style="padding: 20px; max-width: 100%; overflow-y: auto; height: 100vh;">
     <style>
         @page {
             size: landscape;
             margin: 10mm;
         }
         @media print {
-            .sidebar, .no-print { display: none !important; }
-            .content { margin-left: 0 !important; padding: 10px !important; width: 100% !important; overflow: visible !important; height: auto !important; }
+            .no-print { display: none !important; }
             body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            .checklist-table { font-size: 9pt; width: 100%; }
+            .checklist-table { font-size: 9pt; width: 100%; min-width: 0 !important; }
             .checklist-table th, .checklist-table td { padding: 5px 6px !important; }
             .wo-header { padding: 10px !important; }
             .wo-details { gap: 10px !important; }
@@ -333,11 +339,6 @@ if ($wo['bom_id']) {
             .table-scroll-container { overflow: visible !important; max-height: none !important; }
         }
 
-        /* Full width landscape layout */
-        .quality-checklist-page {
-            max-width: 100%;
-            margin: 0;
-        }
         .wo-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -348,18 +349,18 @@ if ($wo['bom_id']) {
         .wo-header h1 { margin: 0 0 5px 0; font-size: 1.4em; }
         .wo-details {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: 10px;
             margin-bottom: 15px;
         }
         .wo-detail-card {
-            background: white;
+            background: var(--card, white);
             padding: 10px 12px;
             border-radius: 6px;
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--border, #e5e7eb);
         }
         .wo-detail-card label {
-            color: #6b7280;
+            color: var(--muted-text, #6b7280);
             font-size: 0.75em;
             display: block;
             margin-bottom: 3px;
@@ -369,71 +370,54 @@ if ($wo['bom_id']) {
             font-size: 0.95em;
         }
 
-        /* Scrollable table container - horizontal scroll only */
+        /* Table container */
         .table-scroll-container {
             overflow-x: auto;
             overflow-y: visible;
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--border, #e5e7eb);
             border-radius: 8px;
-            background: white;
+            background: var(--card, white);
             scrollbar-width: thin;
             scrollbar-color: #667eea #f3f4f6;
-        }
-        .table-scroll-container::-webkit-scrollbar {
-            height: 10px;
-        }
-        .table-scroll-container::-webkit-scrollbar-track {
-            background: #f3f4f6;
-            border-radius: 5px;
-        }
-        .table-scroll-container::-webkit-scrollbar-thumb {
-            background: #667eea;
-            border-radius: 5px;
-        }
-        .table-scroll-container::-webkit-scrollbar-thumb:hover {
-            background: #5a67d8;
         }
 
         .checklist-table {
             width: 100%;
-            min-width: 1200px;
             border-collapse: collapse;
-            background: white;
+            background: var(--card, white);
         }
         .checklist-table th, .checklist-table td {
             padding: 10px 12px;
             text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-            white-space: nowrap;
+            border-bottom: 1px solid var(--border, #e5e7eb);
         }
         .checklist-table th {
-            background: #f3f4f6;
+            background: var(--table-header-bg, #667eea);
+            color: var(--table-header-text, #fff);
             font-weight: 600;
-            color: #374151;
             position: sticky;
             top: 0;
             z-index: 10;
+            white-space: nowrap;
         }
-        .checklist-table th:first-child {
-            width: 50px;
-        }
-        .checklist-table th:nth-child(2) {
-            min-width: 250px;
+        .checklist-table th:first-child { width: 45px; }
+        .checklist-table th:nth-child(2) { min-width: 220px; }
+        .checklist-table th:nth-child(3) { min-width: 180px; }
+        .checklist-table th:nth-child(4) { width: 110px; }
+        .checklist-table th:nth-child(5) { width: 140px; }
+        .checklist-table th:nth-child(6) { min-width: 180px; }
+
+        .checklist-table td:nth-child(2),
+        .checklist-table td:nth-child(3),
+        .checklist-table td:nth-child(6) {
             white-space: normal;
+            word-break: break-word;
         }
-        .checklist-table th:nth-child(3) {
-            min-width: 180px;
-            white-space: normal;
-        }
-        .checklist-table tr:hover {
-            background: #f0f7ff;
-        }
-        .checklist-table tr:nth-child(even) {
-            background: #fafafa;
-        }
-        .checklist-table tr:nth-child(even):hover {
-            background: #f0f7ff;
-        }
+
+        .checklist-table tbody tr:nth-child(odd) { background: var(--row-odd, #f9fafb); }
+        .checklist-table tbody tr:nth-child(even) { background: var(--row-even, #f1f5f9); }
+        .checklist-table tbody tr:hover { background: var(--row-hover, #e0e7ff); }
+
         .result-select {
             padding: 6px 10px;
             border: 1px solid #d1d5db;
@@ -448,11 +432,13 @@ if ($wo['bom_id']) {
         .result-select.pending { background: #fef3c7; border-color: #f59e0b; }
         .remarks-input {
             padding: 6px 8px;
-            border: 1px solid #d1d5db;
+            border: 1px solid var(--input-border, #d1d5db);
             border-radius: 4px;
             width: 100%;
             min-width: 120px;
             font-size: 0.85em;
+            background: var(--input-bg, #fff);
+            color: var(--input-text, #1f2937);
         }
         .status-badge {
             display: inline-block;
@@ -469,47 +455,21 @@ if ($wo['bom_id']) {
         .result-fail { background: #fee2e2; color: #991b1b; }
         .result-pending { background: #fef3c7; color: #92400e; }
         .section-title {
-            background: #f3f4f6;
+            background: var(--card, #f3f4f6);
             padding: 8px 12px;
             margin: 15px 0 8px 0;
             border-radius: 6px;
             font-weight: 600;
-            color: #374151;
+            color: var(--text, #374151);
             font-size: 0.95em;
+            border: 1px solid var(--border, #e5e7eb);
         }
 
         /* Compact BOM table */
-        .bom-table-container {
-            overflow-x: auto;
-            margin-bottom: 15px;
-        }
-        .bom-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9em;
-        }
-        .bom-table th, .bom-table td {
-            padding: 8px 10px;
-            border: 1px solid #e5e7eb;
-        }
-        .bom-table th {
-            background: #f3f4f6;
-        }
-
-        /* Floating action bar */
-        .floating-actions {
-            position: sticky;
-            bottom: 0;
-            background: white;
-            padding: 12px 15px;
-            border-top: 2px solid #667eea;
-            margin-top: 15px;
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            box-shadow: 0 -4px 10px rgba(0,0,0,0.1);
-            z-index: 100;
-        }
+        .bom-table-container { overflow-x: auto; margin-bottom: 15px; }
+        .bom-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        .bom-table th, .bom-table td { padding: 8px 10px; border: 1px solid var(--border, #e5e7eb); }
+        .bom-table th { background: var(--table-header-bg, #f3f4f6); color: var(--table-header-text, #374151); }
     </style>
 
     <?php if ($success): ?>
@@ -627,7 +587,7 @@ if ($wo['bom_id']) {
             <?php $isEditable = ($checklist['status'] === 'Draft'); ?>
 
             <!-- Inspector Info -->
-            <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e5e7eb;">
+            <div style="background: var(--card, white); padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--border, #e5e7eb);">
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
                     <div>
                         <label style="display: block; margin-bottom: 5px; font-weight: 500;">Inspector Name</label>
@@ -703,7 +663,7 @@ if ($wo['bom_id']) {
             </div>
 
             <!-- Overall Remarks -->
-            <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid #e5e7eb;">
+            <div style="background: var(--card, white); padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid var(--border, #e5e7eb);">
                 <label style="display: block; margin-bottom: 8px; font-weight: 500;">Overall Remarks</label>
                 <textarea name="overall_remarks" rows="3" class="remarks-input" <?= $isEditable ? '' : 'readonly' ?>
                           placeholder="Enter any overall remarks or observations..."><?= htmlspecialchars($checklist['remarks'] ?? '') ?></textarea>
