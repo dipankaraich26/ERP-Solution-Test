@@ -87,12 +87,19 @@ $stmt = $pdo->prepare("
     LIMIT ? OFFSET ?
 ");
 
-// Build execute parameters array
-$executeParams = $searchParams;
-$executeParams[] = $per_page;
-$executeParams[] = $offset;
+// Bind search parameters
+$paramIndex = 1;
+if (!empty($searchParams)) {
+    foreach ($searchParams as $value) {
+        $stmt->bindValue($paramIndex++, $value, PDO::PARAM_STR);
+    }
+}
 
-$stmt->execute($executeParams);
+// Bind LIMIT and OFFSET as integers
+$stmt->bindValue($paramIndex++, $per_page, PDO::PARAM_INT);
+$stmt->bindValue($paramIndex, $offset, PDO::PARAM_INT);
+
+$stmt->execute();
 $suppliers = $stmt;
 
 include "../includes/sidebar.php";
