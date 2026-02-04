@@ -211,6 +211,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Edit (reopen) checklist — set back to Draft
+    if ($action === 'edit' && $checklist && in_array($checklist['status'], ['Submitted', 'Rejected'])) {
+        try {
+            $pdo->prepare("UPDATE wo_quality_checklists SET status = 'Draft', submitted_at = NULL WHERE id = ?")->execute([$checklist['id']]);
+            // If WO was moved to qc_approval, move it back to completed
+            $pdo->prepare("UPDATE work_orders SET status = 'completed' WHERE id = ? AND status = 'qc_approval'")->execute([$wo_id]);
+            $success = "Checklist reopened for editing.";
+            $existingChecklist->execute([$wo_id]);
+            $checklist = $existingChecklist->fetch();
+        } catch (PDOException $e) {
+            $error = "Failed to reopen checklist: " . $e->getMessage();
+        }
+    }
+
     // Submit checklist
     if ($action === 'submit' && $checklist) {
         try {
@@ -706,10 +720,23 @@ if ($wo['bom_id']) {
                     Submit Checklist
                 </button>
             </div>
-            <?php elseif ($checklist['status'] === 'Submitted'): ?>
-            <div class="no-print" style="margin-top: 20px; background: #e0e7ff; padding: 15px; border-radius: 8px; color: #3730a3;">
-                <strong>Checklist Submitted!</strong> Proceed to request approval from the Work Order page.
-                <a href="view.php?id=<?= $wo_id ?>" class="btn btn-primary" style="margin-left: 15px;">Go to Work Order</a>
+            <?php elseif (in_array($checklist['status'], ['Submitted', 'Rejected'])): ?>
+            <div class="no-print" style="margin-top: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; color: #3730a3; flex: 1;">
+                    <strong>Checklist <?= $checklist['status'] ?>!</strong>
+                    <?php if ($checklist['status'] === 'Submitted'): ?>
+                        Proceed to request approval from the Work Order page.
+                    <?php else: ?>
+                        Edit the checklist to make corrections and re-submit.
+                    <?php endif; ?>
+                </div>
+                <form method="post" style="display: inline;">
+                    <button type="submit" name="action" value="edit" class="btn btn-secondary" style="padding: 12px 30px;"
+                            onclick="return confirm('Reopen this checklist for editing?');">
+                        Edit Checklist
+                    </button>
+                </form>
+                <a href="view.php?id=<?= $wo_id ?>" class="btn btn-primary" style="padding: 12px 30px;">Go to Work Order</a>
             </div>
             <?php endif; ?>
         </form>
