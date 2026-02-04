@@ -386,27 +386,19 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <tr class="item-row">
                             <td><?= $idx + 1 ?></td>
                             <td>
-                                <div class="autocomplete-wrapper">
-                                    <input type="text"
-                                           name="items[<?= $idx ?>][part_no]"
-                                           class="part-input part-no-input"
-                                           value="<?= htmlspecialchars($item['part_no']) ?>"
-                                           placeholder="Type to search..."
-                                           autocomplete="off"
-                                           required>
-                                    <div class="autocomplete-results"></div>
-                                </div>
+                                <input type="text"
+                                       name="items[<?= $idx ?>][part_no]"
+                                       class="part-input"
+                                       value="<?= htmlspecialchars($item['part_no']) ?>"
+                                       placeholder="Part Number"
+                                       required>
                             </td>
                             <td>
-                                <div class="autocomplete-wrapper">
-                                    <input type="text"
-                                           class="part-input part-name-input"
-                                           value="<?= htmlspecialchars($item['part_name'] ?? '') ?>"
-                                           placeholder="Type to search..."
-                                           autocomplete="off">
-                                    <div class="autocomplete-results"></div>
-                                    <input type="hidden" name="items[<?= $idx ?>][part_name]" class="part-name-hidden" value="<?= htmlspecialchars($item['part_name'] ?? '') ?>">
-                                </div>
+                                <input type="text"
+                                       name="items[<?= $idx ?>][part_name]"
+                                       class="part-input"
+                                       value="<?= htmlspecialchars($item['part_name'] ?? '') ?>"
+                                       placeholder="Part Name">
                             </td>
                             <td>
                                 <input type="number"
@@ -462,25 +454,17 @@ function addRow() {
     newRow.innerHTML = `
         <td>${rowIndex + 1}</td>
         <td>
-            <div class="autocomplete-wrapper">
-                <input type="text"
-                       name="items[${rowIndex}][part_no]"
-                       class="part-input part-no-input"
-                       placeholder="Type to search..."
-                       autocomplete="off"
-                       required>
-                <div class="autocomplete-results"></div>
-            </div>
+            <input type="text"
+                   name="items[${rowIndex}][part_no]"
+                   class="part-input"
+                   placeholder="Part Number"
+                   required>
         </td>
         <td>
-            <div class="autocomplete-wrapper">
-                <input type="text"
-                       class="part-input part-name-input"
-                       placeholder="Type to search..."
-                       autocomplete="off">
-                <div class="autocomplete-results"></div>
-                <input type="hidden" name="items[${rowIndex}][part_name]" class="part-name-hidden">
-            </div>
+            <input type="text"
+                   name="items[${rowIndex}][part_name]"
+                   class="part-input"
+                   placeholder="Part Name">
         </td>
         <td>
             <input type="number"
@@ -497,13 +481,6 @@ function addRow() {
     tbody.appendChild(newRow);
     rowIndex++;
     updateRowNumbers();
-
-    // Initialize autocomplete for the newly added row
-    setTimeout(() => {
-        initAutocomplete(newRow);
-        // Focus on the new part input
-        newRow.querySelector('.part-no-input').focus();
-    }, 10);
 }
 
 function removeRow(btn) {
@@ -516,130 +493,6 @@ function updateRowNumbers() {
     const rows = document.querySelectorAll('.item-row');
     rows.forEach((row, idx) => {
         row.querySelector('td:first-child').textContent = idx + 1;
-    });
-}
-
-function initAutocomplete(container = document) {
-    // Initialize Part Number inputs
-    const partNoInputs = container.querySelectorAll('.part-no-input');
-    partNoInputs.forEach(input => {
-        if (input.dataset.initialized) return;
-        input.dataset.initialized = 'true';
-
-        const wrapper = input.closest('.autocomplete-wrapper');
-        const results = wrapper.querySelector('.autocomplete-results');
-        const row = input.closest('tr');
-        const nameInput = row.querySelectorAll('.part-name-input')[0];
-        const nameHidden = row.querySelector('.part-name-hidden');
-
-        input.addEventListener('input', function() {
-            const query = this.value.toLowerCase();
-
-            if (query.length < 1) {
-                results.classList.remove('show');
-                if (nameInput) nameInput.value = '';
-                if (nameHidden) nameHidden.value = '';
-                return;
-            }
-
-            const matches = partsData.filter(p =>
-                p.part_no.toLowerCase().includes(query) ||
-                p.part_name.toLowerCase().includes(query)
-            ).slice(0, 20);
-
-            if (matches.length === 0) {
-                results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
-                results.classList.add('show');
-                return;
-            }
-
-            results.innerHTML = matches.map(p => `
-                <div class="autocomplete-item"
-                     data-part-no="${escapeHtml(p.part_no)}"
-                     data-part-name="${escapeHtml(p.part_name)}">
-                    <div style="display: flex; gap: 15px; align-items: center;">
-                        <strong style="color: #2c3e50; min-width: 120px; font-size: 14px;">${escapeHtml(p.part_no)}</strong>
-                        <span style="color: #555; font-size: 13px;">${escapeHtml(p.part_name)}</span>
-                    </div>
-                </div>
-            `).join('');
-            results.classList.add('show');
-        });
-
-        results.addEventListener('click', function(e) {
-            const item = e.target.closest('.autocomplete-item');
-            if (item && item.dataset.partNo) {
-                input.value = item.dataset.partNo;
-                if (nameInput) nameInput.value = item.dataset.partName;
-                if (nameHidden) nameHidden.value = item.dataset.partName;
-                results.classList.remove('show');
-            }
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(() => results.classList.remove('show'), 200);
-        });
-    });
-
-    // Initialize Part Name inputs
-    const partNameInputs = container.querySelectorAll('.part-name-input');
-    partNameInputs.forEach(input => {
-        if (input.dataset.initialized) return;
-        input.dataset.initialized = 'true';
-
-        const wrapper = input.closest('.autocomplete-wrapper');
-        const results = wrapper.querySelector('.autocomplete-results');
-        const row = input.closest('tr');
-        const noInput = row.querySelector('.part-no-input');
-        const nameHidden = row.querySelector('.part-name-hidden');
-
-        input.addEventListener('input', function() {
-            const query = this.value.toLowerCase();
-
-            if (query.length < 1) {
-                results.classList.remove('show');
-                if (noInput) noInput.value = '';
-                if (nameHidden) nameHidden.value = '';
-                return;
-            }
-
-            const matches = partsData.filter(p =>
-                p.part_name.toLowerCase().includes(query) ||
-                p.part_no.toLowerCase().includes(query)
-            ).slice(0, 20);
-
-            if (matches.length === 0) {
-                results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
-                results.classList.add('show');
-                return;
-            }
-
-            results.innerHTML = matches.map(p => `
-                <div class="autocomplete-item"
-                     data-part-no="${escapeHtml(p.part_no)}"
-                     data-part-name="${escapeHtml(p.part_name)}">
-                    <div style="display: flex; gap: 15px; align-items: center;">
-                        <strong style="color: #2c3e50; min-width: 120px; font-size: 14px;">${escapeHtml(p.part_no)}</strong>
-                        <span style="color: #555; font-size: 13px;">${escapeHtml(p.part_name)}</span>
-                    </div>
-                </div>
-            `).join('');
-            results.classList.add('show');
-        });
-
-        results.addEventListener('click', function(e) {
-            const item = e.target.closest('.autocomplete-item');
-            if (item && item.dataset.partNo) {
-                if (noInput) noInput.value = item.dataset.partNo;
-                input.value = item.dataset.partName;
-                if (nameHidden) nameHidden.value = item.dataset.partName;
-                results.classList.remove('show');
-            }
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(() => results.classList.remove('show'), 200);
-        });
     });
 }
 
@@ -719,27 +572,19 @@ function addPartToTable(partNo, partName) {
     newRow.innerHTML = `
         <td>${rowIndex + 1}</td>
         <td>
-            <div class="autocomplete-wrapper">
-                <input type="text"
-                       name="items[${rowIndex}][part_no]"
-                       class="part-input part-no-input"
-                       value="${partNo}"
-                       placeholder="Type to search..."
-                       autocomplete="off"
-                       required>
-                <div class="autocomplete-results"></div>
-            </div>
+            <input type="text"
+                   name="items[${rowIndex}][part_no]"
+                   class="part-input"
+                   value="${partNo}"
+                   placeholder="Part Number"
+                   required>
         </td>
         <td>
-            <div class="autocomplete-wrapper">
-                <input type="text"
-                       class="part-input part-name-input"
-                       value="${partName}"
-                       placeholder="Type to search..."
-                       autocomplete="off">
-                <div class="autocomplete-results"></div>
-                <input type="hidden" name="items[${rowIndex}][part_name]" class="part-name-hidden" value="${partName}">
-            </div>
+            <input type="text"
+                   name="items[${rowIndex}][part_name]"
+                   class="part-input"
+                   value="${partName}"
+                   placeholder="Part Name">
         </td>
         <td>
             <input type="number"
@@ -757,10 +602,8 @@ function addPartToTable(partNo, partName) {
     rowIndex++;
     updateRowNumbers();
 
-    // Initialize autocomplete for the newly added row
+    // Focus on the quantity input
     setTimeout(() => {
-        initAutocomplete(newRow);
-        // Focus on the quantity input
         newRow.querySelector('.qty-input').focus();
     }, 10);
 
@@ -769,9 +612,8 @@ function addPartToTable(partNo, partName) {
     document.getElementById('globalSearchResults').style.display = 'none';
 }
 
-// Initialize autocomplete on page load
+// Initialize global search on page load
 document.addEventListener('DOMContentLoaded', function() {
-    initAutocomplete();
     initGlobalSearch();
 });
 </script>
