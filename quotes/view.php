@@ -46,11 +46,15 @@ if (isset($_POST['release']) && $_POST['release'] === '1') {
         }
         $fyString = substr($fyStart, 2) . '/' . substr($fyEnd, 2);
 
-        // Count existing PIs for this FY
-        $piCountStmt = $pdo->prepare("SELECT COUNT(*) FROM quote_master WHERE pi_no LIKE ?");
-        $piCountStmt->execute(['PI/%/' . $fyString]);
-        $piCount = $piCountStmt->fetchColumn();
-        $piSerial = $piCount + 1;
+        // Get the highest existing PI serial for this FY
+        $piMaxStmt = $pdo->prepare("
+            SELECT MAX(CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(pi_no, '/', 2), '/', -1) AS UNSIGNED)) as max_serial
+            FROM quote_master
+            WHERE pi_no LIKE ?
+        ");
+        $piMaxStmt->execute(['PI/%/' . $fyString]);
+        $maxSerial = $piMaxStmt->fetchColumn();
+        $piSerial = ($maxSerial ? $maxSerial : 0) + 1;
         $pi_no = 'PI/' . $piSerial . '/' . $fyString;
 
         // Update quote to released status
