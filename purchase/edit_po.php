@@ -155,7 +155,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             padding: 20px;
             padding-bottom: 350px;
-            margin: 20px 0;
+            margin: 60px 0 20px 0;
         }
 
         .items-table {
@@ -473,7 +473,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_no.toLowerCase().includes(query) ||
                 p.part_name.toLowerCase().includes(query)
-            ).slice(0, 15);
+            ).slice(0, 5);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
@@ -534,7 +534,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_name.toLowerCase().includes(query) ||
                 p.part_no.toLowerCase().includes(query)
-            ).slice(0, 15);
+            ).slice(0, 5);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
