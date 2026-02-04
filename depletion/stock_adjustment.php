@@ -13,12 +13,22 @@ $all_parts = $pdo->query("
     ORDER BY p.part_name
 ")->fetchAll();
 
+// Restricted part IDs that cannot be adjusted
+$restricted_parts = ['42', '44', '46', '52', '99', '91', '83', 'YID'];
+
 // Handle form submission
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $part = $_POST['part_no'];
     $qty = (int)$_POST['qty'];
     $reason = $_POST['reason'];
     $adjustment_type = $_POST['adjustment_type'];
+
+    // Check if part is restricted
+    if (in_array($part, $restricted_parts)) {
+        setModal("Error", "Stock adjustment is not allowed for Part ID: $part");
+        header("Location: stock_adjustment.php");
+        exit;
+    }
 
     if ($qty <= 0) {
         setModal("Error", "Quantity must be greater than 0");
@@ -182,6 +192,19 @@ $adjustments_stmt->execute();
         body.dark .adjustment-type-selector label:has(input:checked) {
             background: #2c3e50;
         }
+        .restriction-notice {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+        body.dark .restriction-notice {
+            background: #6c5a11;
+            border-left-color: #f1c40f;
+            color: #fef5e7;
+        }
     </style>
 </head>
 <body>
@@ -210,6 +233,9 @@ if (toggle) {
     });
 }
 
+// Restricted part IDs that cannot be adjusted
+const restrictedParts = ['42', '44', '46', '52', '99', '91', '83', 'YID'];
+
 // Part stock data
 const partStock = {
     <?php foreach ($all_parts as $p): ?>
@@ -217,15 +243,22 @@ const partStock = {
     <?php endforeach; ?>
 };
 
-// Part data for search
+// Part data for search (excluding restricted parts)
 const allParts = [
-    <?php foreach ($all_parts as $p): ?>
-    {
-        part_no: "<?= htmlspecialchars($p['part_no']) ?>",
-        part_name: "<?= htmlspecialchars($p['part_name']) ?>",
-        qty: <?= (int)$p['qty'] ?>
-    },
-    <?php endforeach; ?>
+    <?php
+    $filtered_parts = array_filter($all_parts, function($p) use ($restricted_parts) {
+        return !in_array($p['part_no'], $restricted_parts);
+    });
+    $parts_js = array_map(function($p) {
+        return sprintf(
+            '{part_no: "%s", part_name: "%s", qty: %d}',
+            htmlspecialchars($p['part_no']),
+            htmlspecialchars($p['part_name']),
+            (int)$p['qty']
+        );
+    }, $filtered_parts);
+    echo implode(",\n    ", $parts_js);
+    ?>
 ];
 
 function updateStockInfo() {
@@ -363,6 +396,9 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
 
         <label>Select Part</label>
+        <div class="restriction-notice">
+            <strong>Note:</strong> Parts with IDs 42, 44, 46, 52, 99, 91, 83, YID are restricted and cannot be adjusted.
+        </div>
         <div style="position: relative;">
             <input type="text" id="part_search" placeholder="Search by Part No or Part Name..."
                    style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;">
@@ -373,9 +409,11 @@ document.addEventListener('DOMContentLoaded', function() {
         <select name="part_no" id="part_select" required style="display: none;">
             <option value="">-- Select Part --</option>
             <?php foreach ($all_parts as $p): ?>
+                <?php if (!in_array($p['part_no'], $restricted_parts)): ?>
                 <option value="<?= htmlspecialchars($p['part_no']) ?>">
                     <?= htmlspecialchars($p['part_no']) ?> — <?= htmlspecialchars($p['part_name']) ?>
                 </option>
+                <?php endif; ?>
             <?php endforeach; ?>
         </select>
 
