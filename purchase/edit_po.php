@@ -217,7 +217,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
         .autocomplete-results {
             position: absolute;
-            top: 100%;
+            bottom: 100%;
             left: 0;
             min-width: 400px;
             background: white;
@@ -228,7 +228,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             z-index: 999999;
             display: none;
             box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            margin-top: 4px;
+            margin-bottom: 4px;
         }
 
         .autocomplete-results.show {
