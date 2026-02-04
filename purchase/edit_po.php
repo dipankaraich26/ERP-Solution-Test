@@ -254,7 +254,8 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
         .btn-add-row {
-            margin: 15px 0;
+            margin-top: 50px;
+            margin-bottom: 15px;
             padding: 10px 20px;
             font-size: 15px;
         }
