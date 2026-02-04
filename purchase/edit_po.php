@@ -110,77 +110,172 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         .form-container {
-            max-width: 1200px;
+            max-width: 100%;
+            padding: 20px;
         }
+
+        .page-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .page-header h1 {
+            margin: 0 0 15px 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .po-info {
+            display: flex;
+            gap: 30px;
+            margin-top: 15px;
+        }
+
+        .po-info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .po-info-label {
+            font-weight: 600;
+            opacity: 0.9;
+        }
+
+        .items-table-wrapper {
+            overflow-x: auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            padding: 20px;
+            margin: 20px 0;
+        }
+
         .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
+            margin: 10px 0;
         }
-        .items-table th, .items-table td {
-            padding: 10px;
-            border: 1px solid #ddd;
-            text-align: left;
-        }
+
         .items-table th {
-            background: #f5f5f5;
-            font-weight: 600;
+            background: #f8f9fa;
+            padding: 15px 12px;
+            text-align: left;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: 700;
+            font-size: 14px;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
+
+        .items-table td {
+            padding: 15px 12px;
+            border-bottom: 1px solid #e9ecef;
+            vertical-align: middle;
+        }
+
+        .items-table tr:hover {
+            background: #f8f9fa;
+        }
+
         .items-table input {
             width: 100%;
-            padding: 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+            padding: 10px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
         }
+
+        .items-table input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
         .items-table .part-input {
-            min-width: 150px;
+            min-width: 200px;
         }
+
         .items-table .qty-input {
-            width: 100px;
+            width: 120px;
         }
+
         .autocomplete-wrapper {
             position: relative;
+            width: 100%;
         }
+
         .autocomplete-results {
             position: absolute;
             top: 100%;
             left: 0;
-            right: 0;
+            min-width: 400px;
             background: white;
             border: 2px solid #3498db;
-            border-radius: 4px;
-            max-height: 250px;
+            border-radius: 8px;
+            max-height: 300px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            margin-top: 2px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            margin-top: 4px;
         }
+
         .autocomplete-results.show {
             display: block;
         }
+
         .autocomplete-item {
-            padding: 10px 12px;
+            padding: 12px 15px;
             cursor: pointer;
             border-bottom: 1px solid #eee;
             transition: background 0.2s;
+            font-size: 14px;
         }
+
+        .autocomplete-item strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
         .autocomplete-item:hover {
             background: #e3f2fd;
         }
+
         .autocomplete-item:last-child {
             border-bottom: none;
         }
+
         .btn-add-row {
-            margin: 10px 0;
+            margin: 15px 0;
+            padding: 10px 20px;
+            font-size: 15px;
         }
+
         .error-box {
             background: #f8d7da;
             border: 1px solid #f5c6cb;
             color: #721c24;
-            padding: 15px;
+            padding: 18px;
             border-radius: 8px;
             margin-bottom: 20px;
+        }
+
+        .form-actions {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
         }
     </style>
 </head>
@@ -188,10 +283,19 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 <div class="content">
     <div class="form-container">
-        <h1>Edit Purchase Order: <?= htmlspecialchars($po_no) ?></h1>
-
-        <p><strong>Supplier:</strong> <?= htmlspecialchars($po['supplier_name']) ?></p>
-        <p><strong>Date:</strong> <?= date('d M Y', strtotime($po['purchase_date'])) ?></p>
+        <div class="page-header">
+            <h1>Edit Purchase Order: <?= htmlspecialchars($po_no) ?></h1>
+            <div class="po-info">
+                <div class="po-info-item">
+                    <span class="po-info-label">Supplier:</span>
+                    <span><?= htmlspecialchars($po['supplier_name']) ?></span>
+                </div>
+                <div class="po-info-item">
+                    <span class="po-info-label">Date:</span>
+                    <span><?= date('d M Y', strtotime($po['purchase_date'])) ?></span>
+                </div>
+            </div>
+        </div>
 
         <?php if (!empty($errors)): ?>
             <div class="error-box">
@@ -205,7 +309,8 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
         <?php endif; ?>
 
         <form method="post" id="poForm">
-            <table class="items-table">
+            <div class="items-table-wrapper">
+                <table class="items-table">
                 <thead>
                     <tr>
                         <th style="width: 50px;">#</th>
@@ -255,11 +360,12 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                 </tbody>
             </table>
 
-            <button type="button" class="btn btn-secondary btn-add-row" onclick="addRow()">Add Row</button>
+            <button type="button" class="btn btn-secondary btn-add-row" onclick="addRow()">+ Add New Row</button>
+            </div>
 
-            <div style="margin-top: 20px;">
-                <button type="submit" class="btn btn-success" style="padding: 12px 30px;">Save Changes</button>
-                <a href="view.php?po_no=<?= urlencode($po_no) ?>" class="btn btn-secondary" style="margin-left: 10px;">Cancel</a>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success" style="padding: 12px 30px; font-size: 16px;">Save Changes</button>
+                <a href="view.php?po_no=<?= urlencode($po_no) ?>" class="btn btn-secondary" style="padding: 12px 30px; font-size: 16px;">Cancel</a>
             </div>
         </form>
     </div>
@@ -350,7 +456,7 @@ function initAutocomplete(container = document) {
             const matches = partsData.filter(p =>
                 p.part_no.toLowerCase().includes(query) ||
                 p.part_name.toLowerCase().includes(query)
-            ).slice(0, 10);
+            ).slice(0, 15);
 
             if (matches.length === 0) {
                 results.innerHTML = '<div class="autocomplete-item">No parts found</div>';
@@ -363,7 +469,10 @@ function initAutocomplete(container = document) {
                 <div class="autocomplete-item"
                      data-part-no="${escapeHtml(p.part_no)}"
                      data-part-name="${escapeHtml(p.part_name)}">
-                    <strong>${escapeHtml(p.part_no)}</strong> - ${escapeHtml(p.part_name)}
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <strong style="color: #2c3e50; min-width: 120px; font-size: 14px;">${escapeHtml(p.part_no)}</strong>
+                        <span style="color: #555; font-size: 13px;">${escapeHtml(p.part_name)}</span>
+                    </div>
                 </div>
             `).join('');
             results.classList.add('show');
