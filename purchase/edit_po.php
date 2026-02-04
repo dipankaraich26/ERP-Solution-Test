@@ -370,21 +370,6 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
         <?php endif; ?>
 
         <form method="post" id="poForm">
-            <!-- Part Selector Section -->
-            <div class="part-selector-wrapper">
-                <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Search & Add Parts</h3>
-                <div style="position: relative; margin-bottom: 20px;">
-                    <input type="text"
-                           id="globalPartSearch"
-                           placeholder="Search by part number or part name..."
-                           autocomplete="off"
-                           style="width: 100%; padding: 12px 15px; border: 2px solid #3498db; border-radius: 8px; font-size: 15px;">
-                    <div id="globalSearchResults" style="display: none;">
-                        <!-- Search results will appear here -->
-                    </div>
-                </div>
-            </div>
-
             <div class="items-table-wrapper">
                 <table class="items-table">
                 <thead>
@@ -441,6 +426,21 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             </table>
 
             <button type="button" class="btn btn-secondary btn-add-row" onclick="addRow()">+ Add New Row</button>
+
+            <!-- Part Selector Section -->
+            <div class="part-selector-wrapper" style="margin-top: 30px;">
+                <h3 style="margin: 0 0 15px 0; color: #2c3e50;">Search & Add Parts</h3>
+                <div style="position: relative;">
+                    <input type="text"
+                           id="globalPartSearch"
+                           placeholder="Search by part number or part name..."
+                           autocomplete="off"
+                           style="width: 100%; padding: 12px 15px; border: 2px solid #3498db; border-radius: 8px; font-size: 15px;">
+                    <div id="globalSearchResults" style="display: none;">
+                        <!-- Search results will appear here -->
+                    </div>
+                </div>
+            </div>
             </div>
 
             <div class="form-actions">
