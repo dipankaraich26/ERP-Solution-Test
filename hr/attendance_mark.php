@@ -99,6 +99,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// Handle delete/reset attendance
+if (isset($_GET['delete']) && isset($_GET['emp_id'])) {
+    $deleteEmpId = (int)$_GET['emp_id'];
+    $deleteDate = $_GET['date'] ?? date('Y-m-d');
+
+    try {
+        $stmt = $pdo->prepare("DELETE FROM attendance WHERE employee_id = ? AND attendance_date = ?");
+        $stmt->execute([$deleteEmpId, $deleteDate]);
+
+        setModal("Success", "Attendance deleted for employee ID $deleteEmpId on " . date('d M Y', strtotime($deleteDate)));
+        header("Location: attendance_mark.php?date=$deleteDate");
+        exit;
+    } catch (PDOException $e) {
+        setModal("Error", "Failed to delete attendance: " . $e->getMessage());
+        header("Location: attendance_mark.php?date=$deleteDate");
+        exit;
+    }
+}
+
 // Get employees
 $employees = $pdo->query("
     SELECT id, emp_id, first_name, last_name, department
@@ -264,6 +283,7 @@ showModal();
                     <th>Status</th>
                     <th>Check In</th>
                     <th>Check Out</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -310,6 +330,18 @@ showModal();
                     <td>
                         <input type="time" name="attendance[<?= $emp['id'] ?>][check_out]"
                                value="<?= $att && $att['check_out'] ? date('H:i', strtotime($att['check_out'])) : '' ?>">
+                    </td>
+                    <td>
+                        <?php if ($att): ?>
+                            <a href="?delete=1&emp_id=<?= $emp['id'] ?>&date=<?= $date ?>"
+                               class="btn btn-danger btn-sm"
+                               onclick="return confirm('Delete attendance for <?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?> on <?= date('d M Y', strtotime($date)) ?>?');"
+                               style="padding: 4px 8px; font-size: 0.85em;">
+                                Reset
+                            </a>
+                        <?php else: ?>
+                            <span style="color: #999;">-</span>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
