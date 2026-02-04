@@ -340,7 +340,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .info-box-content .contact-name::before {
-            content: '\\1F464';
+            content: '•';
             font-size: 11px;
         }
 
@@ -389,7 +389,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .section-title::before {
-            content: '\\1F4CB';
+            content: '•';
             font-size: 14px;
         }
 
@@ -512,7 +512,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .amount-words label::before {
-            content: '\\1F4B0';
+            content: '₹';
             font-size: 12px;
         }
 
@@ -629,17 +629,17 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .payment-terms .additional-section-header::before {
-            content: '\\2705';
+            content: '✓';
             font-size: 12px;
         }
 
         .bank-section .additional-section-header::before {
-            content: '\\1F3E6';
+            content: '▪';
             font-size: 12px;
         }
 
         .terms-section .additional-section-header::before {
-            content: '\\1F4DD';
+            content: '▪';
             font-size: 12px;
         }
 
@@ -804,7 +804,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .print-btn::before {
-            content: '\\1F5A8';
+            content: '🖨';
             font-size: 16px;
         }
 
@@ -830,7 +830,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         .back-btn::before {
-            content: '\\2190';
+            content: '←';
             font-size: 16px;
         }
 
@@ -841,10 +841,15 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
         }
 
         @media print {
+            @page {
+                size: A4;
+                margin: 10mm;
+            }
             body {
                 background: white;
                 padding: 0;
                 min-height: auto;
+                font-size: 9px;
             }
             .print-container {
                 box-shadow: none;
@@ -854,6 +859,199 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
             .print-actions {
                 display: none;
             }
+
+            /* Reduce header size */
+            .document-header {
+                padding: 15px 20px;
+            }
+            .company-logo {
+                width: 45px;
+                height: 45px;
+            }
+            .company-info h1 {
+                font-size: 18px;
+                margin-bottom: 3px;
+            }
+            .company-info p {
+                font-size: 8px;
+                margin: 1px 0;
+            }
+            .document-type h2 {
+                font-size: 20px;
+                margin-bottom: 5px;
+            }
+            .document-type .doc-number {
+                font-size: 11px;
+                padding: 5px 12px;
+            }
+
+            /* Reduce sub-header size */
+            .sub-header {
+                padding: 10px 20px;
+                gap: 10px;
+            }
+            .sub-header-item {
+                padding: 5px 12px;
+                min-width: 90px;
+            }
+            .sub-header-item label {
+                font-size: 7px;
+            }
+            .sub-header-item span {
+                font-size: 10px;
+                margin-top: 2px;
+            }
+
+            /* Reduce content padding */
+            .content {
+                padding: 15px 20px;
+            }
+
+            /* Reduce info grid spacing */
+            .info-grid {
+                gap: 15px;
+                margin-bottom: 15px;
+            }
+            .info-box-header {
+                padding: 8px 12px;
+                font-size: 9px;
+            }
+            .info-box-content {
+                padding: 12px;
+            }
+            .info-box-content .company-name {
+                font-size: 12px;
+                margin-bottom: 3px;
+            }
+            .info-box-content .contact-name {
+                font-size: 10px;
+                margin-bottom: 6px;
+            }
+            .info-box-content p {
+                font-size: 9px;
+                margin: 2px 0;
+            }
+            .info-box-content .gstin {
+                margin-top: 8px;
+                padding: 6px;
+                font-size: 9px;
+            }
+
+            /* Reduce items table size */
+            .items-section {
+                margin-bottom: 15px;
+            }
+            .section-title {
+                font-size: 11px;
+                margin-bottom: 10px;
+                padding: 6px 12px;
+            }
+            .items-table {
+                font-size: 8px;
+            }
+            .items-table th {
+                padding: 8px 6px;
+                font-size: 7px;
+            }
+            .items-table td {
+                padding: 8px 6px;
+            }
+            .items-table .part-no {
+                font-size: 9px;
+            }
+            .items-table .hsn {
+                font-size: 8px;
+                padding: 2px 4px;
+            }
+
+            /* Reduce summary section */
+            .summary-section {
+                margin-bottom: 15px;
+                gap: 15px;
+            }
+            .amount-words {
+                padding: 12px 15px;
+            }
+            .amount-words label {
+                font-size: 8px;
+            }
+            .amount-words p {
+                font-size: 11px;
+                margin-top: 5px;
+            }
+            .summary-table td {
+                padding: 8px 12px;
+                font-size: 9px;
+            }
+            .summary-table .grand-total td {
+                padding: 12px;
+                font-size: 12px;
+            }
+            .summary-table .grand-total td.value {
+                font-size: 13px;
+            }
+
+            /* Reduce additional sections */
+            .additional-section {
+                margin-bottom: 12px;
+            }
+            .additional-section-header {
+                padding: 8px 12px;
+                font-size: 9px;
+            }
+            .additional-section-content {
+                padding: 12px;
+                font-size: 9px;
+            }
+            .bank-details-grid {
+                gap: 10px;
+            }
+            .bank-detail-item {
+                padding: 8px;
+            }
+            .bank-detail-item label {
+                font-size: 7px;
+            }
+            .bank-detail-item span {
+                font-size: 10px;
+            }
+            .terms-content {
+                padding: 8px;
+                line-height: 1.6;
+            }
+
+            /* Reduce signature section */
+            .signature-section {
+                margin-top: 25px;
+                padding: 15px 0;
+            }
+            .signature-area {
+                height: 50px;
+                background: white;
+            }
+            .signature-line {
+                padding-top: 8px;
+                font-size: 9px;
+            }
+            .signature-subtitle {
+                font-size: 7px;
+                margin-top: 2px;
+            }
+
+            /* Reduce footer */
+            .document-footer {
+                padding: 15px 20px;
+            }
+            .footer-left p, .footer-right p {
+                font-size: 8px;
+            }
+            .footer-thanks {
+                font-size: 11px;
+            }
+            .footer-note {
+                font-size: 7px;
+            }
+
             .items-table tbody tr:hover td {
                 background: inherit;
             }
@@ -863,9 +1061,7 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
             .document-header::before {
                 display: none;
             }
-            .signature-area {
-                background: white;
-            }
+
             /* Ensure grand total text is visible in print */
             .summary-table .grand-total {
                 background: #059669 !important;
@@ -879,6 +1075,14 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
                 color: white !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
+            }
+
+            /* Page break control */
+            .items-section {
+                page-break-inside: avoid;
+            }
+            .signature-section {
+                page-break-inside: avoid;
             }
         }
 
