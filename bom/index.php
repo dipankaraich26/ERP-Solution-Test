@@ -181,14 +181,16 @@ if (toggle) {
             <td style="text-align: right; font-weight: bold; color: #1e3a5f;">₹ <?= number_format((float)$b['bom_cost'], 2) ?></td>
             <td><?= htmlspecialchars($b['status']) ?></td>
             <td>
-                <a href="view.php?id=<?= $b['id'] ?>">View</a>
-                <?php if ($b['status'] === 'active'): ?>
-                    | <a class="btn btn-secondary" href="edit.php?id=<?= $b['id'] ?>">Edit</a>
-                    | <a class="btn btn-secondary" href="deactivate.php?id=<?= $b['id'] ?>"
-                         onclick="return confirm('Deactivate BOM?')">Deactivate</a>
-                <?php endif; ?>
-                | <a class="btn btn-danger" href="delete.php?id=<?= $b['id'] ?>"
-                     onclick="return confirm('Are you sure you want to DELETE this BOM? This action cannot be undone.')">Delete</a>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                    <a class="btn btn-primary" href="view.php?id=<?= $b['id'] ?>" style="padding: 5px 10px; font-size: 12px;">View</a>
+                    <?php if ($b['status'] === 'active'): ?>
+                        <a class="btn btn-secondary" href="edit.php?id=<?= $b['id'] ?>" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                        <a class="btn btn-secondary" href="deactivate.php?id=<?= $b['id'] ?>"
+                             onclick="return confirm('Deactivate BOM?')" style="padding: 5px 10px; font-size: 12px;">Deactivate</a>
+                    <?php endif; ?>
+                    <a class="btn btn-danger" href="delete.php?id=<?= $b['id'] ?>"
+                         onclick="return confirm('Are you sure you want to DELETE this BOM? This action cannot be undone.')" style="padding: 5px 10px; font-size: 12px;">Delete</a>
+                </div>
             </td>
         </tr>
         <?php endwhile; ?>
