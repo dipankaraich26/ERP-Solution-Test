@@ -141,51 +141,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if (empty($error)) {
-            // Pre-check: verify sufficient stock for all BOM components
             $woStmt = $pdo->prepare("SELECT wo_no, part_no, qty, bom_id FROM work_orders WHERE id = ?");
             $woStmt->execute([$id]);
             $woData = $woStmt->fetch();
-
-            if ($woData && $woData['bom_id']) {
-                $checkStmt = $pdo->prepare("
-                    SELECT bi.component_part_no, bi.qty as component_qty, pm.part_name, COALESCE(inv.qty, 0) as current_stock
-                    FROM bom_items bi
-                    LEFT JOIN part_master pm ON bi.component_part_no = pm.part_no
-                    LEFT JOIN inventory inv ON inv.part_no = bi.component_part_no
-                    WHERE bi.bom_id = ?
-                ");
-                $checkStmt->execute([$woData['bom_id']]);
-                $checkComponents = $checkStmt->fetchAll(PDO::FETCH_ASSOC);
-                $woQtyCheck = (float)$woData['qty'];
-                $shortParts = [];
-
-                foreach ($checkComponents as $cc) {
-                    $needed = (float)$cc['component_qty'] * $woQtyCheck;
-                    $stock = (float)$cc['current_stock'];
-                    if ($stock < $needed) {
-                        $shortParts[] = $cc['component_part_no'] . ' (' . ($cc['part_name'] ?? 'N/A') . ') - Need: ' . $needed . ', Available: ' . $stock . ', Short: ' . ($needed - $stock);
-                    }
-                }
-
-                if (!empty($shortParts)) {
-                    $error = "Cannot close Work Order. Insufficient stock for the following components:<br><ul style='margin: 10px 0; padding-left: 20px;'>";
-                    foreach ($shortParts as $sp) {
-                        $error .= "<li>" . htmlspecialchars($sp) . "</li>";
-                    }
-                    $error .= "</ul>Please ensure adequate stock before closing.";
-                }
-            }
         }
 
         if (empty($error)) {
             try {
                 $pdo->beginTransaction();
 
+                $depleteMessages = [];
+                $shortParts = [];
+
                 if ($woData) {
-                    $depleteMessages = [];
                     $woQty = (float)$woData['qty'];
 
-                    // STEP 1: Deplete child parts (BOM components)
+                    // STEP 1: Deplete child parts (BOM components) with stock check inside transaction
                     if ($woData['bom_id']) {
                         $componentsStmt = $pdo->prepare("
                             SELECT bi.component_part_no, bi.qty as component_qty, pm.part_name
@@ -196,33 +167,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $componentsStmt->execute([$woData['bom_id']]);
                         $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+                        // Stock check inside transaction with row locks
                         foreach ($components as $comp) {
                             $depleteQty = (float)$comp['component_qty'] * $woQty;
 
-                            // Ensure inventory row exists first (with 0 if new)
+                            // Ensure inventory row exists
                             $pdo->prepare("
                                 INSERT IGNORE INTO inventory (part_no, qty) VALUES (?, 0)
                             ")->execute([$comp['component_part_no']]);
 
-                            // Now safely subtract
-                            $pdo->prepare("
-                                UPDATE inventory SET qty = qty - ? WHERE part_no = ?
-                            ")->execute([$depleteQty, $comp['component_part_no']]);
+                            // Lock and check current stock
+                            $stockStmt = $pdo->prepare("SELECT qty FROM inventory WHERE part_no = ? FOR UPDATE");
+                            $stockStmt->execute([$comp['component_part_no']]);
+                            $currentStock = (float)$stockStmt->fetchColumn();
 
-                            $pdo->prepare("
-                                INSERT INTO depletion (part_no, qty, reason, issue_no, issue_date)
-                                VALUES (?, ?, ?, ?, CURDATE())
-                            ")->execute([
-                                $comp['component_part_no'],
-                                $depleteQty,
-                                'Work Order Close: ' . $woData['wo_no'],
-                                $woData['wo_no']
-                            ]);
+                            if ($currentStock < $depleteQty) {
+                                $shortParts[] = $comp['component_part_no'] . ' (' . ($comp['part_name'] ?? 'N/A') . ') - Need: ' . $depleteQty . ', Available: ' . $currentStock . ', Short: ' . round($depleteQty - $currentStock, 4);
+                            }
+                        }
 
-                            $depleteMessages[] = $comp['component_part_no'] . ' (-' . $depleteQty . ')';
+                        // If any parts are short, rollback and show error
+                        if (!empty($shortParts)) {
+                            $pdo->rollBack();
+                            $error = "Cannot close Work Order. Insufficient stock for the following components:<br><ul style='margin: 10px 0; padding-left: 20px;'>";
+                            foreach ($shortParts as $sp) {
+                                $error .= "<li>" . htmlspecialchars($sp) . "</li>";
+                            }
+                            $error .= "</ul>Please ensure adequate stock before closing.";
+                        } else {
+                            // All stock verified — proceed with depletion
+                            foreach ($components as $comp) {
+                                $depleteQty = (float)$comp['component_qty'] * $woQty;
+
+                                $pdo->prepare("
+                                    UPDATE inventory SET qty = qty - ? WHERE part_no = ?
+                                ")->execute([$depleteQty, $comp['component_part_no']]);
+
+                                $pdo->prepare("
+                                    INSERT INTO depletion (part_no, qty, reason, issue_no, issue_date)
+                                    VALUES (?, ?, ?, ?, CURDATE())
+                                ")->execute([
+                                    $comp['component_part_no'],
+                                    $depleteQty,
+                                    'Work Order Close: ' . $woData['wo_no'],
+                                    $woData['wo_no']
+                                ]);
+
+                                $depleteMessages[] = $comp['component_part_no'] . ' (-' . $depleteQty . ')';
+                            }
                         }
                     }
+                }
 
+                // Only proceed if no stock errors
+                if (empty($error) && $woData) {
                     // STEP 2: Add parent part (finished product)
                     $pdo->prepare("
                         INSERT INTO inventory (part_no, qty)
@@ -238,23 +236,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $woData['qty'],
                         'WO: ' . $woData['wo_no']
                     ]);
-                }
 
-                $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'closed' WHERE id = ?");
-                $updateStmt->execute([$id]);
+                    $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'closed' WHERE id = ?");
+                    $updateStmt->execute([$id]);
 
-                $pdo->commit();
+                    $pdo->commit();
 
-                syncWoStatusToPlan($pdo, (int)$id, 'closed');
+                    syncWoStatusToPlan($pdo, (int)$id, 'closed');
 
-                $success = "Work Order closed successfully!<br>";
-                $success .= "<strong>Added:</strong> " . $woData['qty'] . " units of " . $woData['part_no'] . "<br>";
-                if (!empty($depleteMessages)) {
-                    $success .= "<strong>Depleted:</strong> " . implode(', ', $depleteMessages);
+                    $success = "Work Order closed successfully!<br>";
+                    $success .= "<strong>Added:</strong> " . $woData['qty'] . " units of " . $woData['part_no'] . "<br>";
+                    if (!empty($depleteMessages)) {
+                        $success .= "<strong>Depleted:</strong> " . implode(', ', $depleteMessages);
+                    }
                 }
             } catch (PDOException $e) {
-                $pdo->rollBack();
-                $error = "Failed to close: " . $e->getMessage();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                // Friendly message for constraint violation
+                if (strpos($e->getMessage(), 'chk_inventory_non_negative') !== false || strpos($e->getMessage(), 'Integrity constraint') !== false) {
+                    $error = "Cannot close Work Order: One or more component parts have insufficient stock. Please check inventory levels and try again.";
+                } else {
+                    $error = "Failed to close: " . $e->getMessage();
+                }
             }
         }
     }
