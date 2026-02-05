@@ -6,6 +6,17 @@ include "../includes/dialog.php";
    FETCH SALES ORDERS (only RELEASED ones that don't have an invoice yet)
    Note: Pending SOs cannot be invoiced as they have stock issues
 ========================= */
+
+// DEBUG: Check what statuses exist in sales_orders
+$debugSOs = $pdo->query("
+    SELECT so_no, GROUP_CONCAT(DISTINCT status) as statuses
+    FROM sales_orders
+    GROUP BY so_no
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// DEBUG: Check if any invoices already exist
+$debugInvoices = $pdo->query("SELECT so_no, invoice_no FROM invoice_master")->fetchAll(PDO::FETCH_ASSOC);
+
 $salesOrders = $pdo->query("
     SELECT
         so.so_no,
@@ -159,6 +170,15 @@ showModal();
     <h1>Generate Tax Invoice</h1>
 
     <p><a href="index.php" class="btn btn-secondary">Back to Invoices</a></p>
+
+    <!-- TEMP DEBUG -->
+    <div style="background: #e3f2fd; border: 1px solid #1976d2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <strong>DEBUG - All Sales Orders:</strong>
+        <pre><?php foreach ($debugSOs as $d) echo htmlspecialchars($d['so_no'] . ' => ' . $d['statuses']) . "\n"; ?></pre>
+        <strong>DEBUG - Existing Invoices:</strong>
+        <pre><?php foreach ($debugInvoices as $d) echo htmlspecialchars($d['so_no'] . ' => ' . $d['invoice_no']) . "\n"; if (empty($debugInvoices)) echo "(none)\n"; ?></pre>
+        <strong>DEBUG - Query Result Count:</strong> <?= count($salesOrders) ?>
+    </div>
 
     <form method="post" class="form-box">
         <h3>Create Invoice from Sales Order</h3>
