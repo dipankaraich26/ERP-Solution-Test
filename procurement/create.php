@@ -15,9 +15,14 @@ $success = '';
 $planId = null;
 $planNo = null;
 
+// Auto-migrate: convert legacy 'completed' SO status to 'closed'
+try {
+    $pdo->exec("UPDATE sales_orders SET status = 'closed' WHERE status = 'completed'");
+} catch (PDOException $e) {}
+
 // Step 1: Select Sales Orders
 if ($step == 1) {
-    // Get all open/pending sales orders
+    // Get all open/pending sales orders (exclude closed, completed, cancelled, and SOs with released invoices)
     $openSOs = $pdo->query("
         SELECT
             so.so_no,
@@ -32,7 +37,9 @@ if ($step == 1) {
         LEFT JOIN customers c ON c.id = so.customer_id
         LEFT JOIN part_master p ON p.part_no = so.part_no
         LEFT JOIN inventory i ON so.part_no = i.part_no
-        WHERE so.status NOT IN ('cancelled', 'closed')
+        LEFT JOIN invoice_master inv ON inv.so_no = so.so_no AND inv.status = 'released'
+        WHERE so.status NOT IN ('cancelled', 'closed', 'completed')
+        AND inv.id IS NULL
         ORDER BY so.status ASC, so.sales_date DESC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
