@@ -4,6 +4,54 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 ?>
 
 <!-- Top Navigation Bar -->
+<style>
+.topbar {
+    position: fixed;
+    top: 0;
+    left: 220px;
+    right: 0;
+    z-index: 1000;
+    background: var(--card, #ffffff);
+    border-bottom: 1px solid var(--border, #cbd5e1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    height: 42px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    gap: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border, #cbd5e1) transparent;
+    transition: background-color 0.35s ease, border-color 0.35s ease;
+}
+.topbar::-webkit-scrollbar { height: 3px; }
+.topbar::-webkit-scrollbar-thumb { background: var(--border, #cbd5e1); border-radius: 3px; }
+.topbar a {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text, #0f172a);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.topbar a:hover {
+    background: var(--row-hover, #e2e8f0);
+    border-color: var(--border, #cbd5e1);
+}
+.topbar a.active {
+    background: var(--sidebar-active, #2563eb);
+    color: #fff;
+    border-color: transparent;
+}
+</style>
 <div class="topbar">
     <a href="/proforma/index.php" class="<?= $currentDir === 'proforma' ? 'active' : '' ?>">Proforma Invoice</a>
     <a href="/customer_po/index.php" class="<?= $currentDir === 'customer_po' ? 'active' : '' ?>">Customers PO</a>
