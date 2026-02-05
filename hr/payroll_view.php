@@ -71,6 +71,25 @@ if (!$payroll) {
 $monthName = date('F Y', strtotime($payroll['payroll_month']));
 $settings = $pdo->query("SELECT * FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
 
+// Fetch leave balances for this employee
+$leaveBalances = [];
+try {
+    $lbTableCheck = $pdo->query("SHOW TABLES LIKE 'leave_balances'")->fetch();
+    $ltTableCheck = $pdo->query("SHOW TABLES LIKE 'leave_types'")->fetch();
+    if ($lbTableCheck && $ltTableCheck) {
+        $payrollYear = date('Y', strtotime($payroll['payroll_month']));
+        $lbStmt = $pdo->prepare("
+            SELECT lt.leave_code, lt.leave_type_name, lb.allocated, lb.used, lb.balance
+            FROM leave_balances lb
+            JOIN leave_types lt ON lt.id = lb.leave_type_id
+            WHERE lb.employee_id = ? AND lb.year = ? AND lt.is_active = 1
+            ORDER BY lt.leave_code
+        ");
+        $lbStmt->execute([$payroll['employee_id'], $payrollYear]);
+        $leaveBalances = $lbStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (PDOException $e) {}
+
 // Number to words (Indian format)
 function numberToWords($number) {
     $number = round($number, 2);
@@ -281,7 +300,7 @@ showModal();
         @media print {
             @page { size: landscape; margin: 6mm; }
             * { box-sizing: border-box; }
-            .sidebar, .topbar, .status-form, .no-print { display: none !important; }
+            .sidebar, .topbar, .status-form, .no-print, .header-bar { display: none !important; }
             .content { margin-left: 0 !important; padding: 0 !important; }
             body { background: white; font-size: 11px; }
             .form-container { max-width: 100%; }
@@ -307,11 +326,6 @@ showModal();
             .print-company-header .addr { font-size: 9px; color: #555; }
             .print-company-header .title { font-size: 14px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
             .print-company-header .month { font-size: 11px; color: #555; }
-
-            /* Header bar - compact */
-            .header-bar { padding: 8px 15px; margin-bottom: 8px; }
-            .header-bar h1 { font-size: 1.15em; }
-            .header-bar p { font-size: 0.85em; margin-top: 2px; }
 
             /* Employee info card */
             .emp-info-card { padding: 10px 15px; margin-bottom: 8px; }
@@ -359,15 +373,68 @@ showModal();
 
             .payment-info { padding: 6px 15px; margin-bottom: 6px; font-size: 0.85em; }
 
-            /* Signatures */
-            .print-footer { display: flex !important; margin-top: 8px; padding: 0 10px; }
-            .sig-line { margin-top: 25px; }
+            /* Leave balance */
+            .leave-balance-card { padding: 8px 12px; margin-bottom: 6px; border: 1px solid #ddd; border-radius: 8px; box-shadow: none; }
+            .leave-balance-card h3 { margin: 0 0 6px 0; padding-bottom: 4px; font-size: 0.9em; }
+            .leave-grid { gap: 6px; }
+            .leave-chip { padding: 4px 8px; font-size: 0.8em; border-radius: 4px;
+                -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+            .print-gen-note { display: block !important; text-align: center; font-size: 8px; color: #999; margin-top: 4px; }
         }
 
         .print-company-header { display: none; }
-        .print-footer { display: none; justify-content: space-between; align-items: flex-end; padding: 20px; margin-top: 20px; font-size: 11px; }
-        .sig-box { text-align: center; width: 200px; }
-        .sig-line { border-top: 1px solid #333; margin-top: 50px; padding-top: 5px; }
+        .print-gen-note { display: none; }
+
+        .leave-balance-card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        .leave-balance-card h3 {
+            margin: 0 0 12px 0;
+            color: #2c3e50;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f39c12;
+            font-size: 1.1em;
+        }
+        .leave-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .leave-chip {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .leave-chip .lc-code {
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .leave-chip .lc-bal {
+            font-family: 'Consolas', monospace;
+            font-weight: 600;
+            color: #27ae60;
+        }
+        .leave-chip .lc-bal.low { color: #e67e22; }
+        .leave-chip .lc-bal.zero { color: #c0392b; }
+        .leave-chip .lc-detail {
+            font-size: 0.8em;
+            color: #888;
+        }
+
+        body.dark .leave-balance-card { background: #2c3e50; }
+        body.dark .leave-balance-card h3 { color: #ecf0f1; }
+        body.dark .leave-chip { background: #34495e; border-color: #4a6274; }
+        body.dark .leave-chip .lc-code { color: #ecf0f1; }
 
         @media (max-width: 1200px) {
             .landscape-grid { grid-template-columns: 1fr 1fr; }
@@ -617,18 +684,26 @@ showModal();
         </div>
         <?php endif; ?>
 
-        <!-- Print-only footer with signatures -->
-        <div class="print-footer">
-            <div style="font-size: 10px; color: #999; align-self: flex-end;">
-                This is a computer-generated payslip.
-            </div>
-            <div class="sig-box">
-                <div class="sig-line">Employer Signature</div>
-            </div>
-            <div class="sig-box">
-                <div class="sig-line">Employee Signature</div>
+        <!-- Leave Balance -->
+        <?php if (!empty($leaveBalances)): ?>
+        <div class="leave-balance-card">
+            <h3>Available Leaves (<?= date('Y', strtotime($payroll['payroll_month'])) ?>)</h3>
+            <div class="leave-grid">
+                <?php foreach ($leaveBalances as $lb):
+                    $bal = (float)$lb['balance'];
+                    $balClass = $bal <= 0 ? 'zero' : ($bal <= 3 ? 'low' : '');
+                ?>
+                <div class="leave-chip">
+                    <span class="lc-code"><?= htmlspecialchars($lb['leave_code']) ?></span>
+                    <span class="lc-bal <?= $balClass ?>"><?= number_format($bal, 1) ?></span>
+                    <span class="lc-detail">/<?= number_format((float)$lb['allocated'], 0) ?></span>
+                </div>
+                <?php endforeach; ?>
             </div>
         </div>
+        <?php endif; ?>
+
+        <div class="print-gen-note">This is a computer-generated payslip and does not require a signature.</div>
 
         <!-- Status Update Form (screen only) -->
         <?php if ($payroll['status'] !== 'Paid'): ?>
