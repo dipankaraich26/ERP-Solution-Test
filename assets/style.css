@@ -225,7 +225,7 @@ body.mid {
 .content {
     margin-left: 250px;
     padding: 5%;
-    padding-top: calc(42px + 5%);
+    padding-top: calc(48px + 5%);
     transition: background-color 0.35s ease;
 }
 
