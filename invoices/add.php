@@ -17,14 +17,21 @@ $salesOrders = $pdo->query("
         q.pi_no,
         (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = so.linked_quote_id) as total_value
     FROM (
-        SELECT DISTINCT so_no, sales_date, status, customer_id, customer_po_id, linked_quote_id
+        SELECT so_no,
+               MAX(sales_date) as sales_date,
+               MAX(status) as status,
+               MAX(customer_id) as customer_id,
+               MAX(customer_po_id) as customer_po_id,
+               MAX(linked_quote_id) as linked_quote_id
         FROM sales_orders
         WHERE status = 'released'
+        GROUP BY so_no
     ) so
     LEFT JOIN customers c ON c.id = so.customer_id
     LEFT JOIN customer_po cp ON cp.id = so.customer_po_id
     LEFT JOIN quote_master q ON q.id = so.linked_quote_id
-    WHERE so.so_no NOT IN (SELECT so_no FROM invoice_master)
+    LEFT JOIN invoice_master im ON im.so_no = so.so_no
+    WHERE im.id IS NULL
     ORDER BY so.sales_date DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
