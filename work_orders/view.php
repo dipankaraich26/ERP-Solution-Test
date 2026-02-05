@@ -1,6 +1,7 @@
 <?php
 include "../db.php";
 include "../includes/sidebar.php";
+include "../includes/procurement_helper.php";
 
 $id = $_GET['id'] ?? null;
 if (!$id) {
@@ -73,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
                 $updateStmt->execute([$id]);
+                syncWoStatusToPlan($pdo, (int)$id, 'released');
                 $success = "Work Order released successfully!";
             }
         } catch (PDOException $e) {
@@ -84,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'in_progress' WHERE id = ?");
             $updateStmt->execute([$id]);
+            syncWoStatusToPlan($pdo, (int)$id, 'in_progress');
             $success = "Work Order started!";
         } catch (PDOException $e) {
             $error = "Failed to start: " . $e->getMessage();
@@ -94,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'completed' WHERE id = ?");
             $updateStmt->execute([$id]);
+            syncWoStatusToPlan($pdo, (int)$id, 'completed');
             $success = "Work Order completed!";
         } catch (PDOException $e) {
             $error = "Failed to complete: " . $e->getMessage();
@@ -104,6 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'cancelled' WHERE id = ?");
             $updateStmt->execute([$id]);
+            syncWoStatusToPlan($pdo, (int)$id, 'cancelled');
             $success = "Work Order cancelled!";
         } catch (PDOException $e) {
             $error = "Failed to cancel: " . $e->getMessage();
@@ -240,6 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                 $pdo->commit();
 
+                syncWoStatusToPlan($pdo, (int)$id, 'closed');
+
                 $success = "Work Order closed successfully!<br>";
                 $success .= "<strong>Added:</strong> " . $woData['qty'] . " units of " . $woData['part_no'] . "<br>";
                 if (!empty($depleteMessages)) {
@@ -317,6 +324,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $updateStmt->execute([$id]);
 
             $pdo->commit();
+
+            syncWoStatusToPlan($pdo, (int)$id, 'open');
 
             if ($woData && $woData['status'] === 'closed') {
                 $success = "Work Order reopened!<br>";

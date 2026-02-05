@@ -1018,6 +1018,50 @@ function updatePlanWoItemStatus($pdo, int $planId, string $partNo, int $woId, st
 }
 
 /**
+ * Sync Work Order status changes back to the procurement plan tracking
+ * Call this whenever a WO status changes (release, start, complete, close, cancel, reopen)
+ * @param PDO $pdo Database connection
+ * @param int $woId Work Order ID
+ * @param string $newWoStatus The new work order status
+ * @return bool Success status
+ */
+function syncWoStatusToPlan($pdo, int $woId, string $newWoStatus): bool {
+    try {
+        // Get the work order's plan_id and part_no
+        $woStmt = $pdo->prepare("SELECT plan_id, part_no FROM work_orders WHERE id = ?");
+        $woStmt->execute([$woId]);
+        $wo = $woStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$wo || !$wo['plan_id']) {
+            return false; // No plan linked
+        }
+
+        // Map WO status to procurement tracking status
+        $statusMap = [
+            'open'        => 'in_progress',
+            'created'     => 'in_progress',
+            'released'    => 'in_progress',
+            'in_progress' => 'in_progress',
+            'completed'   => 'completed',
+            'qc_approval' => 'completed',
+            'closed'      => 'closed',
+            'cancelled'   => 'cancelled'
+        ];
+
+        $planStatus = $statusMap[$newWoStatus] ?? 'in_progress';
+
+        $stmt = $pdo->prepare("
+            UPDATE procurement_plan_wo_items
+            SET status = ?
+            WHERE plan_id = ? AND part_no = ?
+        ");
+        return $stmt->execute([$planStatus, $wo['plan_id'], $wo['part_no']]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
  * Update Purchase Order item status when PO is created
  * @param PDO $pdo Database connection
  * @param int $planId Plan ID
