@@ -16,12 +16,12 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
     box-shadow: 0 2px 6px rgba(0,0,0,0.08);
     display: flex;
     align-items: center;
-    padding: 0 10px;
+    padding: 0 8px;
     height: 42px;
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
-    gap: 4px;
+    gap: 5px;
     scrollbar-width: thin;
     scrollbar-color: var(--border, #cbd5e1) transparent;
     transition: background-color 0.35s ease, border-color 0.35s ease;
@@ -31,37 +31,47 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 .topbar a {
     display: inline-flex;
     align-items: center;
-    padding: 6px 14px;
+    padding: 6px 12px;
     border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text, #0f172a);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #fff;
     text-decoration: none;
     white-space: nowrap;
     transition: all 0.2s ease;
-    border: 1px solid transparent;
+    border: none;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 .topbar a:hover {
-    background: var(--row-hover, #e2e8f0);
-    border-color: var(--border, #cbd5e1);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+    filter: brightness(1.1);
 }
 .topbar a.active {
-    background: var(--sidebar-active, #2563eb);
-    color: #fff;
-    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 -2px 0 rgba(255,255,255,0.3);
+    filter: brightness(1.15);
 }
+/* Individual colors */
+.tb-proforma   { background: #2563eb; }
+.tb-custpo     { background: #7c3aed; }
+.tb-sales      { background: #0891b2; }
+.tb-invoice    { background: #059669; }
+.tb-supplierpo { background: #d97706; }
+.tb-wo         { background: #dc2626; }
+.tb-procure    { background: #9333ea; }
+.tb-bom        { background: #0d9488; }
+.tb-stock      { background: #4f46e5; }
 </style>
 <div class="topbar">
-    <a href="/proforma/index.php" class="<?= $currentDir === 'proforma' ? 'active' : '' ?>">Proforma Invoice</a>
-    <a href="/customer_po/index.php" class="<?= $currentDir === 'customer_po' ? 'active' : '' ?>">Customers PO</a>
-    <a href="/sales_orders/index.php" class="<?= $currentDir === 'sales_orders' ? 'active' : '' ?>">Sales Orders</a>
-    <a href="/invoices/index.php" class="<?= $currentDir === 'invoices' ? 'active' : '' ?>">Invoice</a>
-    <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' && $current === 'index.php' ? 'active' : '' ?>">Supplier PO</a>
-    <a href="/work_orders/index.php" class="<?= $currentDir === 'work_orders' ? 'active' : '' ?>">Work Order</a>
-    <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">Supplier Purchase Order</a>
-    <a href="/bom/index.php" class="<?= $currentDir === 'bom' ? 'active' : '' ?>">BOM</a>
-    <a href="/inventory/index.php" class="<?= $currentDir === 'inventory' && $current === 'index.php' ? 'active' : '' ?>">Current Stock</a>
+    <a href="/proforma/index.php" class="tb-proforma <?= $currentDir === 'proforma' ? 'active' : '' ?>">Proforma Invoice</a>
+    <a href="/customer_po/index.php" class="tb-custpo <?= $currentDir === 'customer_po' ? 'active' : '' ?>">Customers PO</a>
+    <a href="/sales_orders/index.php" class="tb-sales <?= $currentDir === 'sales_orders' ? 'active' : '' ?>">Sales Orders</a>
+    <a href="/invoices/index.php" class="tb-invoice <?= $currentDir === 'invoices' ? 'active' : '' ?>">Invoice</a>
+    <a href="/purchase/index.php" class="tb-supplierpo <?= $currentDir === 'purchase' && $current === 'index.php' ? 'active' : '' ?>">Supplier PO</a>
+    <a href="/work_orders/index.php" class="tb-wo <?= $currentDir === 'work_orders' ? 'active' : '' ?>">Work Order</a>
+    <a href="/procurement/index.php" class="tb-procure <?= $currentDir === 'procurement' ? 'active' : '' ?>">Supplier Purchase Order</a>
+    <a href="/bom/index.php" class="tb-bom <?= $currentDir === 'bom' ? 'active' : '' ?>">BOM</a>
+    <a href="/inventory/index.php" class="tb-stock <?= $currentDir === 'inventory' && $current === 'index.php' ? 'active' : '' ?>">Current Stock</a>
 </div>
 
 <style>
