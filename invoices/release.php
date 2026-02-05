@@ -97,10 +97,10 @@ try {
     ");
     $releaseStmt->execute([$id]);
 
-    // Also update sales order status to completed if it exists
+    // Also update sales order status to closed if it exists
     $soUpdateStmt = $pdo->prepare("
         UPDATE sales_orders
-        SET status = 'completed'
+        SET status = 'closed'
         WHERE so_no = ?
     ");
     $soUpdateStmt->execute([$invoice['so_no']]);

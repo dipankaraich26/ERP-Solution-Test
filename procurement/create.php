@@ -32,7 +32,7 @@ if ($step == 1) {
         LEFT JOIN customers c ON c.id = so.customer_id
         LEFT JOIN part_master p ON p.part_no = so.part_no
         LEFT JOIN inventory i ON so.part_no = i.part_no
-        WHERE so.status NOT IN ('cancelled')
+        WHERE so.status NOT IN ('cancelled', 'closed')
         ORDER BY so.status ASC, so.sales_date DESC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
