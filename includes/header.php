@@ -6,8 +6,7 @@
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 
-<body>
-<div class="app-container">
+<body class="has-topbar">
 
 <?php
 $_topbar_current = basename($_SERVER['PHP_SELF']);
@@ -24,3 +23,5 @@ $_topbar_dir = basename(dirname($_SERVER['PHP_SELF']));
     <a href="/bom/index.php" class="<?= $_topbar_dir === 'bom' ? 'active' : '' ?>">BOM</a>
     <a href="/inventory/index.php" class="<?= $_topbar_dir === 'inventory' && $_topbar_current === 'index.php' ? 'active' : '' ?>">Current Stock</a>
 </div>
+
+<div class="app-container">
