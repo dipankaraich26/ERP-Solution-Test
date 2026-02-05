@@ -33,14 +33,10 @@ $items = $pdo->prepare("
 $items->execute([$id]);
 $itemsData = $items->fetchAll(PDO::FETCH_ASSOC);
 
-// Calculate total BOM cost
-$totalBomCost = 0;
-foreach ($itemsData as $item) {
-    $totalBomCost += (float)$item['qty'] * (float)$item['rate'];
-}
+// Function to get sub-BOM items for an Assembly part (recursive cost calculation)
+function getSubBomItems($pdo, $part_no, $depth = 0) {
+    if ($depth > 10) return null; // Prevent infinite recursion
 
-// Function to get sub-BOM items for an Assembly part
-function getSubBomItems($pdo, $part_no) {
     // Find BOM where this part is the parent (check both active and inactive)
     $bomStmt = $pdo->prepare("
         SELECT b.id, b.bom_no, b.status
@@ -69,16 +65,26 @@ function getSubBomItems($pdo, $part_no) {
 
     $subItems = $subItemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Calculate sub-BOM cost
-    $subBomCost = 0;
-    foreach ($subItems as $si) {
-        $subBomCost += (float)$si['qty'] * (float)$si['rate'];
-    }
-
     // Only return sub-BOM if it actually has items
     if (empty($subItems)) {
         return null;
     }
+
+    // Calculate sub-BOM cost recursively
+    $subBomCost = 0;
+    foreach ($subItems as &$si) {
+        // Check if this sub-item itself has a child BOM
+        $si['sub_bom'] = getSubBomItems($pdo, $si['part_no'], $depth + 1);
+        if (!empty($si['sub_bom'])) {
+            // Use child BOM total cost as effective rate
+            $si['effective_rate'] = $si['sub_bom']['total_cost'];
+        } else {
+            $si['effective_rate'] = (float)$si['rate'];
+        }
+        $si['effective_cost'] = (float)$si['qty'] * $si['effective_rate'];
+        $subBomCost += $si['effective_cost'];
+    }
+    unset($si);
 
     return [
         'bom_no' => $subBom['bom_no'],
@@ -89,10 +95,24 @@ function getSubBomItems($pdo, $part_no) {
     ];
 }
 
-// Check ALL items if they have a sub-BOM (part is parent in another BOM)
-// This detects sub-assemblies by checking if the part_no exists as parent_part_no in bom_master
+// Check ALL items if they have a sub-BOM (recursive cost)
 foreach ($itemsData as &$item) {
     $item['sub_bom'] = getSubBomItems($pdo, $item['part_no']);
+}
+unset($item);
+
+// Calculate total BOM cost using sub-BOM costs for assembly items
+$totalBomCost = 0;
+foreach ($itemsData as &$item) {
+    if (!empty($item['sub_bom'])) {
+        // Sub-assembly: cost = qty × sub-BOM total cost
+        $item['effective_rate'] = $item['sub_bom']['total_cost'];
+    } else {
+        // Regular part: cost = qty × bom_items.rate
+        $item['effective_rate'] = (float)$item['rate'];
+    }
+    $item['effective_cost'] = (float)$item['qty'] * $item['effective_rate'];
+    $totalBomCost += $item['effective_cost'];
 }
 unset($item);
 ?>
@@ -233,7 +253,6 @@ if (toggle) {
         <?php foreach ($itemsData as $index => $i): ?>
         <?php
             $hasSubBom = !empty($i['sub_bom']);
-            $itemCost = (float)$i['qty'] * (float)$i['rate'];
         ?>
         <tr class="<?= $hasSubBom ? 'assembly-row' : '' ?>" <?= $hasSubBom ? 'onclick="toggleSubBom(' . $index . ')"' : '' ?>>
             <td><?= htmlspecialchars($i['part_no']) ?></td>
@@ -248,8 +267,14 @@ if (toggle) {
             </td>
             <td><?= htmlspecialchars($i['category'] ?? '') ?></td>
             <td><?= $i['qty'] ?> <?= htmlspecialchars($i['uom'] ?? '') ?></td>
-            <td style="text-align: right;">₹ <?= number_format((float)$i['rate'], 2) ?></td>
-            <td style="text-align: right; font-weight: bold;">₹ <?= number_format($itemCost, 2) ?></td>
+            <td style="text-align: right;">
+                <?php if ($hasSubBom): ?>
+                    <span title="Sub-BOM Cost">₹ <?= number_format($i['effective_rate'], 2) ?></span>
+                <?php else: ?>
+                    ₹ <?= number_format((float)$i['rate'], 2) ?>
+                <?php endif; ?>
+            </td>
+            <td style="text-align: right; font-weight: bold;">₹ <?= number_format($i['effective_cost'], 2) ?></td>
             <td><?= $i['current_stock'] ?></td>
         </tr>
         <?php if ($hasSubBom): ?>
@@ -271,16 +296,19 @@ if (toggle) {
                         <th>Cost</th>
                         <th>Current Stock</th>
                     </tr>
-                    <?php foreach ($i['sub_bom']['items'] as $subItem):
-                        $subItemCost = (float)$subItem['qty'] * (float)$subItem['rate'];
-                    ?>
+                    <?php foreach ($i['sub_bom']['items'] as $subItem): ?>
                     <tr>
                         <td><?= htmlspecialchars($subItem['part_no']) ?></td>
-                        <td><?= htmlspecialchars($subItem['part_name']) ?></td>
+                        <td>
+                            <?= htmlspecialchars($subItem['part_name']) ?>
+                            <?php if (!empty($subItem['sub_bom'])): ?>
+                                <span class="assembly-badge">Has Sub-BOM</span>
+                            <?php endif; ?>
+                        </td>
                         <td><?= htmlspecialchars($subItem['category'] ?? '') ?></td>
                         <td><?= $subItem['qty'] ?> <?= htmlspecialchars($subItem['uom'] ?? '') ?></td>
-                        <td style="text-align: right;">₹ <?= number_format((float)$subItem['rate'], 2) ?></td>
-                        <td style="text-align: right; font-weight: bold;">₹ <?= number_format($subItemCost, 2) ?></td>
+                        <td style="text-align: right;">₹ <?= number_format($subItem['effective_rate'], 2) ?></td>
+                        <td style="text-align: right; font-weight: bold;">₹ <?= number_format($subItem['effective_cost'], 2) ?></td>
                         <td><?= $subItem['current_stock'] ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -339,18 +367,18 @@ function exportToExcel() {
     const tableData = [];
 
     itemsData.forEach(item => {
-        const rate = parseFloat(item.rate) || 0;
+        const effectiveRate = parseFloat(item.effective_rate) || 0;
         const qty = parseFloat(item.qty) || 0;
-        const cost = qty * rate;
+        const effectiveCost = parseFloat(item.effective_cost) || 0;
 
         // Add main item
         tableData.push([
             item.part_no,
-            item.part_name,
+            item.part_name + (item.sub_bom ? ' [Sub-BOM]' : ''),
             item.category || '',
             qty + ' ' + (item.uom || ''),
-            rate.toFixed(2),
-            cost.toFixed(2),
+            effectiveRate.toFixed(2),
+            effectiveCost.toFixed(2),
             item.current_stock
         ]);
 
@@ -358,16 +386,16 @@ function exportToExcel() {
         if (item.sub_bom && item.sub_bom.items) {
             tableData.push(['', '--- Sub-BOM: ' + item.sub_bom.bom_no + ' (Cost: ₹' + parseFloat(item.sub_bom.total_cost).toFixed(2) + ') ---', '', '', '', '', '']);
             item.sub_bom.items.forEach(subItem => {
-                const subRate = parseFloat(subItem.rate) || 0;
+                const subEffRate = parseFloat(subItem.effective_rate) || 0;
+                const subEffCost = parseFloat(subItem.effective_cost) || 0;
                 const subQty = parseFloat(subItem.qty) || 0;
-                const subCost = subQty * subRate;
                 tableData.push([
                     '    ' + subItem.part_no,
                     '    ' + subItem.part_name,
                     subItem.category || '',
                     subQty + ' ' + (subItem.uom || ''),
-                    subRate.toFixed(2),
-                    subCost.toFixed(2),
+                    subEffRate.toFixed(2),
+                    subEffCost.toFixed(2),
                     subItem.current_stock
                 ]);
             });

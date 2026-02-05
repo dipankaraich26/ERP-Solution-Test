@@ -11,6 +11,43 @@ try {
     }
 } catch (PDOException $e) {}
 
+// Recursive BOM cost calculation — uses sub-BOM cost for assembly items
+function calculateBomCost($pdo, $bom_id, $depth = 0) {
+    if ($depth > 10) return 0; // Prevent infinite recursion
+
+    $stmt = $pdo->prepare("
+        SELECT bi.qty, bi.rate, bi.component_part_no
+        FROM bom_items bi
+        WHERE bi.bom_id = ?
+    ");
+    $stmt->execute([$bom_id]);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $total = 0;
+    foreach ($items as $item) {
+        // Check if this component has its own BOM (sub-assembly)
+        $subStmt = $pdo->prepare("
+            SELECT id FROM bom_master
+            WHERE parent_part_no = ?
+            ORDER BY status = 'active' DESC
+            LIMIT 1
+        ");
+        $subStmt->execute([$item['component_part_no']]);
+        $subBom = $subStmt->fetch();
+
+        if ($subBom) {
+            // Use sub-BOM total cost recursively
+            $subCost = calculateBomCost($pdo, $subBom['id'], $depth + 1);
+            $total += (float)$item['qty'] * $subCost;
+        } else {
+            // Regular part: use bom_items.rate
+            $total += (float)$item['qty'] * (float)$item['rate'];
+        }
+    }
+
+    return $total;
+}
+
 // Search parameters
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $search_type = isset($_GET['search_type']) ? $_GET['search_type'] : 'beginning';
@@ -62,10 +99,7 @@ $total_pages = ceil($total_count / $per_page);
 // Main query with search
 $sql = "
     SELECT b.id, b.bom_no, b.description, b.status,
-           p.part_name,
-           (SELECT COALESCE(SUM(bi.qty * bi.rate), 0)
-            FROM bom_items bi
-            WHERE bi.bom_id = b.id) AS bom_cost
+           p.part_name
     FROM bom_master b
     JOIN part_master p ON b.parent_part_no = p.part_no
     $where_clause
@@ -181,6 +215,7 @@ if (toggle) {
         $hasResults = false;
         while ($b = $stmt->fetch()):
             $hasResults = true;
+            $b['bom_cost'] = calculateBomCost($pdo, $b['id']);
         ?>
         <tr>
             <td><?= htmlspecialchars($b['bom_no']) ?></td>
