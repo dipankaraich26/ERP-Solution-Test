@@ -2,6 +2,15 @@
 include "../db.php";
 include "../includes/dialog.php";
 
+// Auto-migrate: add rate column to bom_items if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM bom_items")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('rate', $cols)) {
+        $pdo->exec("ALTER TABLE bom_items ADD COLUMN rate DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER qty");
+        $pdo->exec("UPDATE bom_items bi JOIN part_master pm ON bi.component_part_no = pm.part_no SET bi.rate = pm.rate");
+    }
+} catch (PDOException $e) {}
+
 if (!isset($_GET['id'])) {
     header("Location: index.php");
     exit;
@@ -37,7 +46,7 @@ $existingItems = $items->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch all active parts for component selection
 $child_parts = $pdo->query("
-    SELECT id, part_no, part_name, category
+    SELECT id, part_no, part_name, category, rate
     FROM part_master
     WHERE status='active'
     ORDER BY part_name
@@ -68,8 +77,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         // Insert new items
         $stmt = $pdo->prepare("
-            INSERT INTO bom_items (bom_id, component_part_no, qty)
-            VALUES (?, ?, ?)
+            INSERT INTO bom_items (bom_id, component_part_no, qty, rate)
+            VALUES (?, ?, ?, ?)
         ");
 
         foreach ($_POST['component_part_no'] as $i => $part) {
@@ -78,7 +87,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 if ($part === $bom['parent_part_no']) {
                     throw new Exception("Component part cannot be same as parent part.");
                 }
-                $stmt->execute([$id, $part, $_POST['qty'][$i]]);
+                $stmt->execute([$id, $part, $_POST['qty'][$i], $_POST['rate'][$i]]);
             }
         }
 
@@ -327,7 +336,7 @@ const parentPartNo = '<?= htmlspecialchars($bom['parent_part_no']) ?>';
 document.addEventListener('DOMContentLoaded', function() {
     if (existingItems.length > 0) {
         existingItems.forEach(item => {
-            addComponentRowWithData(item.component_part_no, item.part_name || 'Unknown Part', item.qty);
+            addComponentRowWithData(item.component_part_no, item.part_name || 'Unknown Part', item.qty, item.rate || 0);
         });
     } else {
         addComponentRow();
@@ -361,6 +370,10 @@ function addComponentRow() {
                     <label style="font-weight: 600; margin-bottom: 5px; display: block;">Qty</label>
                     <input type="number" step="0.001" name="qty[]" id="qty_${rowId}" placeholder="Qty" required min="0.001">
                 </div>
+                <div class="component-qty-wrapper">
+                    <label style="font-weight: 600; margin-bottom: 5px; display: block;">Rate</label>
+                    <input type="number" step="0.01" name="rate[]" id="rate_${rowId}" placeholder="Rate" required min="0">
+                </div>
                 <div class="component-actions" style="padding-top: 25px; display: flex; gap: 5px;">
                     <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelection('${rowId}')" title="Clear selection">Clear</button>
                     <button type="button" class="btn btn-danger btn-sm" onclick="removeComponentRow('${rowId}')" title="Remove row">Remove</button>
@@ -372,7 +385,7 @@ function addComponentRow() {
     container.insertAdjacentHTML('beforeend', rowHtml);
 }
 
-function addComponentRowWithData(partNo, partName, qty) {
+function addComponentRowWithData(partNo, partName, qty, rate) {
     const container = document.getElementById('componentsContainer');
     const rowId = 'component_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
@@ -400,6 +413,10 @@ function addComponentRowWithData(partNo, partName, qty) {
                 <div class="component-qty-wrapper">
                     <label style="font-weight: 600; margin-bottom: 5px; display: block;">Qty</label>
                     <input type="number" step="0.001" name="qty[]" id="qty_${rowId}" value="${qty}" required min="0.001">
+                </div>
+                <div class="component-qty-wrapper">
+                    <label style="font-weight: 600; margin-bottom: 5px; display: block;">Rate</label>
+                    <input type="number" step="0.01" name="rate[]" id="rate_${rowId}" value="${parseFloat(rate).toFixed(2)}" required min="0">
                 </div>
                 <div class="component-actions" style="padding-top: 25px; display: flex; gap: 5px;">
                     <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelection('${rowId}')" title="Clear selection">Clear</button>
@@ -458,10 +475,10 @@ function searchParts(input, rowId) {
         resultsDiv.innerHTML = '<div class="no-results">No parts found</div>';
     } else {
         resultsDiv.innerHTML = results.map(part => `
-            <div class="search-result-item" onclick="selectPart('${part.part_no}', '${escapeHtml(part.part_name)}', ${part.id}, '${rowId}')">
+            <div class="search-result-item" onclick="selectPart('${part.part_no}', '${escapeHtml(part.part_name)}', ${part.id}, '${rowId}', ${parseFloat(part.rate) || 0})">
                 <div class="part-info">
                     <div class="part-name">${escapeHtml(part.part_name)}</div>
-                    <div class="part-details">${escapeHtml(part.part_no)} | ${escapeHtml(part.category || 'N/A')}</div>
+                    <div class="part-details">${escapeHtml(part.part_no)} | ${escapeHtml(part.category || 'N/A')} | Rate: ${parseFloat(part.rate || 0).toFixed(2)}</div>
                 </div>
                 <span class="part-id-badge">ID: ${part.id}</span>
             </div>
@@ -471,16 +488,22 @@ function searchParts(input, rowId) {
     resultsDiv.classList.add('active');
 }
 
-function selectPart(partNo, partName, partId, rowId) {
+function selectPart(partNo, partName, partId, rowId, rate) {
     const hidden = document.getElementById('hidden_' + rowId);
     const input = document.querySelector(`#${rowId} .part-search-input`);
     const results = document.getElementById('results_' + rowId);
     const nameDisplay = document.getElementById('name_' + rowId);
+    const rateInput = document.getElementById('rate_' + rowId);
 
     // Set values
     hidden.value = partNo;
     nameDisplay.value = partName + ' (ID: ' + partId + ')';
     nameDisplay.style.background = '#e8f5e9';
+
+    // Auto-fill rate from part master as default (user can change)
+    if (rateInput && rate !== undefined) {
+        rateInput.value = parseFloat(rate).toFixed(2);
+    }
 
     // Update search input to show selected part_no
     input.value = partNo;

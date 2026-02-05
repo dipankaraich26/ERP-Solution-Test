@@ -2,6 +2,15 @@
 include "../db.php";
 include "../includes/sidebar.php";
 
+// Auto-migrate: add rate column to bom_items if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM bom_items")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('rate', $cols)) {
+        $pdo->exec("ALTER TABLE bom_items ADD COLUMN rate DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER qty");
+        $pdo->exec("UPDATE bom_items bi JOIN part_master pm ON bi.component_part_no = pm.part_no SET bi.rate = pm.rate");
+    }
+} catch (PDOException $e) {}
+
 // Search parameters
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $search_type = isset($_GET['search_type']) ? $_GET['search_type'] : 'beginning';
@@ -54,9 +63,8 @@ $total_pages = ceil($total_count / $per_page);
 $sql = "
     SELECT b.id, b.bom_no, b.description, b.status,
            p.part_name,
-           (SELECT COALESCE(SUM(bi.qty * pm.rate), 0)
+           (SELECT COALESCE(SUM(bi.qty * bi.rate), 0)
             FROM bom_items bi
-            JOIN part_master pm ON bi.component_part_no = pm.part_no
             WHERE bi.bom_id = b.id) AS bom_cost
     FROM bom_master b
     JOIN part_master p ON b.parent_part_no = p.part_no

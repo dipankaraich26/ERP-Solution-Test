@@ -2,6 +2,15 @@
 include "../db.php";
 include "../includes/sidebar.php";
 
+// Auto-migrate: add rate column to bom_items if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM bom_items")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('rate', $cols)) {
+        $pdo->exec("ALTER TABLE bom_items ADD COLUMN rate DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER qty");
+        $pdo->exec("UPDATE bom_items bi JOIN part_master pm ON bi.component_part_no = pm.part_no SET bi.rate = pm.rate");
+    }
+} catch (PDOException $e) {}
+
 $id = $_GET['id'];
 
 $bom = $pdo->prepare("
@@ -14,7 +23,7 @@ $bom->execute([$id]);
 $bom = $bom->fetch();
 
 $items = $pdo->prepare("
-    SELECT i.qty, p.part_name, p.part_no, p.category, p.rate, p.uom,
+    SELECT i.qty, i.rate, p.part_name, p.part_no, p.category, p.uom,
            COALESCE(inv.qty, 0) AS current_stock
     FROM bom_items i
     JOIN part_master p ON i.component_part_no = p.part_no
@@ -49,7 +58,7 @@ function getSubBomItems($pdo, $part_no) {
 
     // Get the sub-BOM items
     $subItemsStmt = $pdo->prepare("
-        SELECT i.qty, p.part_name, p.part_no, p.category, p.rate, p.uom,
+        SELECT i.qty, i.rate, p.part_name, p.part_no, p.category, p.uom,
                COALESCE(inv.qty, 0) AS current_stock
         FROM bom_items i
         JOIN part_master p ON i.component_part_no = p.part_no
