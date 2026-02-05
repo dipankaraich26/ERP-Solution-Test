@@ -318,11 +318,12 @@ if ($wo['bom_id']) {
 <style>
     /* ── Hide sidebar, go full-width landscape ── */
     .sidebar  { display: none !important; }
+    .topbar   { left: 0 !important; }
     .app-container { display: block !important; }
     body { overflow: auto !important; }
 </style>
 
-<div style="padding: 20px; max-width: 100%; overflow-y: auto; height: 100vh;">
+<div style="padding: 20px; padding-top: 52px; max-width: 100%; overflow-y: auto; height: 100vh;">
     <style>
         @page {
             size: landscape;
