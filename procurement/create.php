@@ -204,6 +204,20 @@ if ($step == 2) {
                 // Link it to the tracking table if plan exists
                 if ($currentPlanId) {
                     updatePlanWoItemStatus($pdo, $currentPlanId, $partNo, (int)$extWo['id'], $extWo['wo_no']);
+                    // Also set plan_id on the work_orders row so status sync works
+                    try {
+                        $pdo->prepare("UPDATE work_orders SET plan_id = ? WHERE id = ? AND (plan_id IS NULL OR plan_id = 0)")
+                             ->execute([$currentPlanId, $extWo['id']]);
+                    } catch (Exception $e) {
+                        // plan_id column might not exist yet, add it
+                        try {
+                            $pdo->exec("ALTER TABLE work_orders ADD COLUMN plan_id INT NULL");
+                            $pdo->prepare("UPDATE work_orders SET plan_id = ? WHERE id = ?")
+                                 ->execute([$currentPlanId, $extWo['id']]);
+                        } catch (Exception $e2) {
+                            // ignore
+                        }
+                    }
                 }
                 $woItemStatus[$partNo] = [
                     'part_no' => $partNo,

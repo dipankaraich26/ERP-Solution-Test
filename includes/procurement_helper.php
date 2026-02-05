@@ -1027,15 +1027,6 @@ function updatePlanWoItemStatus($pdo, int $planId, string $partNo, int $woId, st
  */
 function syncWoStatusToPlan($pdo, int $woId, string $newWoStatus): bool {
     try {
-        // Get the work order's plan_id and part_no
-        $woStmt = $pdo->prepare("SELECT plan_id, part_no FROM work_orders WHERE id = ?");
-        $woStmt->execute([$woId]);
-        $wo = $woStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$wo || !$wo['plan_id']) {
-            return false; // No plan linked
-        }
-
         // Map WO status to procurement tracking status
         $statusMap = [
             'open'        => 'in_progress',
@@ -1047,15 +1038,30 @@ function syncWoStatusToPlan($pdo, int $woId, string $newWoStatus): bool {
             'closed'      => 'closed',
             'cancelled'   => 'cancelled'
         ];
-
         $planStatus = $statusMap[$newWoStatus] ?? 'in_progress';
 
-        $stmt = $pdo->prepare("
+        // Method 1: Use plan_id from work_orders table
+        $woStmt = $pdo->prepare("SELECT plan_id, part_no FROM work_orders WHERE id = ?");
+        $woStmt->execute([$woId]);
+        $wo = $woStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($wo && $wo['plan_id']) {
+            $stmt = $pdo->prepare("
+                UPDATE procurement_plan_wo_items
+                SET status = ?
+                WHERE plan_id = ? AND part_no = ?
+            ");
+            return $stmt->execute([$planStatus, $wo['plan_id'], $wo['part_no']]);
+        }
+
+        // Method 2: Fallback - find via procurement_plan_wo_items using created_wo_id
+        $fallbackStmt = $pdo->prepare("
             UPDATE procurement_plan_wo_items
             SET status = ?
-            WHERE plan_id = ? AND part_no = ?
+            WHERE created_wo_id = ?
         ");
-        return $stmt->execute([$planStatus, $wo['plan_id'], $wo['part_no']]);
+        $fallbackStmt->execute([$planStatus, $woId]);
+        return $fallbackStmt->rowCount() > 0;
     } catch (Exception $e) {
         return false;
     }
