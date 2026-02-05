@@ -277,73 +277,83 @@ showModal();
         body.dark .emp-info-card h3, body.dark .status-form h3 { color: #ecf0f1; }
         body.dark .val-group .value { background: #34495e; border-color: #4a6274; color: #ecf0f1; }
 
-        /* Print Styles - Single Landscape Page */
+        /* Print Styles - Single Portrait Page */
         @media print {
-            @page { size: landscape; margin: 6mm; }
+            @page { size: portrait; margin: 6mm; }
             * { box-sizing: border-box; }
             .sidebar, .topbar, .status-form, .no-print { display: none !important; }
             .content { margin-left: 0 !important; padding: 0 !important; }
-            body { background: white; font-size: 11px; }
+            body { background: white; font-size: 10px; }
 
             .form-container { max-width: 100%; }
 
             .header-bar, .form-card, .emp-info-card, .netpay-bar, .payment-info {
                 box-shadow: none;
                 border: 1px solid #ccc;
-                border-radius: 6px;
+                border-radius: 4px;
             }
 
             /* Compact spacing */
-            .header-bar { padding: 8px 15px; margin-bottom: 8px; }
-            .header-bar h1 { font-size: 1.1em; }
-            .header-bar p { font-size: 0.8em; margin-top: 2px; }
+            .header-bar { padding: 6px 12px; margin-bottom: 6px; }
+            .header-bar h1 { font-size: 1em; }
+            .header-bar p { font-size: 0.78em; margin-top: 1px; }
 
-            .emp-info-card { padding: 10px 15px; margin-bottom: 8px; }
-            .emp-info-card h3 { margin-bottom: 8px; padding-bottom: 5px; font-size: 0.95em; }
-            .emp-grid { gap: 6px; }
+            .emp-info-card { padding: 8px 12px; margin-bottom: 6px; }
+            .emp-info-card h3 { margin-bottom: 6px; padding-bottom: 4px; font-size: 0.9em; }
+            .emp-grid { grid-template-columns: repeat(4, 1fr); gap: 5px; }
 
-            .val-group label { font-size: 0.75em; margin-bottom: 2px; }
-            .val-group .value { padding: 4px 8px; font-size: 0.85em; border-radius: 4px; }
+            .val-group label { font-size: 0.7em; margin-bottom: 1px; }
+            .val-group .value { padding: 3px 6px; font-size: 0.8em; border-radius: 3px; }
 
-            .landscape-grid { gap: 8px; margin-bottom: 8px; }
-            .form-card { padding: 10px 15px; border-radius: 6px; }
-            .form-card h3 { margin-bottom: 8px; padding-bottom: 5px; font-size: 0.95em; }
-            .val-grid { gap: 6px; }
-            .val-group[style*="margin-bottom: 12px"] { margin-bottom: 6px !important; }
+            /* Stack: Earnings full width on top, Attendance + Deductions side by side below */
+            .landscape-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 6px;
+                margin-bottom: 6px;
+            }
+            /* Earnings card spans full width */
+            .landscape-grid .form-card:nth-child(2) {
+                grid-column: 1 / -1;
+                order: -1;
+            }
+            .form-card { padding: 8px 12px; border-radius: 4px; }
+            .form-card h3 { margin-bottom: 6px; padding-bottom: 4px; font-size: 0.9em; }
+            .val-grid { grid-template-columns: repeat(4, 1fr); gap: 5px; }
+            .val-group[style*="margin-bottom: 12px"] { margin-bottom: 4px !important; }
 
             .summary-box {
-                padding: 8px 12px; margin-top: 8px;
+                padding: 6px 10px; margin-top: 6px;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
             }
-            .summary-row { padding: 3px 0; font-size: 0.85em; }
-            .summary-row.total { font-size: 0.95em; padding-top: 6px; margin-top: 3px; }
+            .summary-row { padding: 2px 0; font-size: 0.8em; }
+            .summary-row.total { font-size: 0.9em; padding-top: 4px; margin-top: 2px; }
 
             .netpay-bar {
-                padding: 8px 15px; margin-bottom: 8px; border-radius: 6px;
+                padding: 6px 12px; margin-bottom: 6px; border-radius: 4px;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
             }
-            .netpay-bar .lbl { font-size: 12px; }
-            .netpay-bar .amt { font-size: 18px; }
-            .netpay-bar .words { font-size: 9px; }
+            .netpay-bar .lbl { font-size: 11px; }
+            .netpay-bar .amt { font-size: 16px; }
+            .netpay-bar .words { font-size: 8px; }
 
-            .payment-info { padding: 6px 15px; margin-bottom: 6px; font-size: 0.8em; }
+            .payment-info { padding: 5px 12px; margin-bottom: 5px; font-size: 0.78em; }
 
             .print-company-header {
                 display: flex !important;
                 align-items: center;
-                padding: 8px 15px;
+                padding: 6px 12px;
                 border: 1px solid #ccc;
-                border-radius: 6px;
-                margin-bottom: 8px;
+                border-radius: 4px;
+                margin-bottom: 6px;
             }
-            .print-company-header img { max-height: 40px; margin-right: 12px; }
-            .print-company-header .name { font-size: 15px; font-weight: bold; }
-            .print-company-header .addr { font-size: 9px; color: #555; }
-            .print-company-header .title { font-size: 13px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
-            .print-company-header .month { font-size: 11px; color: #555; }
+            .print-company-header img { max-height: 35px; margin-right: 10px; }
+            .print-company-header .name { font-size: 14px; font-weight: bold; }
+            .print-company-header .addr { font-size: 8px; color: #555; }
+            .print-company-header .title { font-size: 12px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
+            .print-company-header .month { font-size: 10px; color: #555; }
 
-            .print-footer { display: flex !important; margin-top: 10px; padding: 0 15px; }
-            .sig-line { margin-top: 30px; }
+            .print-footer { display: flex !important; margin-top: 8px; padding: 0 12px; }
+            .sig-line { margin-top: 25px; }
 
             .emp-info-card .lbl, .form-card .lbl {
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
