@@ -31,11 +31,11 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 .topbar a {
     display: inline-flex;
     align-items: center;
-    padding: 8px 14px;
+    padding: 8px 16px;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
-    color: #fff;
+    color: #fff !important;
     text-decoration: none;
     white-space: nowrap;
     transition: all 0.2s ease;
