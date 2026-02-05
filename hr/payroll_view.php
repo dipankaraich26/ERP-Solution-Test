@@ -302,7 +302,7 @@ showModal();
             * { box-sizing: border-box; }
             .sidebar, .topbar, .status-form, .no-print, .header-bar { display: none !important; }
             .content { margin-left: 0 !important; padding: 0 !important; }
-            body { background: white; font-size: 11px; }
+            body { background: white; font-size: 13px; }
             .form-container { max-width: 100%; }
 
             /* Keep card look - same as view */
@@ -322,18 +322,18 @@ showModal();
                 margin-bottom: 8px;
             }
             .print-company-header img { max-height: 40px; margin-right: 12px; }
-            .print-company-header .name { font-size: 16px; font-weight: bold; }
-            .print-company-header .addr { font-size: 9px; color: #555; }
-            .print-company-header .title { font-size: 14px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
-            .print-company-header .month { font-size: 11px; color: #555; }
+            .print-company-header .name { font-size: 18px; font-weight: bold; }
+            .print-company-header .addr { font-size: 11px; color: #555; }
+            .print-company-header .title { font-size: 16px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
+            .print-company-header .month { font-size: 12px; color: #555; }
 
             /* Employee info card */
             .emp-info-card { padding: 10px 15px; margin-bottom: 8px; }
-            .emp-info-card h3 { margin-bottom: 8px; padding-bottom: 5px; font-size: 1em; }
+            .emp-info-card h3 { margin-bottom: 8px; padding-bottom: 5px; font-size: 1.05em; }
             .emp-grid { gap: 8px; }
-            .val-group label { font-size: 0.75em; margin-bottom: 2px; }
+            .val-group label { font-size: 0.85em; margin-bottom: 2px; }
             .val-group .value {
-                padding: 5px 8px; font-size: 0.88em; border-radius: 5px;
+                padding: 5px 8px; font-size: 0.95em; border-radius: 5px;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
                 background: #f8f9fa; border: 1px solid #e9ecef;
             }
@@ -345,7 +345,7 @@ showModal();
             }
             .form-card { padding: 10px 12px; border-radius: 8px; }
             .form-card h3 {
-                margin: 0 0 8px 0; padding-bottom: 5px; font-size: 0.95em;
+                margin: 0 0 8px 0; padding-bottom: 5px; font-size: 1.05em;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
             }
             .form-card h3.earnings { border-bottom-color: #27ae60; }
@@ -358,8 +358,8 @@ showModal();
                 padding: 8px 10px; margin-top: 8px; border-radius: 6px;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
             }
-            .summary-row { padding: 3px 0; font-size: 0.88em; }
-            .summary-row.total { font-size: 0.95em; padding-top: 5px; margin-top: 3px; }
+            .summary-row { padding: 3px 0; font-size: 0.95em; }
+            .summary-row.total { font-size: 1.05em; padding-top: 5px; margin-top: 3px; }
 
             /* Net pay bar - keep gradient */
             .netpay-bar {
@@ -367,20 +367,20 @@ showModal();
                 box-shadow: none; border: none;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact;
             }
-            .netpay-bar .lbl { font-size: 12px; }
-            .netpay-bar .amt { font-size: 18px; }
-            .netpay-bar .words { font-size: 9px; }
+            .netpay-bar .lbl { font-size: 14px; }
+            .netpay-bar .amt { font-size: 20px; }
+            .netpay-bar .words { font-size: 11px; }
 
-            .payment-info { padding: 6px 15px; margin-bottom: 6px; font-size: 0.85em; }
+            .payment-info { padding: 6px 15px; margin-bottom: 6px; font-size: 0.95em; }
 
             /* Leave balance */
             .leave-balance-card { padding: 8px 12px; margin-bottom: 6px; border: 1px solid #ddd; border-radius: 8px; box-shadow: none; }
-            .leave-balance-card h3 { margin: 0 0 6px 0; padding-bottom: 4px; font-size: 0.9em; }
+            .leave-balance-card h3 { margin: 0 0 6px 0; padding-bottom: 4px; font-size: 1em; }
             .leave-grid { gap: 6px; }
-            .leave-chip { padding: 4px 8px; font-size: 0.8em; border-radius: 4px;
+            .leave-chip { padding: 5px 10px; font-size: 0.9em; border-radius: 4px;
                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-            .print-gen-note { display: block !important; text-align: center; font-size: 8px; color: #999; margin-top: 4px; }
+            .print-gen-note { display: block !important; text-align: center; font-size: 10px; color: #999; margin-top: 4px; }
         }
 
         .print-company-header { display: none; }
