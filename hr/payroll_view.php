@@ -192,9 +192,16 @@ showModal();
         }
 
         @media print {
+            @page { size: landscape; margin: 10mm; }
             .sidebar, .action-buttons, .status-form { display: none !important; }
-            .content { margin-left: 0 !important; }
+            .content { margin-left: 0 !important; padding: 0 !important; }
             .payslip { max-width: 100%; }
+            .payslip-header { border-radius: 0; padding: 15px 25px; }
+            .payslip-body { border-radius: 0; padding: 15px 25px; }
+            .emp-info { grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 15px; padding-bottom: 10px; }
+            .salary-grid { gap: 40px; }
+            .net-pay-box { margin-top: 15px; padding: 15px; }
+            .attendance-summary { margin-top: 15px; padding-top: 10px; }
         }
 
         @media (max-width: 600px) {
