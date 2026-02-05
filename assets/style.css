@@ -203,7 +203,7 @@ body.mid {
     border-radius: 6px;
     font-size: 14px;
     font-weight: 500;
-    color: var(--text);
+    color: #fff;
     text-decoration: none;
     white-space: nowrap;
     transition: all 0.2s ease;
