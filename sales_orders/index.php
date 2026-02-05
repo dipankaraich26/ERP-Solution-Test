@@ -324,6 +324,7 @@ include "../includes/sidebar.php";
             <th>Customer PO</th>
             <th>PI No</th>
             <th>Customer</th>
+            <th>Products</th>
             <th>Date</th>
             <th>Stock Status</th>
             <th>Status</th>
@@ -344,6 +345,22 @@ include "../includes/sidebar.php";
                 <?php endif; ?>
             </td>
             <td><?= htmlspecialchars($o['company_name'] ?? '-') ?></td>
+            <td style="font-size: 0.9em;">
+                <?php
+                if (!empty($o['items'])) {
+                    $itemParts = explode('|||', $o['items']);
+                    foreach ($itemParts as $ip) {
+                        $cols = explode('::', $ip);
+                        $partNo = $cols[0] ?? '';
+                        $partName = $cols[1] ?? '';
+                        $qty = $cols[2] ?? '';
+                        echo htmlspecialchars($partName) . ' <small style="color:#888;">(' . htmlspecialchars($partNo) . ' x ' . htmlspecialchars($qty) . ')</small><br>';
+                    }
+                } else {
+                    echo '-';
+                }
+                ?>
+            </td>
             <td><?= $o['sales_date'] ?></td>
             <td>
                 <?php if ($o['insufficient_count'] > 0): ?>
@@ -372,7 +389,7 @@ include "../includes/sidebar.php";
 
         <?php if (empty($orders)): ?>
         <tr>
-            <td colspan="8" style="text-align: center; padding: 20px;">No Sales Orders found.</td>
+            <td colspan="9" style="text-align: center; padding: 20px;">No Sales Orders found.</td>
         </tr>
         <?php endif; ?>
     </table>
