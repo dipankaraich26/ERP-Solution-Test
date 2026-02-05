@@ -30,53 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($action === 'release') {
         try {
-            // First get the work order details including BOM
-            $woCheckStmt = $pdo->prepare("SELECT wo_no, part_no, qty, bom_id FROM work_orders WHERE id = ?");
-            $woCheckStmt->execute([$id]);
-            $woData = $woCheckStmt->fetch();
-
-            $insufficientParts = [];
-
-            // Check stock for all BOM components
-            if ($woData && $woData['bom_id']) {
-                $componentsStmt = $pdo->prepare("
-                    SELECT bi.component_part_no, bi.qty as component_qty, pm.part_name, COALESCE(inv.qty, 0) as current_stock
-                    FROM bom_items bi
-                    LEFT JOIN part_master pm ON bi.component_part_no = pm.part_no
-                    LEFT JOIN inventory inv ON inv.part_no = bi.component_part_no
-                    WHERE bi.bom_id = ?
-                ");
-                $componentsStmt->execute([$woData['bom_id']]);
-                $components = $componentsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-                $woQty = (float)$woData['qty'];
-
-                foreach ($components as $comp) {
-                    $requiredQty = (float)$comp['component_qty'] * $woQty;
-                    $currentStock = (float)$comp['current_stock'];
-                    $resultingStock = $currentStock - $requiredQty;
-
-                    // Check if stock would go below zero
-                    if ($resultingStock < 0) {
-                        $shortage = abs($resultingStock);
-                        $insufficientParts[] = $comp['component_part_no'] . ' (' . ($comp['part_name'] ?? 'N/A') . ') - Need: ' . $requiredQty . ', Available: ' . $currentStock . ', Short: ' . $shortage;
-                    }
-                }
-            }
-
-            // If any parts have insufficient stock, prevent release
-            if (!empty($insufficientParts)) {
-                $error = "Cannot release Work Order. Insufficient stock for the following components:<br><ul style='margin: 10px 0; padding-left: 20px;'>";
-                foreach ($insufficientParts as $part) {
-                    $error .= "<li>" . htmlspecialchars($part) . "</li>";
-                }
-                $error .= "</ul>Please ensure adequate stock before releasing.";
-            } else {
-                $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
-                $updateStmt->execute([$id]);
-                syncWoStatusToPlan($pdo, (int)$id, 'released');
-                $success = "Work Order released successfully!";
-            }
+            // Release approves the WO for production — no inventory is deducted here.
+            // Stock is only checked and deducted at close time.
+            $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
+            $updateStmt->execute([$id]);
+            syncWoStatusToPlan($pdo, (int)$id, 'released');
+            $success = "Work Order released successfully!";
         } catch (PDOException $e) {
             $error = "Failed to release: " . $e->getMessage();
         }
