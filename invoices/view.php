@@ -26,10 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $shipto_errors[] = "Can only update Ship-to Address for draft invoices";
     } else {
         try {
+            // Ensure ship_to_contact_no column exists
+            try {
+                $pdo->exec("ALTER TABLE invoice_master ADD COLUMN ship_to_contact_no VARCHAR(50) NULL AFTER ship_to_contact_name");
+            } catch (PDOException $ignore) {
+                // Column already exists
+            }
+
             $updateStmt = $pdo->prepare("
                 UPDATE invoice_master
                 SET ship_to_company_name = ?,
                     ship_to_contact_name = ?,
+                    ship_to_contact_no = ?,
                     ship_to_address1 = ?,
                     ship_to_address2 = ?,
                     ship_to_city = ?,
@@ -41,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $updateStmt->execute([
                 trim($_POST['ship_to_company_name'] ?? ''),
                 trim($_POST['ship_to_contact_name'] ?? ''),
+                trim($_POST['ship_to_contact_no'] ?? ''),
                 trim($_POST['ship_to_address1'] ?? ''),
                 trim($_POST['ship_to_address2'] ?? ''),
                 trim($_POST['ship_to_city'] ?? ''),
@@ -467,6 +476,9 @@ include "../includes/sidebar.php";
                         <?php endif; ?>
                         <p><?= htmlspecialchars($invoice['ship_to_city'] ?? '') ?> - <?= htmlspecialchars($invoice['ship_to_pincode'] ?? '') ?></p>
                         <p><?= htmlspecialchars($invoice['ship_to_state'] ?? '') ?></p>
+                        <?php if ($invoice['ship_to_contact_no'] ?? ''): ?>
+                            <p><strong>Contact No:</strong> <?= htmlspecialchars($invoice['ship_to_contact_no']) ?></p>
+                        <?php endif; ?>
                         <?php if ($invoice['ship_to_gstin']): ?>
                             <p><strong>GSTIN:</strong> <?= htmlspecialchars($invoice['ship_to_gstin']) ?></p>
                         <?php endif; ?>
@@ -676,6 +688,14 @@ include "../includes/sidebar.php";
                                placeholder="Contact person at shipping address"
                                style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
                     </div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Contact No</label>
+                    <input type="text" name="ship_to_contact_no"
+                           value="<?= htmlspecialchars($invoice['ship_to_contact_no'] ?? '') ?>"
+                           placeholder="Phone / Mobile number"
+                           style="width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
                 </div>
 
                 <div style="margin-top: 15px;">
@@ -949,6 +969,7 @@ function copyBillToAddress() {
     <?php if ($chain): ?>
     document.querySelector('input[name="ship_to_company_name"]').value = <?= json_encode($chain['company_name'] ?? '') ?>;
     document.querySelector('input[name="ship_to_contact_name"]').value = <?= json_encode($chain['customer_name'] ?? '') ?>;
+    document.querySelector('input[name="ship_to_contact_no"]').value = <?= json_encode($chain['contact'] ?? '') ?>;
     document.querySelector('input[name="ship_to_address1"]').value = <?= json_encode($chain['address1'] ?? '') ?>;
     document.querySelector('input[name="ship_to_address2"]').value = <?= json_encode($chain['address2'] ?? '') ?>;
     document.querySelector('input[name="ship_to_city"]').value = <?= json_encode($chain['city'] ?? '') ?>;

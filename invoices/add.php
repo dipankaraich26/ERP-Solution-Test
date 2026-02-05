@@ -87,7 +87,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         preg_match('/INV\/(\d+)\//', $lastInvoice, $matches);
         $invSerial = isset($matches[1]) ? ((int)$matches[1] + 1) : 1;
     } else {
-        $invSerial = 1;
+        $invSerial = 165;
     }
 
     $invoice_no = 'INV/' . $invSerial . '/' . $fyString;

@@ -288,6 +288,9 @@ $document_title = 'TAX INVOICE';
                     $invoice['ship_to_state'] ?? '',
                     $invoice['ship_to_pincode'] ?? ''
                 ]))) ?></p>
+                <?php if ($invoice['ship_to_contact_no'] ?? ''): ?>
+                    <p>Contact: <?= htmlspecialchars($invoice['ship_to_contact_no']) ?></p>
+                <?php endif; ?>
                 <?php if ($invoice['ship_to_gstin']): ?>
                     <p>GSTIN: <?= htmlspecialchars($invoice['ship_to_gstin']) ?></p>
                 <?php endif; ?>
