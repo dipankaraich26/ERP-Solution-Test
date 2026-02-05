@@ -26,33 +26,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $debugInfo[] = "Processing Employee ID $empId: Status=$status, CheckIn=$checkInInput, CheckOut=$checkOutInput";
 
-        // Format check-in and check-out times
-        // Support both TIME and DATETIME column types
+        // Format check-in and check-out times (store as HH:MM:SS to match portal format)
         $checkIn = null;
         $checkOut = null;
 
         if (!empty($checkInInput)) {
-            // Validate time format (HH:MM)
             if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkInInput)) {
-                // For DATETIME columns: combine date with time
-                // For TIME columns: this will be automatically converted
-                $checkIn = $date . ' ' . $checkInInput . ':00';
+                $checkIn = $checkInInput . ':00';
             }
         }
 
         if (!empty($checkOutInput)) {
-            // Validate time format (HH:MM)
             if (preg_match('/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/', $checkOutInput)) {
-                // For DATETIME columns: combine date with time
-                // For TIME columns: this will be automatically converted
-                $checkOut = $date . ' ' . $checkOutInput . ':00';
+                $checkOut = $checkOutInput . ':00';
             }
         }
 
         // Calculate working hours
         $workingHours = 0;
         if ($checkIn && $checkOut) {
-            // Use date context for proper time calculation
             $inTime = strtotime($date . ' ' . $checkIn);
             $outTime = strtotime($date . ' ' . $checkOut);
             if ($outTime > $inTime) {
