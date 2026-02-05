@@ -3,6 +3,19 @@ $current = basename($_SERVER['PHP_SELF']);
 $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 ?>
 
+<!-- Top Navigation Bar -->
+<div class="topbar">
+    <a href="/proforma/index.php" class="<?= $currentDir === 'proforma' ? 'active' : '' ?>">Proforma Invoice</a>
+    <a href="/customer_po/index.php" class="<?= $currentDir === 'customer_po' ? 'active' : '' ?>">Customers PO</a>
+    <a href="/sales_orders/index.php" class="<?= $currentDir === 'sales_orders' ? 'active' : '' ?>">Sales Orders</a>
+    <a href="/invoices/index.php" class="<?= $currentDir === 'invoices' ? 'active' : '' ?>">Invoice</a>
+    <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' && $current === 'index.php' ? 'active' : '' ?>">Supplier PO</a>
+    <a href="/work_orders/index.php" class="<?= $currentDir === 'work_orders' ? 'active' : '' ?>">Work Order</a>
+    <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">Supplier Purchase Order</a>
+    <a href="/bom/index.php" class="<?= $currentDir === 'bom' ? 'active' : '' ?>">BOM</a>
+    <a href="/inventory/index.php" class="<?= $currentDir === 'inventory' && $current === 'index.php' ? 'active' : '' ?>">Current Stock</a>
+</div>
+
 <style>
 .sidebar-logo-section {
     padding: 10px;
