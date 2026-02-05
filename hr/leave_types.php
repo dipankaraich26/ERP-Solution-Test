@@ -16,6 +16,23 @@ $tableExists = false;
 try {
     $tableCheck = $pdo->query("SHOW TABLES LIKE 'leave_types'")->fetch();
     $tableExists = (bool)$tableCheck;
+
+    // Auto-fix: Drop stale 'name' column/index if leave_type_name exists
+    if ($tableExists) {
+        $cols = $pdo->query("SHOW COLUMNS FROM leave_types")->fetchAll(PDO::FETCH_COLUMN);
+        if (in_array('name', $cols) && in_array('leave_type_name', $cols)) {
+            // Drop the UNIQUE index on 'name' first, then drop the column
+            try {
+                $indexes = $pdo->query("SHOW INDEX FROM leave_types WHERE Column_name = 'name'")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($indexes as $idx) {
+                    $pdo->exec("ALTER TABLE leave_types DROP INDEX `" . $idx['Key_name'] . "`");
+                }
+            } catch (PDOException $e) {}
+            try {
+                $pdo->exec("ALTER TABLE leave_types DROP COLUMN `name`");
+            } catch (PDOException $e) {}
+        }
+    }
 } catch (PDOException $e) {}
 
 // Handle form submissions

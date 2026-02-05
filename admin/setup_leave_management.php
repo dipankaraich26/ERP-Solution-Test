@@ -74,6 +74,20 @@ try {
             $pdo->exec("ALTER TABLE leave_types ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
             $messages[] = "Added created_at column to leave_types";
         }
+        // Clean up stale 'name' column if leave_type_name exists
+        if (in_array('name', $columns) && in_array('leave_type_name', $columns)) {
+            try {
+                $indexes = $pdo->query("SHOW INDEX FROM leave_types WHERE Column_name = 'name'")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($indexes as $idx) {
+                    $pdo->exec("ALTER TABLE leave_types DROP INDEX `" . $idx['Key_name'] . "`");
+                }
+                $pdo->exec("ALTER TABLE leave_types DROP COLUMN `name`");
+                $messages[] = "Removed stale 'name' column from leave_types";
+            } catch (PDOException $e) {
+                // Column might already be removed
+            }
+        }
+
         $messages[] = "Verified leave_types table structure";
     }
 
