@@ -70,7 +70,7 @@ function getSelectedSalesOrdersByPart($pdo, array $selectedSOs): array {
         LEFT JOIN inventory i ON so.part_no = i.part_no
         LEFT JOIN part_min_stock pms ON so.part_no = pms.part_no
         WHERE so.so_no IN ($placeholders)
-        AND so.status IN ('pending', 'open')
+        AND so.status NOT IN ('cancelled')
         GROUP BY so.part_no, p.part_name, p.uom, i.qty, pms.min_stock_qty, pms.reorder_qty
         ORDER BY so.part_no
     ");
@@ -688,7 +688,7 @@ function getAllPartsForSalesOrders($pdo, array $selectedSOs): array {
         FROM sales_orders so
         JOIN part_master p ON so.part_no = p.part_no
         WHERE so.so_no IN ($placeholders_so)
-        AND so.status IN ('pending', 'open')
+        AND so.status NOT IN ('cancelled')
     ");
     $stmt->execute($selectedSOs);
     $soParts = $stmt->fetchAll(PDO::FETCH_ASSOC);

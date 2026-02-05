@@ -183,6 +183,38 @@ if ($step == 2) {
         }
     }
 
+    // Also detect work orders created outside the procurement page (from work_orders module)
+    // Match by part_no and status not closed/cancelled
+    if (!empty($workOrderItems)) {
+        foreach ($workOrderItems as $wi) {
+            $partNo = $wi['part_no'];
+            // Skip if already tracked via procurement
+            if (isset($woItemStatus[$partNo]) && !empty($woItemStatus[$partNo]['created_wo_id'])) {
+                continue;
+            }
+            // Look for any existing open/in-progress work order for this part
+            $extWoStmt = $pdo->prepare("
+                SELECT id, wo_no, qty, status FROM work_orders
+                WHERE part_no = ? AND status NOT IN ('closed', 'cancelled')
+                ORDER BY id DESC LIMIT 1
+            ");
+            $extWoStmt->execute([$partNo]);
+            $extWo = $extWoStmt->fetch(PDO::FETCH_ASSOC);
+            if ($extWo) {
+                // Link it to the tracking table if plan exists
+                if ($currentPlanId) {
+                    updatePlanWoItemStatus($pdo, $currentPlanId, $partNo, (int)$extWo['id'], $extWo['wo_no']);
+                }
+                $woItemStatus[$partNo] = [
+                    'part_no' => $partNo,
+                    'created_wo_id' => $extWo['id'],
+                    'created_wo_no' => $extWo['wo_no'],
+                    'status' => 'in_progress'
+                ];
+            }
+        }
+    }
+
     // Load existing tracking status for PO items
     $poItemStatus = [];
     if ($currentPlanId) {
