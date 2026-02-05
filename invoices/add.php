@@ -2,6 +2,11 @@
 include "../db.php";
 include "../includes/dialog.php";
 
+// Auto-migrate: convert any 'fulfilled' SO status to 'released'
+try {
+    $pdo->exec("UPDATE sales_orders SET status = 'released' WHERE status = 'fulfilled'");
+} catch (PDOException $e) {}
+
 /* =========================
    FETCH SALES ORDERS (only RELEASED ones that don't have an invoice yet)
    Note: Pending SOs cannot be invoiced as they have stock issues
@@ -25,7 +30,7 @@ $salesOrders = $pdo->query("
                MAX(customer_po_id) as customer_po_id,
                MAX(linked_quote_id) as linked_quote_id
         FROM sales_orders
-        WHERE status IN ('released', 'fulfilled')
+        WHERE status = 'released'
         GROUP BY so_no
     ) so
     LEFT JOIN customers c ON c.id = so.customer_id
