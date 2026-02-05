@@ -108,127 +108,140 @@ showModal();
     <title>Payslip - <?= htmlspecialchars($payroll['emp_id']) ?> - <?= $monthName ?></title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
-        .payslip-container { max-width: 1100px; margin: 0 auto; }
-
-        .payslip {
+        .form-container { max-width: 100%; margin: 0; }
+        .landscape-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .form-card {
             background: white;
-            border: 2px solid #333;
-            font-size: 13px;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        .form-card h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+            font-size: 1.1em;
+        }
+        .form-card h3.earnings { border-bottom-color: #27ae60; }
+        .form-card h3.deductions { border-bottom-color: #c0392b; }
+
+        .val-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        .val-group { margin-bottom: 0; }
+        .val-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #495057;
+            font-size: 0.85em;
+        }
+        .val-group .value {
+            padding: 8px 10px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-family: 'Consolas', monospace;
             color: #333;
         }
 
-        /* Header */
-        .ps-header {
+        .summary-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            color: white;
+        }
+        .summary-row {
             display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            font-size: 0.95em;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row.total {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: #fff;
+            padding-top: 10px;
+            margin-top: 5px;
+            border-top: 2px solid rgba(255,255,255,0.3);
+        }
+
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
             align-items: center;
-            border-bottom: 2px solid #333;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        .header-bar h1 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 1.4em;
+        }
+        .header-bar p {
+            color: #666;
+            margin: 3px 0 0;
+            font-size: 0.9em;
+        }
+
+        .emp-info-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        .emp-info-card h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+            font-size: 1.1em;
+        }
+        .emp-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .netpay-bar {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+        .netpay-bar .lbl { font-size: 14px; font-weight: 600; }
+        .netpay-bar .amt { font-size: 22px; font-weight: bold; font-family: 'Consolas', monospace; }
+        .netpay-bar .words { font-size: 11px; opacity: 0.8; font-style: italic; margin-top: 3px; }
+
+        .payment-info {
+            background: #eafaf1;
             padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
-        .ps-logo { max-height: 50px; max-width: 120px; margin-right: 15px; }
-        .ps-company { flex: 1; }
-        .ps-company-name { font-size: 18px; font-weight: bold; color: #1a1a1a; margin: 0; }
-        .ps-company-addr { font-size: 11px; color: #555; margin: 2px 0 0 0; }
-        .ps-title {
-            font-size: 16px;
-            font-weight: bold;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-            color: #1a1a1a;
-        }
-        .ps-month {
-            text-align: right;
-            font-size: 13px;
-            font-weight: 600;
-            color: #555;
-            margin-top: 2px;
-        }
-
-        /* Employee Info Table */
-        .ps-emp-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .ps-emp-table td {
-            padding: 6px 12px;
-            border: 1px solid #ccc;
-            font-size: 12px;
-        }
-        .ps-emp-table .lbl {
-            background: #f0f4f8;
-            font-weight: 600;
-            color: #444;
-            width: 14%;
-            white-space: nowrap;
-        }
-        .ps-emp-table .val { width: 19%; }
-
-        /* Salary Columns */
-        .ps-salary-wrap {
-            display: flex;
-        }
-        .ps-salary-col {
-            flex: 1;
-            border-right: 1px solid #ccc;
-        }
-        .ps-salary-col:last-child { border-right: none; }
-        .ps-salary-col .col-header {
-            text-align: center;
-            padding: 8px;
-            font-weight: bold;
-            font-size: 13px;
-            letter-spacing: 1px;
-            color: white;
-        }
-        .ps-salary-col .col-header.earnings { background: #27ae60; }
-        .ps-salary-col .col-header.deductions { background: #c0392b; }
-        .ps-salary-col .col-header.summary { background: #2c3e50; }
-
-        .ps-sal-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .ps-sal-table td {
-            padding: 5px 10px;
-            border-bottom: 1px solid #eee;
-            font-size: 12px;
-        }
-        .ps-sal-table .amt { text-align: right; font-family: 'Consolas', monospace; }
-        .ps-sal-table .total-row td {
-            border-top: 2px solid #333;
-            border-bottom: none;
-            font-weight: bold;
-            padding-top: 8px;
-            font-size: 13px;
-        }
-        .ps-sal-table .total-row .amt.green { color: #27ae60; }
-        .ps-sal-table .total-row .amt.red { color: #c0392b; }
-        .ps-sal-table .spacer td { border-bottom: none; height: 5px; }
-
-        /* Net Pay Bar */
-        .ps-netpay {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #1a1a2e;
-            color: white;
-            padding: 10px 20px;
-            border-top: 2px solid #333;
-        }
-        .ps-netpay .lbl { font-size: 14px; font-weight: 600; }
-        .ps-netpay .amt { font-size: 22px; font-weight: bold; font-family: 'Consolas', monospace; }
-        .ps-netpay .words { font-size: 11px; opacity: 0.8; font-style: italic; }
-
-        /* Footer / Signatures */
-        .ps-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            padding: 8px 20px 10px;
-            border-top: 1px solid #ccc;
-            font-size: 11px;
-        }
-        .sig-box { text-align: center; width: 200px; }
-        .sig-line { border-top: 1px solid #333; margin-top: 40px; padding-top: 5px; }
 
         /* Status badges */
         .status-badge {
@@ -243,15 +256,14 @@ showModal();
         .status-Approved { background: #d4edda; color: #155724; }
         .status-Paid { background: #d1ecf1; color: #0c5460; }
 
-        .action-buttons { margin-bottom: 20px; }
-
         .status-form {
-            background: #f8f9fa;
+            background: white;
             padding: 20px;
-            border-radius: 8px;
-            margin-top: 25px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
         }
-        .status-form h3 { margin: 0 0 15px 0; }
+        .status-form h3 { margin: 0 0 15px 0; color: #2c3e50; }
         .status-form select, .status-form input {
             padding: 8px 12px;
             border: 1px solid #ccc;
@@ -259,209 +271,309 @@ showModal();
             margin-right: 10px;
         }
 
+        body.dark .form-card, body.dark .header-bar, body.dark .emp-info-card,
+        body.dark .status-form { background: #2c3e50; }
+        body.dark .form-card h3, body.dark .header-bar h1,
+        body.dark .emp-info-card h3, body.dark .status-form h3 { color: #ecf0f1; }
+        body.dark .val-group .value { background: #34495e; border-color: #4a6274; color: #ecf0f1; }
+
+        /* Print Styles */
         @media print {
             @page { size: landscape; margin: 8mm; }
-            .sidebar, .action-buttons, .status-form, .topbar { display: none !important; }
+            .sidebar, .topbar, .status-form, .no-print { display: none !important; }
             .content { margin-left: 0 !important; padding: 0 !important; }
-            .payslip-container { max-width: 100%; }
-            .payslip { border-width: 1px; }
             body { background: white; }
-            .ps-salary-col .col-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .ps-netpay { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .ps-emp-table .lbl { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .header-bar, .form-card, .emp-info-card, .netpay-bar, .payment-info {
+                box-shadow: none;
+                border: 1px solid #ddd;
+            }
+            .summary-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .netpay-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .print-company-header {
+                display: flex !important;
+                align-items: center;
+                padding: 12px 20px;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                margin-bottom: 20px;
+            }
+            .print-company-header img { max-height: 50px; margin-right: 15px; }
+            .print-company-header .name { font-size: 18px; font-weight: bold; }
+            .print-company-header .addr { font-size: 11px; color: #555; }
+            .print-company-header .title { font-size: 16px; font-weight: bold; letter-spacing: 3px; text-transform: uppercase; }
+            .print-company-header .month { font-size: 13px; color: #555; }
+            .print-footer { display: flex !important; }
         }
 
+        .print-company-header { display: none; }
+        .print-footer { display: none; justify-content: space-between; align-items: flex-end; padding: 20px; margin-top: 20px; font-size: 11px; }
+        .sig-box { text-align: center; width: 200px; }
+        .sig-line { border-top: 1px solid #333; margin-top: 50px; padding-top: 5px; }
+
+        @media (max-width: 1200px) {
+            .landscape-grid { grid-template-columns: 1fr 1fr; }
+            .emp-grid { grid-template-columns: repeat(3, 1fr); }
+        }
         @media (max-width: 768px) {
-            .ps-salary-wrap { flex-direction: column; }
-            .ps-salary-col { border-right: none; border-bottom: 1px solid #ccc; }
+            .landscape-grid { grid-template-columns: 1fr; }
+            .emp-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
 
 <div class="content">
-    <div class="payslip-container">
+    <div class="form-container">
 
-        <div class="action-buttons">
-            <a href="payroll.php?month=<?= substr($payroll['payroll_month'], 0, 7) ?>" class="btn btn-secondary">Back to Payroll</a>
-            <button onclick="window.print()" class="btn btn-secondary">Print Payslip</button>
-            <?php if ($payroll['status'] === 'Draft'): ?>
-                <a href="payroll_edit.php?id=<?= $id ?>" class="btn btn-primary">Edit</a>
+        <!-- Print-only Company Header -->
+        <div class="print-company-header">
+            <?php if (!empty($settings['logo_path'])): ?>
+                <img src="/<?= htmlspecialchars($settings['logo_path']) ?>" alt="Logo">
             <?php endif; ?>
-            <span class="status-badge status-<?= $payroll['status'] ?>" style="margin-left: 10px;"><?= $payroll['status'] ?></span>
+            <div style="flex: 1;">
+                <div class="name"><?= htmlspecialchars($settings['company_name'] ?? 'Company Name') ?></div>
+                <div class="addr">
+                    <?= htmlspecialchars(implode(', ', array_filter([
+                        $settings['address_line1'] ?? '',
+                        $settings['city'] ?? '',
+                        $settings['state'] ?? '',
+                        $settings['pincode'] ?? ''
+                    ]))) ?>
+                    <?php if (!empty($settings['gstin'])): ?>
+                        &nbsp;|&nbsp; GSTIN: <?= htmlspecialchars($settings['gstin']) ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div class="title">Payslip</div>
+                <div class="month"><?= $monthName ?></div>
+            </div>
         </div>
 
-        <div class="payslip">
-
-            <!-- Company Header -->
-            <div class="ps-header">
-                <?php if (!empty($settings['logo_path'])): ?>
-                    <img src="/<?= htmlspecialchars($settings['logo_path']) ?>" alt="Logo" class="ps-logo">
+        <!-- Header Bar -->
+        <div class="header-bar">
+            <div>
+                <h1>Payslip</h1>
+                <p>
+                    <?= htmlspecialchars($payroll['first_name'] . ' ' . $payroll['last_name']) ?>
+                    (<?= htmlspecialchars($payroll['emp_id']) ?>) -
+                    <?= $monthName ?>
+                    <span class="status-badge status-<?= $payroll['status'] ?>" style="margin-left: 10px;"><?= $payroll['status'] ?></span>
+                </p>
+            </div>
+            <div class="no-print" style="display: flex; gap: 10px; align-items: center;">
+                <a href="payroll.php?month=<?= substr($payroll['payroll_month'], 0, 7) ?>" class="btn btn-secondary">Back to Payroll</a>
+                <?php if ($payroll['status'] === 'Draft'): ?>
+                    <a href="payroll_edit.php?id=<?= $id ?>" class="btn btn-primary">Edit</a>
                 <?php endif; ?>
-                <div class="ps-company">
-                    <p class="ps-company-name"><?= htmlspecialchars($settings['company_name'] ?? 'Company Name') ?></p>
-                    <p class="ps-company-addr">
-                        <?= htmlspecialchars(implode(', ', array_filter([
-                            $settings['address_line1'] ?? '',
-                            $settings['city'] ?? '',
-                            $settings['state'] ?? '',
-                            $settings['pincode'] ?? ''
-                        ]))) ?>
-                        <?php if (!empty($settings['gstin'])): ?>
-                            &nbsp;|&nbsp; GSTIN: <?= htmlspecialchars($settings['gstin']) ?>
-                        <?php endif; ?>
-                    </p>
+                <button onclick="window.print()" class="btn btn-secondary">Print</button>
+            </div>
+        </div>
+
+        <!-- Employee Info -->
+        <div class="emp-info-card">
+            <h3>Employee Information</h3>
+            <div class="emp-grid">
+                <div class="val-group">
+                    <label>Employee ID</label>
+                    <div class="value"><?= htmlspecialchars($payroll['emp_id']) ?></div>
                 </div>
-                <div style="text-align: right;">
-                    <div class="ps-title">Payslip</div>
-                    <div class="ps-month"><?= $monthName ?></div>
+                <div class="val-group">
+                    <label>Name</label>
+                    <div class="value"><?= htmlspecialchars($payroll['first_name'] . ' ' . $payroll['last_name']) ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Department</label>
+                    <div class="value"><?= htmlspecialchars($payroll['department'] ?? '-') ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Designation</label>
+                    <div class="value"><?= htmlspecialchars($payroll['designation'] ?? '-') ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Bank A/C</label>
+                    <div class="value"><?= htmlspecialchars($payroll['bank_account'] ?? '-') ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Bank / IFSC</label>
+                    <div class="value"><?= htmlspecialchars(($payroll['bank_name'] ?? '-') . (!empty($payroll['bank_ifsc']) ? ' / ' . $payroll['bank_ifsc'] : '')) ?></div>
+                </div>
+                <div class="val-group">
+                    <label>UAN</label>
+                    <div class="value"><?= htmlspecialchars($payroll['uan_number'] ?? '-') ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Date of Joining</label>
+                    <div class="value"><?= !empty($payroll['date_of_joining']) ? date('d M Y', strtotime($payroll['date_of_joining'])) : '-' ?></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3-Column Grid: Attendance | Earnings | Deductions+Summary -->
+        <div class="landscape-grid">
+            <!-- Left: Attendance -->
+            <div class="form-card">
+                <h3>Attendance</h3>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Working Days</label>
+                    <div class="value"><?= $payroll['working_days'] ?></div>
+                </div>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Days Present</label>
+                    <div class="value"><?= $payroll['days_present'] ?></div>
+                </div>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Days Absent</label>
+                    <div class="value"><?= $payroll['days_absent'] ?? 0 ?></div>
+                </div>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Leaves Taken</label>
+                    <div class="value"><?= $payroll['leaves_taken'] ?? 0 ?></div>
+                </div>
+                <div class="val-group">
+                    <label>Holidays</label>
+                    <div class="value"><?= $payroll['holidays'] ?? 0 ?></div>
                 </div>
             </div>
 
-            <!-- Employee Info -->
-            <table class="ps-emp-table">
-                <tr>
-                    <td class="lbl">Employee ID</td>
-                    <td class="val"><?= htmlspecialchars($payroll['emp_id']) ?></td>
-                    <td class="lbl">Name</td>
-                    <td class="val"><?= htmlspecialchars($payroll['first_name'] . ' ' . $payroll['last_name']) ?></td>
-                    <td class="lbl">Department</td>
-                    <td class="val"><?= htmlspecialchars($payroll['department'] ?? '-') ?></td>
-                </tr>
-                <tr>
-                    <td class="lbl">Designation</td>
-                    <td class="val"><?= htmlspecialchars($payroll['designation'] ?? '-') ?></td>
-                    <td class="lbl">Bank A/C</td>
-                    <td class="val"><?= htmlspecialchars($payroll['bank_account'] ?? '-') ?></td>
-                    <td class="lbl">Bank / IFSC</td>
-                    <td class="val"><?= htmlspecialchars(($payroll['bank_name'] ?? '-') . (!empty($payroll['bank_ifsc']) ? ' / ' . $payroll['bank_ifsc'] : '')) ?></td>
-                </tr>
-                <tr>
-                    <td class="lbl">UAN</td>
-                    <td class="val"><?= htmlspecialchars($payroll['uan_number'] ?? '-') ?></td>
-                    <td class="lbl">ESI No</td>
-                    <td class="val"><?= htmlspecialchars($payroll['esi_number'] ?? '-') ?></td>
-                    <td class="lbl">Date of Joining</td>
-                    <td class="val"><?= !empty($payroll['date_of_joining']) ? date('d M Y', strtotime($payroll['date_of_joining'])) : '-' ?></td>
-                </tr>
-            </table>
-
-            <!-- Earnings | Deductions | Summary -->
-            <div class="ps-salary-wrap">
-                <!-- Earnings Column -->
-                <div class="ps-salary-col">
-                    <div class="col-header earnings">EARNINGS</div>
-                    <table class="ps-sal-table">
-                        <tr><td>Basic Salary</td><td class="amt"><?= number_format($payroll['basic_salary'] ?? 0, 2) ?></td></tr>
-                        <tr><td>HRA</td><td class="amt"><?= number_format($payroll['hra'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Conveyance</td><td class="amt"><?= number_format($payroll['conveyance'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Medical Allowance</td><td class="amt"><?= number_format($payroll['medical_allowance'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Special Allowance</td><td class="amt"><?= number_format($payroll['special_allowance'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Other Allowance</td><td class="amt"><?= number_format($payroll['other_allowance'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Performance Allowance</td><td class="amt"><?= number_format($payroll['performance_allowance'] ?? 0, 2) ?></td></tr>
-                        <tr><td>Food Allowance</td><td class="amt"><?= number_format($payroll['food_allowance'] ?? 0, 2) ?></td></tr>
-                        <?php if (($payroll['overtime_pay'] ?? 0) > 0): ?>
-                        <tr><td>Overtime</td><td class="amt"><?= number_format($payroll['overtime_pay'], 2) ?></td></tr>
-                        <?php endif; ?>
-                        <?php if (($payroll['bonus'] ?? 0) > 0): ?>
-                        <tr><td>Bonus</td><td class="amt"><?= number_format($payroll['bonus'], 2) ?></td></tr>
-                        <?php endif; ?>
-                        <tr class="spacer"><td></td><td></td></tr>
-                        <tr class="total-row">
-                            <td>Gross Earnings</td>
-                            <td class="amt green"><?= number_format($payroll['gross_earnings'], 2) ?></td>
-                        </tr>
-                    </table>
-                </div>
-
-                <!-- Deductions Column -->
-                <div class="ps-salary-col">
-                    <div class="col-header deductions">DEDUCTIONS</div>
-                    <table class="ps-sal-table">
-                        <tr><td>PF (Employee)</td><td class="amt"><?= number_format($payroll['pf_employee'], 2) ?></td></tr>
-                        <tr><td>ESI (Employee)</td><td class="amt"><?= number_format($payroll['esi_employee'], 2) ?></td></tr>
-                        <tr><td>Professional Tax</td><td class="amt"><?= number_format($payroll['professional_tax'], 2) ?></td></tr>
-                        <?php if ($payroll['tds'] > 0): ?>
-                        <tr><td>TDS</td><td class="amt"><?= number_format($payroll['tds'], 2) ?></td></tr>
-                        <?php endif; ?>
-                        <?php if ($payroll['loan_deduction'] > 0): ?>
-                        <tr><td>Loan Deduction</td><td class="amt"><?= number_format($payroll['loan_deduction'], 2) ?></td></tr>
-                        <?php endif; ?>
-                        <?php if ($payroll['other_deduction'] > 0): ?>
-                        <tr><td>Other Deductions</td><td class="amt"><?= number_format($payroll['other_deduction'], 2) ?></td></tr>
-                        <?php endif; ?>
-                        <tr class="spacer"><td></td><td></td></tr>
-                        <tr class="total-row">
-                            <td>Total Deductions</td>
-                            <td class="amt red"><?= number_format($payroll['total_deductions'], 2) ?></td>
-                        </tr>
-                    </table>
-                </div>
-
-                <!-- Summary Column -->
-                <div class="ps-salary-col">
-                    <div class="col-header summary">ATTENDANCE & SUMMARY</div>
-                    <table class="ps-sal-table">
-                        <tr><td>Working Days</td><td class="amt"><?= $payroll['working_days'] ?></td></tr>
-                        <tr><td>Days Present</td><td class="amt"><?= $payroll['days_present'] ?></td></tr>
-                        <tr><td>Days Absent</td><td class="amt"><?= $payroll['days_absent'] ?></td></tr>
-                        <tr><td>Leaves Taken</td><td class="amt"><?= $payroll['leaves_taken'] ?></td></tr>
-                        <tr><td>Holidays</td><td class="amt"><?= $payroll['holidays'] ?></td></tr>
-                        <tr class="spacer"><td></td><td></td></tr>
-                        <tr style="border-top: 1px solid #ddd;">
-                            <td style="padding-top: 8px;"><strong>Gross Earnings</strong></td>
-                            <td class="amt" style="padding-top: 8px; color: #27ae60; font-weight: bold;"><?= number_format($payroll['gross_earnings'], 2) ?></td>
-                        </tr>
-                        <tr>
-                            <td><strong>Total Deductions</strong></td>
-                            <td class="amt" style="color: #c0392b; font-weight: bold;">- <?= number_format($payroll['total_deductions'], 2) ?></td>
-                        </tr>
-                        <tr class="total-row">
-                            <td>NET PAY</td>
-                            <td class="amt" style="color: #1a1a2e; font-size: 15px;"><?= number_format($payroll['net_pay'], 2) ?></td>
-                        </tr>
-                    </table>
+            <!-- Middle: Earnings -->
+            <div class="form-card">
+                <h3 class="earnings">Earnings</h3>
+                <div class="val-grid">
+                    <div class="val-group">
+                        <label>Basic Salary</label>
+                        <div class="value"><?= number_format($payroll['basic_salary'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>HRA</label>
+                        <div class="value"><?= number_format($payroll['hra'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Conveyance</label>
+                        <div class="value"><?= number_format($payroll['conveyance'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Medical Allowance</label>
+                        <div class="value"><?= number_format($payroll['medical_allowance'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Special Allowance</label>
+                        <div class="value"><?= number_format($payroll['special_allowance'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Other Allowance</label>
+                        <div class="value"><?= number_format($payroll['other_allowance'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Performance Allowance</label>
+                        <div class="value"><?= number_format($payroll['performance_allowance'] ?? 0, 2) ?></div>
+                    </div>
+                    <div class="val-group">
+                        <label>Food Allowance</label>
+                        <div class="value"><?= number_format($payroll['food_allowance'] ?? 0, 2) ?></div>
+                    </div>
+                    <?php if (($payroll['overtime_pay'] ?? 0) > 0): ?>
+                    <div class="val-group">
+                        <label>Overtime</label>
+                        <div class="value"><?= number_format($payroll['overtime_pay'], 2) ?></div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (($payroll['bonus'] ?? 0) > 0): ?>
+                    <div class="val-group">
+                        <label>Bonus</label>
+                        <div class="value"><?= number_format($payroll['bonus'], 2) ?></div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Net Pay Bar -->
-            <div class="ps-netpay">
-                <div>
-                    <div class="lbl">Net Pay</div>
-                    <div class="words"><?= numberToWords($payroll['net_pay']) ?> Only</div>
+            <!-- Right: Deductions + Summary -->
+            <div class="form-card">
+                <h3 class="deductions">Deductions</h3>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>PF (Employee)</label>
+                    <div class="value"><?= number_format($payroll['pf_employee'], 2) ?></div>
                 </div>
-                <div class="amt"><?= number_format($payroll['net_pay'], 2) ?></div>
-            </div>
-
-            <?php if ($payroll['status'] === 'Paid'): ?>
-            <div style="padding: 8px 20px; background: #eafaf1; font-size: 11px; border-top: 1px solid #ccc;">
-                <strong>Payment:</strong>
-                <?= $payroll['payment_date'] ? date('d M Y', strtotime($payroll['payment_date'])) : '-' ?> |
-                <?= htmlspecialchars($payroll['payment_mode'] ?? '-') ?>
-                <?php if ($payroll['transaction_ref']): ?>
-                    | Ref: <?= htmlspecialchars($payroll['transaction_ref']) ?>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>ESI (Employee)</label>
+                    <div class="value"><?= number_format($payroll['esi_employee'], 2) ?></div>
+                </div>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Professional Tax</label>
+                    <div class="value"><?= number_format($payroll['professional_tax'], 2) ?></div>
+                </div>
+                <?php if ($payroll['tds'] > 0): ?>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>TDS</label>
+                    <div class="value"><?= number_format($payroll['tds'], 2) ?></div>
+                </div>
                 <?php endif; ?>
+                <?php if ($payroll['loan_deduction'] > 0): ?>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Loan Deduction</label>
+                    <div class="value"><?= number_format($payroll['loan_deduction'], 2) ?></div>
+                </div>
+                <?php endif; ?>
+                <?php if ($payroll['other_deduction'] > 0): ?>
+                <div class="val-group" style="margin-bottom: 12px;">
+                    <label>Other Deductions</label>
+                    <div class="value"><?= number_format($payroll['other_deduction'], 2) ?></div>
+                </div>
+                <?php endif; ?>
+
+                <div class="summary-box">
+                    <div class="summary-row">
+                        <span>Gross Earnings</span>
+                        <span><?= number_format($payroll['gross_earnings'], 2) ?></span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Total Deductions</span>
+                        <span>- <?= number_format($payroll['total_deductions'], 2) ?></span>
+                    </div>
+                    <div class="summary-row total">
+                        <span>Net Pay</span>
+                        <span><?= number_format($payroll['net_pay'], 2) ?></span>
+                    </div>
+                </div>
             </div>
+        </div>
+
+        <!-- Net Pay Bar -->
+        <div class="netpay-bar">
+            <div>
+                <div class="lbl">Net Pay</div>
+                <div class="words"><?= numberToWords($payroll['net_pay']) ?> Only</div>
+            </div>
+            <div class="amt"><?= number_format($payroll['net_pay'], 2) ?></div>
+        </div>
+
+        <?php if ($payroll['status'] === 'Paid'): ?>
+        <div class="payment-info">
+            <strong>Payment:</strong>
+            <?= $payroll['payment_date'] ? date('d M Y', strtotime($payroll['payment_date'])) : '-' ?> |
+            <?= htmlspecialchars($payroll['payment_mode'] ?? '-') ?>
+            <?php if ($payroll['transaction_ref']): ?>
+                | Ref: <?= htmlspecialchars($payroll['transaction_ref']) ?>
             <?php endif; ?>
+        </div>
+        <?php endif; ?>
 
-            <!-- Signatures -->
-            <div class="ps-footer">
-                <div style="font-size: 10px; color: #999; align-self: flex-end;">
-                    This is a computer-generated payslip.
-                </div>
-                <div class="sig-box">
-                    <div class="sig-line">Employer Signature</div>
-                </div>
-                <div class="sig-box">
-                    <div class="sig-line">Employee Signature</div>
-                </div>
+        <!-- Print-only footer with signatures -->
+        <div class="print-footer">
+            <div style="font-size: 10px; color: #999; align-self: flex-end;">
+                This is a computer-generated payslip.
             </div>
-
+            <div class="sig-box">
+                <div class="sig-line">Employer Signature</div>
+            </div>
+            <div class="sig-box">
+                <div class="sig-line">Employee Signature</div>
+            </div>
         </div>
 
         <!-- Status Update Form (screen only) -->
         <?php if ($payroll['status'] !== 'Paid'): ?>
-        <div class="status-form">
+        <div class="status-form no-print">
             <h3>Update Status</h3>
             <form method="post">
                 <input type="hidden" name="action" value="update_status">
