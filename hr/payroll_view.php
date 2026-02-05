@@ -44,10 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch payroll
+// Fetch payroll - detect available employee columns
+$empCols = $pdo->query("SHOW COLUMNS FROM employees")->fetchAll(PDO::FETCH_COLUMN);
+$extraCols = '';
+foreach (['date_of_joining', 'uan_number', 'esi_number'] as $col) {
+    if (in_array($col, $empCols)) {
+        $extraCols .= ", e.$col";
+    }
+}
+
 $stmt = $pdo->prepare("
     SELECT p.*, e.emp_id, e.first_name, e.last_name, e.department, e.designation,
-           e.bank_name, e.bank_account, e.bank_ifsc, e.date_of_joining, e.uan_number, e.esi_number
+           e.bank_name, e.bank_account, e.bank_ifsc $extraCols
     FROM payroll p
     JOIN employees e ON p.employee_id = e.id
     WHERE p.id = ?
