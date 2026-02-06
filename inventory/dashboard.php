@@ -98,7 +98,6 @@ $stock_by_category = safeQuery($pdo, "
 ");
 
 // Top 20 high value parts (by unit rate) - includes zero stock, excludes specific parts
-$excludedParts = ['yid', '30', '42', '44', '46', '52', '83', '91', '99'];
 $high_value_parts = [];
 try {
     $stmt = $pdo->query("
@@ -106,20 +105,20 @@ try {
         FROM part_master p
         LEFT JOIN inventory i ON i.part_no = p.part_no
         WHERE p.rate > 0
+          AND LOWER(p.part_no) NOT LIKE '%yid%'
+          AND p.part_no NOT IN ('30', '42', '44', '46', '52', '83', '91', '99')
+          AND p.part_no NOT LIKE '30%'
+          AND p.part_no NOT LIKE '42%'
+          AND p.part_no NOT LIKE '44%'
+          AND p.part_no NOT LIKE '46%'
+          AND p.part_no NOT LIKE '52%'
+          AND p.part_no NOT LIKE '83%'
+          AND p.part_no NOT LIKE '91%'
+          AND p.part_no NOT LIKE '99%'
         ORDER BY p.rate DESC
-        LIMIT 50
+        LIMIT 20
     ");
-    $allParts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $count = 0;
-    foreach ($allParts as $part) {
-        $partNo = strtolower(trim($part['part_no']));
-        // Skip if part_no starts with 'yid' or matches excluded list
-        $isExcluded = in_array($partNo, $excludedParts) || strpos($partNo, 'yid') === 0;
-        if (!$isExcluded && $count < 20) {
-            $high_value_parts[] = $part;
-            $count++;
-        }
-    }
+    $high_value_parts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $high_value_parts = [];
 }
