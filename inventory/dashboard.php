@@ -97,11 +97,26 @@ $stock_by_category = safeQuery($pdo, "
     LIMIT 8
 ");
 
-// Top 20 high value parts (by unit rate) - includes zero stock, excludes specific parts
+// Top 20 high value parts - with sorting option
+$sort_by = $_GET['sort_by'] ?? 'rate';
+$sort_order_map = [
+    'id' => 'p.id ASC',
+    'id_desc' => 'p.id DESC',
+    'stock' => 'qty DESC',
+    'stock_asc' => 'qty ASC',
+    'rate' => 'p.rate DESC',
+    'rate_asc' => 'p.rate ASC',
+    'value' => 'total_value DESC',
+    'value_asc' => 'total_value ASC',
+    'part_no' => 'p.part_no ASC',
+    'part_no_desc' => 'p.part_no DESC'
+];
+$order_clause = $sort_order_map[$sort_by] ?? 'p.rate DESC';
+
 $high_value_parts = [];
 try {
     $stmt = $pdo->query("
-        SELECT p.part_no, p.part_name, p.description, COALESCE(i.qty, 0) as qty, p.rate, (COALESCE(i.qty, 0) * p.rate) as total_value
+        SELECT p.id, p.part_no, p.part_name, p.description, COALESCE(i.qty, 0) as qty, p.rate, (COALESCE(i.qty, 0) * p.rate) as total_value
         FROM part_master p
         LEFT JOIN inventory i ON i.part_no = p.part_no
         WHERE p.rate > 0
@@ -115,7 +130,7 @@ try {
           AND p.part_no NOT LIKE '83%'
           AND p.part_no NOT LIKE '91%'
           AND p.part_no NOT LIKE '99%'
-        ORDER BY p.rate DESC
+        ORDER BY $order_clause
         LIMIT 20
     ");
     $high_value_parts = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -243,6 +258,40 @@ include "../includes/sidebar.php";
         .data-table tr:hover { background: #f8f9fa; }
         .data-table .text-center { text-align: center; }
         .data-table .text-right { text-align: right; }
+
+        .sort-btn {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #495057;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .sort-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .sort-btn.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border-color: #4facfe;
+        }
+        body.dark .sort-btn {
+            background: #34495e;
+            border-color: #4a6278;
+            color: #ecf0f1;
+        }
+        body.dark .sort-btn:hover {
+            background: #4a6278;
+        }
+        body.dark .sort-btn.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
 
         .stock-indicator {
             display: inline-block;
@@ -542,7 +591,19 @@ if (toggle) {
 
     <!-- Top 20 High Value Parts -->
     <div class="dashboard-panel" style="margin-bottom: 25px;">
-        <h3>💎 Top 20 High Value Parts (by Unit Rate)</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; border-bottom: 2px solid #4facfe; padding-bottom: 10px;">
+            <h3 style="margin: 0; border: none; padding: 0;">💎 Top 20 Parts</h3>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <a href="?sort_by=id" class="sort-btn <?= $sort_by === 'id' ? 'active' : '' ?>" title="Sort by ID (Ascending)">ID ↑</a>
+                <a href="?sort_by=id_desc" class="sort-btn <?= $sort_by === 'id_desc' ? 'active' : '' ?>" title="Sort by ID (Descending)">ID ↓</a>
+                <a href="?sort_by=part_no" class="sort-btn <?= $sort_by === 'part_no' ? 'active' : '' ?>" title="Sort by Part No (A-Z)">Part# ↑</a>
+                <a href="?sort_by=stock" class="sort-btn <?= $sort_by === 'stock' ? 'active' : '' ?>" title="Sort by Stock (High to Low)">Stock ↓</a>
+                <a href="?sort_by=stock_asc" class="sort-btn <?= $sort_by === 'stock_asc' ? 'active' : '' ?>" title="Sort by Stock (Low to High)">Stock ↑</a>
+                <a href="?sort_by=rate" class="sort-btn <?= $sort_by === 'rate' ? 'active' : '' ?>" title="Sort by Unit Rate (High to Low)">Rate ↓</a>
+                <a href="?sort_by=rate_asc" class="sort-btn <?= $sort_by === 'rate_asc' ? 'active' : '' ?>" title="Sort by Unit Rate (Low to High)">Rate ↑</a>
+                <a href="?sort_by=value" class="sort-btn <?= $sort_by === 'value' ? 'active' : '' ?>" title="Sort by Total Value (High to Low)">Value ↓</a>
+            </div>
+        </div>
         <?php if (empty($high_value_parts)): ?>
             <p style="color: #7f8c8d;">No stock data available.</p>
         <?php else: ?>
@@ -550,25 +611,41 @@ if (toggle) {
                 <thead>
                     <tr>
                         <th>#</th>
+                        <th>ID</th>
                         <th>Part #</th>
                         <th>Part Name</th>
-                        <th>Qty</th>
-                        <th>Unit Rate</th>
-                        <th>Total Value</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-right">Unit Rate</th>
+                        <th class="text-right">Total Value</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($high_value_parts as $index => $item): ?>
+                    <?php
+                    $totalQtyHV = 0;
+                    $totalValueHV = 0;
+                    foreach ($high_value_parts as $index => $item):
+                        $totalQtyHV += $item['qty'];
+                        $totalValueHV += $item['total_value'];
+                    ?>
                     <tr>
                         <td><?= $index + 1 ?></td>
+                        <td style="color: #6c757d;"><?= $item['id'] ?></td>
                         <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
-                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 40)) ?><?= strlen($item['part_name'] ?? '') > 40 ? '...' : '' ?></td>
-                        <td><?= number_format($item['qty']) ?></td>
-                        <td style="font-weight: bold; color: #e74c3c;">₹<?= number_format($item['rate'], 2) ?></td>
-                        <td>₹<?= number_format($item['total_value'], 2) ?></td>
+                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 35)) ?><?= strlen($item['part_name'] ?? '') > 35 ? '...' : '' ?></td>
+                        <td class="text-center"><?= number_format($item['qty']) ?></td>
+                        <td class="text-right" style="font-weight: bold; color: #e74c3c;">₹<?= number_format($item['rate'], 2) ?></td>
+                        <td class="text-right">₹<?= number_format($item['total_value'], 2) ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
+                <tfoot>
+                    <tr style="background: #f8f9fa; font-weight: bold;">
+                        <td colspan="4">Total (Top 20)</td>
+                        <td class="text-center"><?= number_format($totalQtyHV) ?></td>
+                        <td class="text-right">-</td>
+                        <td class="text-right" style="color: #1b5e20;">₹<?= number_format($totalValueHV, 2) ?></td>
+                    </tr>
+                </tfoot>
             </table>
         <?php endif; ?>
     </div>
