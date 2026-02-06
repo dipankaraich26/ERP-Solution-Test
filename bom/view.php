@@ -273,6 +273,7 @@ if (toggle) {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">BOM <?= htmlspecialchars($bom['bom_no']) ?></h1>
         <div class="no-print" style="display: flex; gap: 10px;">
+            <a href="edit.php?id=<?= $id ?>" class="btn btn-warning" style="display: inline-flex; align-items: center; gap: 5px;">✏️ Edit BOM</a>
             <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
             <button onclick="exportToExcel()" class="btn btn-success">📊 Export to Excel</button>
         </div>
