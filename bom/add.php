@@ -389,6 +389,21 @@ $parentPartsJson = json_encode($parts); // All active parts for parent selection
     <h3>Components</h3>
     <p class="search-hint">Search by Part ID, Part Number, or Part Name. You can enter multiple IDs separated by commas (e.g., 42, 44, 46)</p>
 
+    <!-- Bulk Selection Controls -->
+    <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 6px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500;">
+            <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)" style="width: 18px; height: 18px; cursor: pointer;">
+            Select All
+        </label>
+        <span style="color: #666;" id="selectedCount">0 selected</span>
+        <button type="button" class="btn btn-danger btn-sm" onclick="removeSelectedRows()" id="removeSelectedBtn" disabled style="opacity: 0.5;">
+            Remove Selected
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelectedRows()" id="clearSelectedBtn" disabled style="opacity: 0.5;">
+            Clear Selected
+        </button>
+    </div>
+
     <div id="componentsContainer">
         <!-- Component rows will be added here -->
     </div>
@@ -531,6 +546,9 @@ function addComponentRow() {
     const rowHtml = `
         <div class="component-row" id="${rowId}">
             <div class="component-row-header">
+                <div class="component-checkbox-wrapper" style="flex: 0 0 40px; padding-top: 28px;">
+                    <input type="checkbox" class="row-checkbox" data-row-id="${rowId}" onclick="toggleRowSelect()" style="width: 18px; height: 18px; cursor: pointer;">
+                </div>
                 <div class="component-search-wrapper" style="flex: 1.5;">
                     <label style="font-weight: 600; margin-bottom: 5px; display: block;">Part No</label>
                     <div class="search-container">
@@ -707,6 +725,96 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Selection functions
+function toggleSelectAll(checkbox) {
+    const rowCheckboxes = document.querySelectorAll('.row-checkbox');
+    rowCheckboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelectedCount();
+}
+
+function toggleRowSelect() {
+    updateSelectedCount();
+    // Update "Select All" checkbox state
+    const rowCheckboxes = document.querySelectorAll('.row-checkbox');
+    const allChecked = Array.from(rowCheckboxes).every(cb => cb.checked);
+    const someChecked = Array.from(rowCheckboxes).some(cb => cb.checked);
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    selectAllCheckbox.checked = allChecked;
+    selectAllCheckbox.indeterminate = someChecked && !allChecked;
+}
+
+function updateSelectedCount() {
+    const checked = document.querySelectorAll('.row-checkbox:checked').length;
+    const countSpan = document.getElementById('selectedCount');
+    const removeBtn = document.getElementById('removeSelectedBtn');
+    const clearBtn = document.getElementById('clearSelectedBtn');
+
+    countSpan.textContent = checked + ' selected';
+
+    if (checked > 0) {
+        removeBtn.disabled = false;
+        removeBtn.style.opacity = '1';
+        clearBtn.disabled = false;
+        clearBtn.style.opacity = '1';
+    } else {
+        removeBtn.disabled = true;
+        removeBtn.style.opacity = '0.5';
+        clearBtn.disabled = true;
+        clearBtn.style.opacity = '0.5';
+    }
+}
+
+function removeSelectedRows() {
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    const container = document.getElementById('componentsContainer');
+    const totalRows = container.querySelectorAll('.component-row').length;
+    const selectedCount = checkedBoxes.length;
+
+    if (selectedCount === totalRows) {
+        alert('Cannot remove all components. At least one component is required.');
+        return;
+    }
+
+    if (!confirm('Remove ' + selectedCount + ' selected component(s)?')) {
+        return;
+    }
+
+    checkedBoxes.forEach(cb => {
+        const rowId = cb.getAttribute('data-row-id');
+        const row = document.getElementById(rowId);
+        if (row) row.remove();
+    });
+
+    // Reset select all checkbox
+    document.getElementById('selectAllCheckbox').checked = false;
+    updateSelectedCount();
+}
+
+function clearSelectedRows() {
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+
+    if (!confirm('Clear selection for ' + checkedBoxes.length + ' selected component(s)?')) {
+        return;
+    }
+
+    checkedBoxes.forEach(cb => {
+        const rowId = cb.getAttribute('data-row-id');
+        clearSelection(rowId);
+        // Also clear qty
+        const row = document.getElementById(rowId);
+        const qtyInput = row ? row.querySelector('input[name="qty[]"]') : null;
+        if (qtyInput) qtyInput.value = '';
+        // Uncheck after clearing
+        cb.checked = false;
+    });
+
+    // Reset select all checkbox
+    document.getElementById('selectAllCheckbox').checked = false;
+    updateSelectedCount();
 }
 
 // Close search results when clicking outside
