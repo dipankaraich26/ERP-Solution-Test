@@ -3,52 +3,7 @@ require '../db.php';
 require '../includes/auth.php';
 requireLogin();
 
-include "../includes/sidebar.php";
-
-$success = '';
-$error = '';
-
-// Fetch all suppliers (no status filter - matches purchase/index.php pattern)
-$suppliers = [];
-try {
-    $suppliers = $pdo->query("
-        SELECT id, supplier_name, supplier_code, contact_person, phone, email,
-               address1, address2, city, state, pincode, gstin
-        FROM suppliers
-        ORDER BY supplier_name
-    ")->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    // Table may not exist
-    $suppliers = [];
-}
-
-// Get unique Part IDs from part_master
-$partIds = [];
-try {
-    $partIds = $pdo->query("
-        SELECT DISTINCT part_id
-        FROM part_master
-        WHERE part_id IS NOT NULL AND part_id != '' AND status='active'
-        ORDER BY part_id
-    ")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {
-    // Ignore
-    $partIds = [];
-}
-
-// Fetch all active parts
-$parts = [];
-try {
-    $parts = $pdo->query("
-        SELECT part_no, part_name, part_id, hsn_code, uom, rate, gst
-        FROM part_master
-        WHERE status='active'
-        ORDER BY part_no
-    ")->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    // Ignore
-    $parts = [];
-}
+// ========== AJAX HANDLERS (must be before any HTML output) ==========
 
 // Handle AJAX request to fetch existing supplier mappings
 if (isset($_GET['action']) && $_GET['action'] === 'get_supplier_mappings') {
@@ -157,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $updatedCount = 0;
 
         try {
-            // Ensure part_supplier_mapping table exists
+            // Ensure part_supplier_mapping table exists with active column
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS part_supplier_mapping (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -168,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     min_order_qty INT DEFAULT 1,
                     supplier_sku VARCHAR(100),
                     is_preferred TINYINT(1) DEFAULT 0,
+                    active TINYINT(1) DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY unique_part_supplier (part_no, supplier_id),
@@ -175,6 +131,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     INDEX idx_supplier_id (supplier_id)
                 )
             ");
+
+            // Auto-migrate: add active column if missing
+            try {
+                $cols = $pdo->query("SHOW COLUMNS FROM part_supplier_mapping")->fetchAll(PDO::FETCH_COLUMN);
+                if (!in_array('active', $cols)) {
+                    $pdo->exec("ALTER TABLE part_supplier_mapping ADD COLUMN active TINYINT(1) DEFAULT 1 AFTER is_preferred");
+                }
+                // Set NULL values to 1 (active)
+                $pdo->exec("UPDATE part_supplier_mapping SET active = 1 WHERE active IS NULL");
+            } catch (PDOException $e) {}
 
             for ($i = 0; $i < count($part_nos); $i++) {
                 $partNo = trim($part_nos[$i]);
@@ -202,10 +168,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $updateStmt->execute([$rate, $minQty, $leadDays, $existing['id']]);
                     $updatedCount++;
                 } else {
-                    // Insert new
+                    // Insert new with active = 1
                     $insertStmt = $pdo->prepare("
-                        INSERT INTO part_supplier_mapping (part_no, supplier_id, supplier_rate, min_order_qty, lead_time_days)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO part_supplier_mapping (part_no, supplier_id, supplier_rate, min_order_qty, lead_time_days, active)
+                        VALUES (?, ?, ?, ?, ?, 1)
                     ");
                     $insertStmt->execute([$partNo, $supplier_id, $rate, $minQty, $leadDays]);
                     $addedCount++;
@@ -217,6 +183,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $error = "Error saving: " . $e->getMessage();
         }
     }
+}
+
+// ========== PAGE DATA (after AJAX handlers) ==========
+
+include "../includes/sidebar.php";
+
+$success = $success ?? '';
+$error = $error ?? '';
+
+// Fetch all suppliers (no status filter - matches purchase/index.php pattern)
+$suppliers = [];
+try {
+    $suppliers = $pdo->query("
+        SELECT id, supplier_name, supplier_code, contact_person, phone, email,
+               address1, address2, city, state, pincode, gstin
+        FROM suppliers
+        ORDER BY supplier_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table may not exist
+    $suppliers = [];
+}
+
+// Get unique Part IDs from part_master
+$partIds = [];
+try {
+    $partIds = $pdo->query("
+        SELECT DISTINCT part_id
+        FROM part_master
+        WHERE part_id IS NOT NULL AND part_id != '' AND status='active'
+        ORDER BY part_id
+    ")->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    // Ignore
+    $partIds = [];
+}
+
+// Fetch all active parts
+$parts = [];
+try {
+    $parts = $pdo->query("
+        SELECT part_no, part_name, part_id, hsn_code, uom, rate, gst
+        FROM part_master
+        WHERE status='active'
+        ORDER BY part_no
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Ignore
+    $parts = [];
 }
 ?>
 

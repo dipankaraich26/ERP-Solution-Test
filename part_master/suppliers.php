@@ -6,6 +6,17 @@ $part_no = isset($_GET['part_no']) ? trim($_GET['part_no']) : '';
 $success = false;
 $error = '';
 
+// Auto-migrate: add active column if missing and set NULL values to 1
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM part_supplier_mapping")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('active', $cols)) {
+        $pdo->exec("ALTER TABLE part_supplier_mapping ADD COLUMN active TINYINT(1) DEFAULT 1 AFTER is_preferred");
+    }
+    $pdo->exec("UPDATE part_supplier_mapping SET active = 1 WHERE active IS NULL");
+} catch (PDOException $e) {
+    // Table may not exist yet
+}
+
 /**
  * Update part_master rate from first/preferred supplier
  * If no active suppliers, leave rate unchanged

@@ -41,6 +41,17 @@ $boms = $pdo->query("
     FROM bom_master
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+// Auto-migrate: ensure part_supplier_mapping has active column with default 1
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM part_supplier_mapping")->fetchAll(PDO::FETCH_COLUMN);
+    if (in_array('active', $cols)) {
+        // Set NULL values to 1 (active)
+        $pdo->exec("UPDATE part_supplier_mapping SET active = 1 WHERE active IS NULL");
+    }
+} catch (PDOException $e) {
+    // Table may not exist yet
+}
+
 /**
  * Get rate for a part based on supplier pricing:
  * 1. If preferred supplier exists → use that rate
@@ -48,27 +59,32 @@ $boms = $pdo->query("
  * 3. Else → use part_master rate
  */
 function getPartRate($pdo, $part_no) {
-    // First check for preferred supplier
-    $prefStmt = $pdo->prepare("
-        SELECT supplier_rate FROM part_supplier_mapping
-        WHERE part_no = ? AND active = 1 AND is_preferred = 1
-        LIMIT 1
-    ");
-    $prefStmt->execute([$part_no]);
-    $preferred = $prefStmt->fetchColumn();
-    if ($preferred && $preferred > 0) {
-        return (float)$preferred;
-    }
+    try {
+        // First check for preferred supplier (active=1 or active IS NULL for backwards compatibility)
+        $prefStmt = $pdo->prepare("
+            SELECT supplier_rate FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND is_preferred = 1
+            AND supplier_rate > 0
+            LIMIT 1
+        ");
+        $prefStmt->execute([$part_no]);
+        $preferred = $prefStmt->fetchColumn();
+        if ($preferred && $preferred > 0) {
+            return (float)$preferred;
+        }
 
-    // Check for lowest active supplier rate
-    $supStmt = $pdo->prepare("
-        SELECT MIN(supplier_rate) FROM part_supplier_mapping
-        WHERE part_no = ? AND active = 1 AND supplier_rate > 0
-    ");
-    $supStmt->execute([$part_no]);
-    $lowestRate = $supStmt->fetchColumn();
-    if ($lowestRate && $lowestRate > 0) {
-        return (float)$lowestRate;
+        // Check for lowest active supplier rate
+        $supStmt = $pdo->prepare("
+            SELECT MIN(supplier_rate) FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND supplier_rate > 0
+        ");
+        $supStmt->execute([$part_no]);
+        $lowestRate = $supStmt->fetchColumn();
+        if ($lowestRate && $lowestRate > 0) {
+            return (float)$lowestRate;
+        }
+    } catch (PDOException $e) {
+        // Table might not exist, fall through to part_master
     }
 
     // Fallback to part_master rate
