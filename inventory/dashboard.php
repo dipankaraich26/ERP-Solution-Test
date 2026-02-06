@@ -97,6 +97,16 @@ $stock_by_category = safeQuery($pdo, "
     LIMIT 8
 ");
 
+// Top 20 high value parts (by unit rate)
+$high_value_parts = safeQuery($pdo, "
+    SELECT p.part_no, p.part_name, p.description, i.qty, p.rate, (i.qty * p.rate) as total_value
+    FROM inventory i
+    JOIN part_master p ON i.part_no = p.part_no
+    WHERE i.qty > 0
+    ORDER BY p.rate DESC
+    LIMIT 20
+");
+
 include "../includes/sidebar.php";
 ?>
 
@@ -492,6 +502,39 @@ if (toggle) {
                 </table>
             <?php endif; ?>
         </div>
+    </div>
+
+    <!-- Top 20 High Value Parts -->
+    <div class="dashboard-panel" style="margin-bottom: 25px;">
+        <h3>💎 Top 20 High Value Parts (by Unit Rate)</h3>
+        <?php if (empty($high_value_parts)): ?>
+            <p style="color: #7f8c8d;">No stock data available.</p>
+        <?php else: ?>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Part #</th>
+                        <th>Part Name</th>
+                        <th>Qty</th>
+                        <th>Unit Rate</th>
+                        <th>Total Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($high_value_parts as $index => $item): ?>
+                    <tr>
+                        <td><?= $index + 1 ?></td>
+                        <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
+                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 40)) ?><?= strlen($item['part_name'] ?? '') > 40 ? '...' : '' ?></td>
+                        <td><?= number_format($item['qty']) ?></td>
+                        <td style="font-weight: bold; color: #e74c3c;">₹<?= number_format($item['rate'], 2) ?></td>
+                        <td>₹<?= number_format($item['total_value'], 2) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
     </div>
 
     <!-- Navigation Links -->
