@@ -79,7 +79,7 @@ $out_of_stock_items = safeQuery($pdo, "
 
 // Top stocked items (by value)
 $top_stocked = safeQuery($pdo, "
-    SELECT p.part_no, p.description, i.qty, p.rate, (i.qty * p.rate) as total_value
+    SELECT p.part_no, p.part_name, p.description, i.qty, p.rate, (i.qty * p.rate) as total_value
     FROM inventory i
     JOIN part_master p ON i.part_no = p.part_no
     WHERE i.qty > 0
@@ -447,6 +447,7 @@ if (toggle) {
                     <thead>
                         <tr>
                             <th>Part #</th>
+                            <th>Part Name</th>
                             <th>Qty</th>
                             <th>Value</th>
                         </tr>
@@ -455,6 +456,7 @@ if (toggle) {
                         <?php foreach ($top_stocked as $item): ?>
                         <tr>
                             <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
+                            <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 30)) ?><?= strlen($item['part_name'] ?? '') > 30 ? '...' : '' ?></td>
                             <td><?= number_format($item['qty']) ?></td>
                             <td>₹<?= number_format($item['total_value'], 2) ?></td>
                         </tr>
