@@ -412,7 +412,8 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <span class="arrow" onclick="toggleGroup(this.parentElement)" style="color: white;">▶</span>
         </div>
         <div class="sidebar-group-items">
-            <a href="/customer_portal/index.php" class="<?= $currentDir === 'customer_portal' && $current === 'index.php' ? 'active' : '' ?>">Dashboard</a>
+            <a href="/customer_portal/admin_manage.php" class="<?= $currentDir === 'customer_portal' && $current === 'admin_manage.php' ? 'active' : '' ?>" style="color: #f39c12;">Manage Access</a>
+            <a href="/customer_portal/index.php" class="<?= $currentDir === 'customer_portal' && $current === 'index.php' ? 'active' : '' ?>">View by Customer</a>
             <a href="/customer_portal/invoices.php" class="<?= $currentDir === 'customer_portal' && $current === 'invoices.php' ? 'active' : '' ?>">Invoices</a>
             <a href="/customer_portal/quotations.php" class="<?= $currentDir === 'customer_portal' && $current === 'quotations.php' ? 'active' : '' ?>">Quotations</a>
             <a href="/customer_portal/proforma.php" class="<?= $currentDir === 'customer_portal' && $current === 'proforma.php' ? 'active' : '' ?>">Proforma Invoice</a>
