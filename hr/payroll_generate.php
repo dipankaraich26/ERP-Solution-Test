@@ -79,9 +79,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $attStmt->execute([$empId, $monthStart, $monthEnd]);
             $att = $attStmt->fetch(PDO::FETCH_ASSOC);
 
-            $daysPresent = ($att['present'] ?? 0) + (($att['half_days'] ?? 0) * 0.5);
+            $presentDays = ($att['present'] ?? 0) + (($att['half_days'] ?? 0) * 0.5);
             $daysAbsent = $att['absent'] ?? 0;
             $leavesTaken = $att['leaves'] ?? 0;
+
+            // IMPORTANT: Approved leaves count as present for salary calculation
+            // So employee doesn't get salary deducted for approved leaves
+            $daysPresent = $presentDays + $leavesTaken;
 
             // Calculate salary proportionally
             $salaryRatio = $workingDays > 0 ? $daysPresent / $workingDays : 0;
