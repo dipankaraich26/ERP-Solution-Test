@@ -405,6 +405,25 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
         </div>
     </div>
 
+    <!-- Customer Portal -->
+    <div class="sidebar-group <?= $currentDir === 'customer_portal' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'customer_portal' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 6px; margin: 5px 8px;">
+            <a href="/customer_portal/index.php" class="module-link" style="color: white;">Customer Portal</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)" style="color: white;">▶</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/customer_portal/index.php" class="<?= $currentDir === 'customer_portal' && $current === 'index.php' ? 'active' : '' ?>">Dashboard</a>
+            <a href="/customer_portal/invoices.php" class="<?= $currentDir === 'customer_portal' && $current === 'invoices.php' ? 'active' : '' ?>">Invoices</a>
+            <a href="/customer_portal/quotations.php" class="<?= $currentDir === 'customer_portal' && $current === 'quotations.php' ? 'active' : '' ?>">Quotations</a>
+            <a href="/customer_portal/proforma.php" class="<?= $currentDir === 'customer_portal' && $current === 'proforma.php' ? 'active' : '' ?>">Proforma Invoice</a>
+            <a href="/customer_portal/orders.php" class="<?= $currentDir === 'customer_portal' && $current === 'orders.php' ? 'active' : '' ?>">Order Status</a>
+            <a href="/customer_portal/ledger.php" class="<?= $currentDir === 'customer_portal' && $current === 'ledger.php' ? 'active' : '' ?>">Account Ledger</a>
+            <a href="/customer_portal/catalog.php" class="<?= $currentDir === 'customer_portal' && $current === 'catalog.php' ? 'active' : '' ?>">Catalog</a>
+            <a href="/customer_portal/dockets.php" class="<?= $currentDir === 'customer_portal' && $current === 'dockets.php' ? 'active' : '' ?>">Docket Details</a>
+            <a href="/customer_portal/eway_bills.php" class="<?= $currentDir === 'customer_portal' && $current === 'eway_bills.php' ? 'active' : '' ?>">E-Way Bills</a>
+        </div>
+    </div>
+
 </div>
 
 <script>
