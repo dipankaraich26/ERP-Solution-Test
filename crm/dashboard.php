@@ -334,6 +334,69 @@ try {
     // Query may fail if tables don't exist
 }
 
+// Daily Sales Person Wise New Leads (Today)
+$dailyLeadsBySalesPerson = [];
+try {
+    $dailyStmt = $pdo->query("
+        SELECT
+            e.id as user_id,
+            CONCAT(e.first_name, ' ', e.last_name) as sales_person,
+            e.department,
+            COUNT(l.id) as today_leads,
+            (SELECT COUNT(*) FROM crm_leads l2 WHERE l2.assigned_user_id = e.id) as cumulative_leads
+        FROM employees e
+        LEFT JOIN crm_leads l ON l.assigned_user_id = e.id
+            AND DATE(l.created_at) = CURDATE()
+        WHERE e.status = 'Active'
+          AND e.department IN ('Sales', 'Marketing', 'Business Development')
+        GROUP BY e.id, e.first_name, e.last_name, e.department
+        ORDER BY today_leads DESC, cumulative_leads DESC
+    ");
+    $dailyLeadsBySalesPerson = $dailyStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Query may fail
+}
+
+// Last 7 days leads by sales person (for trend)
+$weeklyLeadsBySalesPerson = [];
+try {
+    $weeklyStmt = $pdo->query("
+        SELECT
+            e.id as user_id,
+            CONCAT(e.first_name, ' ', e.last_name) as sales_person,
+            DATE(l.created_at) as lead_date,
+            COUNT(l.id) as lead_count
+        FROM employees e
+        INNER JOIN crm_leads l ON l.assigned_user_id = e.id
+            AND l.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        WHERE e.status = 'Active'
+        GROUP BY e.id, e.first_name, e.last_name, DATE(l.created_at)
+        ORDER BY lead_date DESC, lead_count DESC
+    ");
+    $weeklyLeadsBySalesPerson = $weeklyStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Query may fail
+}
+
+// Organize weekly data by sales person
+$weeklyDataByPerson = [];
+foreach ($weeklyLeadsBySalesPerson as $row) {
+    $personId = $row['user_id'];
+    if (!isset($weeklyDataByPerson[$personId])) {
+        $weeklyDataByPerson[$personId] = [
+            'name' => $row['sales_person'],
+            'dates' => []
+        ];
+    }
+    $weeklyDataByPerson[$personId]['dates'][$row['lead_date']] = $row['lead_count'];
+}
+
+// Get last 7 days for header
+$last7Days = [];
+for ($i = 6; $i >= 0; $i--) {
+    $last7Days[] = date('Y-m-d', strtotime("-$i days"));
+}
+
 // Upcoming follow-ups
 $upcoming_followups = safeQuery($pdo, "
     SELECT lead_no, company_name, contact_person, next_followup_date, lead_status, phone, email
@@ -852,6 +915,126 @@ if (toggle) {
             <div class="stat-label">Converted</div>
         </div>
     </div>
+
+    <!-- Daily Sales Person Wise Leads -->
+    <div class="dashboard-panel" style="margin-bottom: 25px;">
+        <h3>👤 Daily Sales Person Wise New Leads (Today: <?= date('d M Y') ?>)</h3>
+        <?php if (empty($dailyLeadsBySalesPerson)): ?>
+            <p style="color: #7f8c8d; text-align: center; padding: 20px;">No sales persons found.</p>
+        <?php else: ?>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Sales Person</th>
+                            <th>Department</th>
+                            <th class="text-center" style="background: #e8f5e9;">Today's Leads</th>
+                            <th class="text-center" style="background: #e3f2fd;">Cumulative Total</th>
+                            <th class="text-center">% of Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php
+                        $totalToday = array_sum(array_column($dailyLeadsBySalesPerson, 'today_leads'));
+                        $totalCumulative = array_sum(array_column($dailyLeadsBySalesPerson, 'cumulative_leads'));
+                        $rank = 0;
+                        foreach ($dailyLeadsBySalesPerson as $person):
+                            $rank++;
+                            $pct = $totalCumulative > 0 ? round(($person['cumulative_leads'] / $totalCumulative) * 100, 1) : 0;
+                        ?>
+                        <tr>
+                            <td><?= $rank ?></td>
+                            <td><strong><?= htmlspecialchars($person['sales_person']) ?></strong></td>
+                            <td style="color: #6c757d;"><?= htmlspecialchars($person['department'] ?? '-') ?></td>
+                            <td class="text-center" style="background: #e8f5e9;">
+                                <?php if ($person['today_leads'] > 0): ?>
+                                    <span style="background: #27ae60; color: white; padding: 4px 12px; border-radius: 12px; font-weight: bold;">
+                                        +<?= $person['today_leads'] ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span style="color: #adb5bd;">0</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-center" style="background: #e3f2fd;">
+                                <strong style="color: #1565c0;"><?= number_format($person['cumulative_leads']) ?></strong>
+                            </td>
+                            <td class="text-center">
+                                <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">
+                                    <div style="width: 60px; height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden;">
+                                        <div style="width: <?= $pct ?>%; height: 100%; background: #667eea; border-radius: 4px;"></div>
+                                    </div>
+                                    <span style="font-size: 0.85em; color: #495057;"><?= $pct ?>%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f8f9fa; font-weight: bold;">
+                            <td colspan="3">Total</td>
+                            <td class="text-center" style="background: #c8e6c9;">
+                                <span style="color: #2e7d32; font-size: 1.1em;">+<?= $totalToday ?></span>
+                            </td>
+                            <td class="text-center" style="background: #bbdefb;">
+                                <span style="color: #1565c0; font-size: 1.1em;"><?= number_format($totalCumulative) ?></span>
+                            </td>
+                            <td class="text-center">100%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Weekly Leads Trend by Sales Person -->
+    <?php if (!empty($weeklyDataByPerson)): ?>
+    <div class="dashboard-panel" style="margin-bottom: 25px;">
+        <h3>📈 Last 7 Days - Leads by Sales Person</h3>
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Sales Person</th>
+                        <?php foreach ($last7Days as $date): ?>
+                            <th class="text-center" style="font-size: 0.85em; <?= $date === date('Y-m-d') ? 'background: #fff3cd;' : '' ?>">
+                                <?= date('D', strtotime($date)) ?><br>
+                                <small><?= date('d/m', strtotime($date)) ?></small>
+                            </th>
+                        <?php endforeach; ?>
+                        <th class="text-center" style="background: #e8f5e9;">Week Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($weeklyDataByPerson as $personId => $personData):
+                        $weekTotal = array_sum($personData['dates']);
+                    ?>
+                    <tr>
+                        <td><strong><?= htmlspecialchars($personData['name']) ?></strong></td>
+                        <?php foreach ($last7Days as $date):
+                            $count = $personData['dates'][$date] ?? 0;
+                            $isToday = $date === date('Y-m-d');
+                        ?>
+                            <td class="text-center" style="<?= $isToday ? 'background: #fff3cd;' : '' ?>">
+                                <?php if ($count > 0): ?>
+                                    <span style="background: <?= $count >= 3 ? '#27ae60' : ($count >= 1 ? '#3498db' : '#95a5a6') ?>; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.9em;">
+                                        <?= $count ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span style="color: #dee2e6;">-</span>
+                                <?php endif; ?>
+                            </td>
+                        <?php endforeach; ?>
+                        <td class="text-center" style="background: #e8f5e9;">
+                            <strong style="color: #27ae60;"><?= $weekTotal ?></strong>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Sales Overview - Revenue by Lead Status -->
     <div class="section-title">Sales Overview (Pipeline Value)</div>
