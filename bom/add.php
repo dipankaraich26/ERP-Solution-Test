@@ -27,7 +27,7 @@ $parts = $pdo->query("
    FETCH CHILD PARTS (ALL CATEGORIES) - with ID for search
 ========================= */
 $child_parts = $pdo->query("
-    SELECT id, part_no, part_name, category, rate
+    SELECT id, part_no, part_name, category
     FROM part_master
     WHERE status='active'
     ORDER BY part_name
@@ -40,6 +40,42 @@ $boms = $pdo->query("
     SELECT bom_no, parent_part_no
     FROM bom_master
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+/**
+ * Get rate for a part based on supplier pricing:
+ * 1. If preferred supplier exists → use that rate
+ * 2. Else if any active supplier exists → use lowest rate
+ * 3. Else → use part_master rate
+ */
+function getPartRate($pdo, $part_no) {
+    // First check for preferred supplier
+    $prefStmt = $pdo->prepare("
+        SELECT supplier_rate FROM part_supplier_mapping
+        WHERE part_no = ? AND active = 1 AND is_preferred = 1
+        LIMIT 1
+    ");
+    $prefStmt->execute([$part_no]);
+    $preferred = $prefStmt->fetchColumn();
+    if ($preferred && $preferred > 0) {
+        return (float)$preferred;
+    }
+
+    // Check for lowest active supplier rate
+    $supStmt = $pdo->prepare("
+        SELECT MIN(supplier_rate) FROM part_supplier_mapping
+        WHERE part_no = ? AND active = 1 AND supplier_rate > 0
+    ");
+    $supStmt->execute([$part_no]);
+    $lowestRate = $supStmt->fetchColumn();
+    if ($lowestRate && $lowestRate > 0) {
+        return (float)$lowestRate;
+    }
+
+    // Fallback to part_master rate
+    $pmStmt = $pdo->prepare("SELECT rate FROM part_master WHERE part_no = ?");
+    $pmStmt->execute([$part_no]);
+    return (float)$pmStmt->fetchColumn() ?: 0;
+}
 
 /* =========================
    HANDLE SAVE
@@ -75,15 +111,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($part === $_POST['parent_part_no']) {
                 setModal("Failed to add BOM", "Parent part cannot be a component part.");
-            header("Location: add.php");
-            exit;
+                header("Location: add.php");
+                exit;
             }
+
+            // Auto-calculate rate from supplier pricing
+            $rate = getPartRate($pdo, $part);
 
             $stmt->execute([
                 $bom_id,
                 $part,
                 $_POST['qty'][$i],
-                $_POST['rate'][$i]
+                $rate
             ]);
         }
 
@@ -496,10 +535,6 @@ function addComponentRow() {
                     <label style="font-weight: 600; margin-bottom: 5px; display: block;">Qty</label>
                     <input type="number" step="0.001" name="qty[]" placeholder="Qty" required min="0.001">
                 </div>
-                <div class="component-qty-wrapper">
-                    <label style="font-weight: 600; margin-bottom: 5px; display: block;">Rate</label>
-                    <input type="number" step="0.01" name="rate[]" id="rate_${rowId}" placeholder="Rate" required min="0">
-                </div>
                 <div class="component-actions" style="padding-top: 25px; display: flex; gap: 5px;">
                     <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelection('${rowId}')" title="Clear selection">Clear</button>
                     <button type="button" class="btn btn-danger btn-sm" onclick="removeComponentRow('${rowId}')" title="Remove row">Remove</button>
@@ -559,10 +594,10 @@ function searchParts(input, rowId) {
         resultsDiv.innerHTML = '<div class="no-results">No parts found</div>';
     } else {
         resultsDiv.innerHTML = results.map(part => `
-            <div class="search-result-item" onclick="selectPart('${part.part_no}', '${escapeHtml(part.part_name)}', ${part.id}, '${rowId}', ${parseFloat(part.rate) || 0})">
+            <div class="search-result-item" onclick="selectPart('${part.part_no}', '${escapeHtml(part.part_name)}', ${part.id}, '${rowId}')">
                 <div class="part-info">
                     <div class="part-name">${escapeHtml(part.part_name)}</div>
-                    <div class="part-details">${escapeHtml(part.part_no)} | ${escapeHtml(part.category || 'N/A')} | Rate: ${parseFloat(part.rate || 0).toFixed(2)}</div>
+                    <div class="part-details">${escapeHtml(part.part_no)} | ${escapeHtml(part.category || 'N/A')}</div>
                 </div>
                 <span class="part-id-badge">ID: ${part.id}</span>
             </div>
@@ -591,7 +626,7 @@ function handleMultipleIds(ids, firstRowId) {
     }
 
     // Select first part in current row
-    selectPart(matchedParts[0].part_no, matchedParts[0].part_name, matchedParts[0].id, firstRowId, parseFloat(matchedParts[0].rate) || 0);
+    selectPart(matchedParts[0].part_no, matchedParts[0].part_name, matchedParts[0].id, firstRowId);
 
     // Add remaining parts as new rows
     for (let i = 1; i < matchedParts.length; i++) {
@@ -603,27 +638,21 @@ function handleMultipleIds(ids, firstRowId) {
             const rows = container.querySelectorAll('.component-row');
             const lastRow = rows[rows.length - 1];
             const lastRowId = lastRow.id;
-            selectPart(part.part_no, part.part_name, part.id, lastRowId, parseFloat(part.rate) || 0);
+            selectPart(part.part_no, part.part_name, part.id, lastRowId);
         }, 50 * i);
     }
 }
 
-function selectPart(partNo, partName, partId, rowId, rate) {
+function selectPart(partNo, partName, partId, rowId) {
     const hidden = document.getElementById('hidden_' + rowId);
     const input = document.querySelector(`#${rowId} .part-search-input`);
     const results = document.getElementById('results_' + rowId);
     const nameDisplay = document.getElementById('name_' + rowId);
-    const rateInput = document.getElementById('rate_' + rowId);
 
     // Set values
     hidden.value = partNo;
     nameDisplay.value = partName + ' (ID: ' + partId + ')';
     nameDisplay.style.background = '#e8f5e9';
-
-    // Auto-fill rate from part master as default (user can change)
-    if (rateInput && rate !== undefined) {
-        rateInput.value = parseFloat(rate).toFixed(2);
-    }
 
     // Update search input to show selected part_no
     input.value = partNo;
