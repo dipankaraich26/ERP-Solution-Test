@@ -145,6 +145,70 @@ $total_pages = ceil($total_count / $per_page);
             background: #fff3cd;
             font-weight: bold;
         }
+
+        /* Column Filter Styles */
+        .filter-row th {
+            background: #f8f9fa;
+            padding: 5px 8px;
+            vertical-align: top;
+        }
+        .column-filter {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        .column-filter:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        .column-filter::placeholder {
+            color: #aaa;
+            font-style: italic;
+        }
+        .filter-select {
+            width: 100%;
+            padding: 5px 4px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        .filter-active {
+            background-color: #fff3cd !important;
+            border-color: #ffc107 !important;
+        }
+        .clear-filters-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .clear-filters-btn:hover {
+            background: #c82333;
+        }
+        .filter-info {
+            padding: 8px 12px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            display: none;
+            font-size: 0.9em;
+            color: #155724;
+        }
+        .filter-info.active {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
@@ -199,8 +263,15 @@ $total_pages = ceil($total_count / $per_page);
         <input type="hidden" name="ids" id="selectedIds">
     </form>
 
+    <!-- Filter Info Bar -->
+    <div class="filter-info" id="filterInfo">
+        <span><strong id="filteredCount">0</strong> of <?= $total_count ?> parts shown</span>
+        <button type="button" class="clear-filters-btn" onclick="clearAllFilters()">Clear All Filters</button>
+    </div>
+
     <div style="overflow-x: auto;">
     <table border="1" cellpadding="8" id="partsTable">
+        <thead>
         <tr>
             <th class="checkbox-cell">
                 <input type="checkbox" id="selectAll" title="Select All" onclick="toggleSelectAll()">
@@ -219,6 +290,56 @@ $total_pages = ceil($total_count / $per_page);
             <th>In WO</th>
             <th>Actions</th>
         </tr>
+        <tr class="filter-row">
+            <th class="checkbox-cell">
+                <button type="button" class="clear-filters-btn" onclick="clearAllFilters()" title="Clear all filters">✕</button>
+            </th>
+            <th><input type="text" class="column-filter" data-column="1" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th><input type="text" class="column-filter" data-column="2" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th><input type="text" class="column-filter" data-column="3" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th>
+                <select class="filter-select" data-column="4" onchange="filterTable()">
+                    <option value="">All</option>
+                </select>
+            </th>
+            <th><input type="text" class="column-filter" data-column="5" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th>
+                <select class="filter-select" data-column="6" onchange="filterTable()">
+                    <option value="">All</option>
+                </select>
+            </th>
+            <th><input type="text" class="column-filter" data-column="7" placeholder="Filter..." onkeyup="filterTable()" style="width: 60px;"></th>
+            <th><input type="text" class="column-filter" data-column="8" placeholder="Filter..." onkeyup="filterTable()" style="width: 70px;"></th>
+            <th>
+                <select class="filter-select" data-column="9" onchange="filterTable()">
+                    <option value="">All</option>
+                </select>
+            </th>
+            <th>
+                <select class="filter-select" data-column="10" onchange="filterTable()">
+                    <option value="">All</option>
+                    <option value="in-stock">In Stock</option>
+                    <option value="out-of-stock">Out of Stock</option>
+                </select>
+            </th>
+            <th>
+                <select class="filter-select" data-column="11" onchange="filterTable()">
+                    <option value="">All</option>
+                    <option value="has-orders">Has Orders</option>
+                    <option value="no-orders">No Orders</option>
+                </select>
+            </th>
+            <th>
+                <select class="filter-select" data-column="12" onchange="filterTable()">
+                    <option value="">All</option>
+                    <option value="in-wo">In WO</option>
+                    <option value="not-in-wo">Not in WO</option>
+                </select>
+            </th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
 
         <?php
         $sql = "SELECT p.*,
@@ -307,11 +428,148 @@ $total_pages = ceil($total_count / $per_page);
             </td>
         </tr>
         <?php endwhile; ?>
+        </tbody>
     </table>
     </div>
 
-    <!-- JavaScript for Selection -->
+    <!-- JavaScript for Selection and Filtering -->
     <script>
+    // Populate filter dropdowns on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        populateFilterDropdowns();
+    });
+
+    function populateFilterDropdowns() {
+        const table = document.getElementById('partsTable');
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr');
+
+        // Column indices for dropdowns: Category(4), UOM(6), GST(9)
+        const dropdownColumns = {
+            4: new Set(), // Category
+            6: new Set(), // UOM
+            9: new Set()  // GST
+        };
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length > 0) {
+                Object.keys(dropdownColumns).forEach(colIndex => {
+                    const cellText = cells[colIndex]?.textContent?.trim();
+                    if (cellText && cellText !== '-') {
+                        dropdownColumns[colIndex].add(cellText);
+                    }
+                });
+            }
+        });
+
+        // Populate the select dropdowns
+        Object.keys(dropdownColumns).forEach(colIndex => {
+            const select = document.querySelector(`.filter-select[data-column="${colIndex}"]`);
+            if (select) {
+                const values = Array.from(dropdownColumns[colIndex]).sort();
+                values.forEach(value => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    select.appendChild(option);
+                });
+            }
+        });
+    }
+
+    function filterTable() {
+        const table = document.getElementById('partsTable');
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr');
+        const filters = document.querySelectorAll('.column-filter, .filter-select');
+
+        let visibleCount = 0;
+        let hasActiveFilter = false;
+
+        // Check if any filter is active
+        filters.forEach(filter => {
+            if (filter.value.trim() !== '') {
+                hasActiveFilter = true;
+                filter.classList.add('filter-active');
+            } else {
+                filter.classList.remove('filter-active');
+            }
+        });
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            let showRow = true;
+
+            filters.forEach(filter => {
+                const colIndex = parseInt(filter.dataset.column);
+                const filterValue = filter.value.trim().toLowerCase();
+
+                if (filterValue === '') return;
+
+                const cell = cells[colIndex];
+                if (!cell) return;
+
+                const cellText = cell.textContent.trim().toLowerCase();
+
+                // Special handling for Stock, On Order, In WO columns
+                if (colIndex === 10) { // Stock
+                    const stockValue = parseInt(cellText) || 0;
+                    if (filterValue === 'in-stock' && stockValue <= 0) showRow = false;
+                    if (filterValue === 'out-of-stock' && stockValue > 0) showRow = false;
+                } else if (colIndex === 11) { // On Order
+                    const hasOrder = cellText !== '-' && parseInt(cellText) > 0;
+                    if (filterValue === 'has-orders' && !hasOrder) showRow = false;
+                    if (filterValue === 'no-orders' && hasOrder) showRow = false;
+                } else if (colIndex === 12) { // In WO
+                    const hasWO = cellText !== '-' && parseInt(cellText) > 0;
+                    if (filterValue === 'in-wo' && !hasWO) showRow = false;
+                    if (filterValue === 'not-in-wo' && hasWO) showRow = false;
+                } else {
+                    // Text-based filter (contains)
+                    if (!cellText.includes(filterValue)) {
+                        showRow = false;
+                    }
+                }
+            });
+
+            row.style.display = showRow ? '' : 'none';
+            if (showRow) visibleCount++;
+        });
+
+        // Update filter info
+        const filterInfo = document.getElementById('filterInfo');
+        const filteredCount = document.getElementById('filteredCount');
+        filteredCount.textContent = visibleCount;
+
+        if (hasActiveFilter) {
+            filterInfo.classList.add('active');
+        } else {
+            filterInfo.classList.remove('active');
+        }
+
+        updateSelection();
+    }
+
+    function clearAllFilters() {
+        const filters = document.querySelectorAll('.column-filter, .filter-select');
+        filters.forEach(filter => {
+            filter.value = '';
+            filter.classList.remove('filter-active');
+        });
+
+        // Show all rows
+        const table = document.getElementById('partsTable');
+        const tbody = table.querySelector('tbody');
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            row.style.display = '';
+        });
+
+        document.getElementById('filterInfo').classList.remove('active');
+        updateSelection();
+    }
+
     function toggleSelectAll() {
         const selectAll = document.getElementById('selectAll');
         const checkboxes = document.querySelectorAll('.part-checkbox');
@@ -561,27 +819,7 @@ $total_pages = ceil($total_count / $per_page);
             }
         });
 
-        // Also filter current table rows (for instant feedback on loaded data)
-        searchInput.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase().trim();
-            const tableBody = document.querySelector('table');
-            const rows = tableBody.querySelectorAll('tr:not(:first-child)');
-
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                let found = false;
-
-                cells.forEach(cell => {
-                    if (cell.textContent.toLowerCase().includes(searchTerm)) {
-                        found = true;
-                    }
-                });
-
-                row.style.display = found ? '' : 'none';
-            });
-
-            updateSelection();
-        });
+        // Note: Column-based filtering is now handled by filterTable() function
     });
     </script>
 
