@@ -50,6 +50,96 @@ try {
     $parts = [];
 }
 
+// Handle AJAX request to fetch existing supplier mappings
+if (isset($_GET['action']) && $_GET['action'] === 'get_supplier_mappings') {
+    header('Content-Type: application/json');
+    $supplier_id = (int)($_GET['supplier_id'] ?? 0);
+
+    if (!$supplier_id) {
+        echo json_encode(['success' => false, 'error' => 'Invalid supplier ID']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT psm.id, psm.part_no, psm.supplier_rate, psm.lead_time_days,
+                   psm.min_order_qty, psm.is_preferred, psm.active,
+                   pm.part_name, pm.part_id, pm.hsn_code, pm.uom, pm.rate as base_rate
+            FROM part_supplier_mapping psm
+            JOIN part_master pm ON psm.part_no = pm.part_no
+            WHERE psm.supplier_id = ?
+            ORDER BY psm.is_preferred DESC, pm.part_name ASC
+        ");
+        $stmt->execute([$supplier_id]);
+        $mappings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'mappings' => $mappings]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle update existing mapping
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_mapping') {
+    header('Content-Type: application/json');
+    $mapping_id = (int)($_POST['mapping_id'] ?? 0);
+    $rate = (float)($_POST['rate'] ?? 0);
+    $min_qty = (int)($_POST['min_qty'] ?? 1);
+    $lead_days = (int)($_POST['lead_days'] ?? 5);
+    $is_preferred = isset($_POST['is_preferred']) ? 1 : 0;
+    $active = isset($_POST['active']) ? 1 : 0;
+
+    if (!$mapping_id) {
+        echo json_encode(['success' => false, 'error' => 'Invalid mapping ID']);
+        exit;
+    }
+
+    try {
+        // If setting as preferred, unset other preferred for same part
+        if ($is_preferred) {
+            $getPartStmt = $pdo->prepare("SELECT part_no FROM part_supplier_mapping WHERE id = ?");
+            $getPartStmt->execute([$mapping_id]);
+            $partNo = $getPartStmt->fetchColumn();
+
+            if ($partNo) {
+                $unsetStmt = $pdo->prepare("UPDATE part_supplier_mapping SET is_preferred = 0 WHERE part_no = ? AND id != ?");
+                $unsetStmt->execute([$partNo, $mapping_id]);
+            }
+        }
+
+        $stmt = $pdo->prepare("
+            UPDATE part_supplier_mapping
+            SET supplier_rate = ?, min_order_qty = ?, lead_time_days = ?, is_preferred = ?, active = ?
+            WHERE id = ?
+        ");
+        $stmt->execute([$rate, $min_qty, $lead_days, $is_preferred, $active, $mapping_id]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// Handle delete mapping
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_mapping') {
+    header('Content-Type: application/json');
+    $mapping_id = (int)($_POST['mapping_id'] ?? 0);
+
+    if (!$mapping_id) {
+        echo json_encode(['success' => false, 'error' => 'Invalid mapping ID']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare("DELETE FROM part_supplier_mapping WHERE id = ?");
+        $stmt->execute([$mapping_id]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_supplier_pricing') {
     $supplier_id = (int)($_POST['supplier_id'] ?? 0);
@@ -389,6 +479,134 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             background: #34495e;
             color: #ecf0f1;
         }
+
+        /* Edit Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+        }
+        .modal-header h2 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 1.3em;
+        }
+        .modal-close {
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #999;
+            line-height: 1;
+        }
+        .modal-close:hover {
+            color: #333;
+        }
+        .modal-form .form-group {
+            margin-bottom: 15px;
+        }
+        .modal-form .checkbox-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .modal-form .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .modal-form .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        body.dark .modal-content {
+            background: #2c3e50;
+        }
+        body.dark .modal-header h2 {
+            color: #ecf0f1;
+        }
+
+        /* Badge styles */
+        .badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .badge-primary {
+            background: #cce5ff;
+            color: #004085;
+        }
+        .badge-secondary {
+            background: #e9ecef;
+            color: #6c757d;
+        }
+
+        .action-btn {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            margin-right: 5px;
+        }
+        .action-btn-edit {
+            background: #667eea;
+            color: white;
+        }
+        .action-btn-edit:hover {
+            background: #5a67d8;
+        }
+        .action-btn-delete {
+            background: #dc2626;
+            color: white;
+        }
+        .action-btn-delete:hover {
+            background: #b91c1c;
+        }
     </style>
 </head>
 <body>
@@ -453,6 +671,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <div class="form-group" style="flex: 3; min-width: 250px; margin-bottom: 8px;">
                     <label>Address</label>
                     <input type="text" id="supplierAddress" readonly placeholder="-">
+                </div>
+            </div>
+
+            <!-- Existing Supplier Pricing Section -->
+            <div id="existingPricingSection" style="display: none; margin-top: 20px;">
+                <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>Existing Parts & Pricing</span>
+                    <span id="existingCount" style="font-size: 0.85em; font-weight: normal; color: #666;"></span>
+                </div>
+                <div id="existingPricingContainer">
+                    <div class="empty-state" id="noExistingPricing" style="display: none;">
+                        <div class="icon">📋</div>
+                        <p>No existing pricing found for this supplier</p>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="entry-table" id="existingPricingTable" style="display: none;">
+                            <thead>
+                                <tr>
+                                    <th>Part No</th>
+                                    <th>Part Name</th>
+                                    <th>Part ID</th>
+                                    <th>HSN</th>
+                                    <th>Supplier Rate</th>
+                                    <th>Min Qty</th>
+                                    <th>Lead Days</th>
+                                    <th>Preferred</th>
+                                    <th>Status</th>
+                                    <th style="width: 100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="existingPricingBody">
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -589,6 +841,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     </div>
 </div>
 
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Edit Supplier Pricing</h2>
+            <span class="modal-close" onclick="closeEditModal()">&times;</span>
+        </div>
+        <form class="modal-form" id="editMappingForm" onsubmit="saveMapping(event)">
+            <input type="hidden" id="editMappingId" name="mapping_id">
+
+            <div class="form-group">
+                <label>Part Number</label>
+                <input type="text" id="editPartNo" readonly>
+            </div>
+            <div class="form-group">
+                <label>Part Name</label>
+                <input type="text" id="editPartName" readonly>
+            </div>
+            <div class="form-group">
+                <label>Supplier Rate <span style="color: #dc2626;">*</span></label>
+                <input type="number" id="editRate" name="rate" step="0.01" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Min Order Qty</label>
+                <input type="number" id="editMinQty" name="min_qty" min="1" value="1">
+            </div>
+            <div class="form-group">
+                <label>Lead Time (Days)</label>
+                <input type="number" id="editLeadDays" name="lead_days" min="1" value="5">
+            </div>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" id="editPreferred" name="is_preferred">
+                    Preferred Supplier
+                </label>
+                <label>
+                    <input type="checkbox" id="editActive" name="active" checked>
+                    Active
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 // Data from PHP
 const suppliers = <?= json_encode($suppliers) ?>;
@@ -696,6 +997,9 @@ function selectSupplier(id) {
         if (supplier.state) addressParts.push(supplier.state);
         if (supplier.pincode) addressParts.push(supplier.pincode);
         document.getElementById('supplierAddress').value = addressParts.length > 0 ? addressParts.join(', ') : '-';
+
+        // Load existing supplier mappings
+        loadExistingMappings(supplier.id);
     } else {
         console.error('Supplier not found for id:', id);
     }
@@ -938,6 +1242,167 @@ document.getElementById('saveForm').addEventListener('submit', function(e) {
         e.preventDefault();
         alert('Please select a supplier');
         return;
+    }
+});
+
+// ========== EXISTING SUPPLIER PRICING FUNCTIONS ==========
+
+let existingMappings = [];
+
+// Load existing mappings when supplier is selected
+function loadExistingMappings(supplierId) {
+    if (!supplierId) {
+        document.getElementById('existingPricingSection').style.display = 'none';
+        return;
+    }
+
+    fetch(`?action=get_supplier_mappings&supplier_id=${supplierId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                existingMappings = data.mappings;
+                renderExistingMappings();
+            } else {
+                console.error('Error loading mappings:', data.error);
+            }
+        })
+        .catch(err => console.error('Fetch error:', err));
+}
+
+function renderExistingMappings() {
+    const section = document.getElementById('existingPricingSection');
+    const table = document.getElementById('existingPricingTable');
+    const tbody = document.getElementById('existingPricingBody');
+    const emptyState = document.getElementById('noExistingPricing');
+    const countSpan = document.getElementById('existingCount');
+
+    section.style.display = 'block';
+
+    if (existingMappings.length === 0) {
+        table.style.display = 'none';
+        emptyState.style.display = 'block';
+        countSpan.textContent = '';
+        return;
+    }
+
+    table.style.display = 'table';
+    emptyState.style.display = 'none';
+    countSpan.textContent = `(${existingMappings.length} part${existingMappings.length > 1 ? 's' : ''})`;
+
+    tbody.innerHTML = existingMappings.map(m => `
+        <tr style="${m.active == 0 ? 'opacity: 0.6;' : ''}">
+            <td>${escapeHtml(m.part_no)}</td>
+            <td>${escapeHtml(m.part_name)}</td>
+            <td>${escapeHtml(m.part_id || '-')}</td>
+            <td>${escapeHtml(m.hsn_code || '-')}</td>
+            <td style="font-weight: bold; color: #1e3a5f;">₹${parseFloat(m.supplier_rate).toFixed(2)}</td>
+            <td>${m.min_order_qty || 1}</td>
+            <td>${m.lead_time_days || 5}</td>
+            <td>${m.is_preferred == 1 ? '<span class="badge badge-primary">★ Preferred</span>' : '-'}</td>
+            <td>${m.active == 1 ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Inactive</span>'}</td>
+            <td>
+                <button type="button" class="action-btn action-btn-edit" onclick="openEditModal(${m.id})">Edit</button>
+                <button type="button" class="action-btn action-btn-delete" onclick="deleteMapping(${m.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Edit Modal functions
+function openEditModal(mappingId) {
+    const mapping = existingMappings.find(m => m.id == mappingId);
+    if (!mapping) return;
+
+    document.getElementById('editMappingId').value = mapping.id;
+    document.getElementById('editPartNo').value = mapping.part_no;
+    document.getElementById('editPartName').value = mapping.part_name;
+    document.getElementById('editRate').value = parseFloat(mapping.supplier_rate).toFixed(2);
+    document.getElementById('editMinQty').value = mapping.min_order_qty || 1;
+    document.getElementById('editLeadDays').value = mapping.lead_time_days || 5;
+    document.getElementById('editPreferred').checked = mapping.is_preferred == 1;
+    document.getElementById('editActive').checked = mapping.active == 1;
+
+    document.getElementById('editModal').classList.add('show');
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').classList.remove('show');
+}
+
+function saveMapping(e) {
+    e.preventDefault();
+
+    const formData = new FormData();
+    formData.append('action', 'update_mapping');
+    formData.append('mapping_id', document.getElementById('editMappingId').value);
+    formData.append('rate', document.getElementById('editRate').value);
+    formData.append('min_qty', document.getElementById('editMinQty').value);
+    formData.append('lead_days', document.getElementById('editLeadDays').value);
+    if (document.getElementById('editPreferred').checked) {
+        formData.append('is_preferred', '1');
+    }
+    if (document.getElementById('editActive').checked) {
+        formData.append('active', '1');
+    }
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeEditModal();
+            // Reload mappings
+            if (selectedSupplier) {
+                loadExistingMappings(selectedSupplier.id);
+            }
+            alert('Pricing updated successfully!');
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Save error:', err);
+        alert('Error saving changes');
+    });
+}
+
+function deleteMapping(mappingId) {
+    if (!confirm('Are you sure you want to delete this supplier pricing?')) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('action', 'delete_mapping');
+    formData.append('mapping_id', mappingId);
+
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Reload mappings
+            if (selectedSupplier) {
+                loadExistingMappings(selectedSupplier.id);
+            }
+            alert('Pricing deleted successfully!');
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        alert('Error deleting pricing');
+    });
+}
+
+// Close modal when clicking outside
+document.getElementById('editModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEditModal();
     }
 });
 </script>
