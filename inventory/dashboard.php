@@ -225,6 +225,8 @@ include "../includes/sidebar.php";
             color: #2c3e50;
         }
         .data-table tr:hover { background: #f8f9fa; }
+        .data-table .text-center { text-align: center; }
+        .data-table .text-right { text-align: right; }
 
         .stock-indicator {
             display: inline-block;
@@ -446,36 +448,54 @@ if (toggle) {
         </div>
     </div>
 
-    <div class="dashboard-row">
-        <!-- Top Stocked Items -->
-        <div class="dashboard-panel">
-            <h3>💰 Top Items by Value</h3>
-            <?php if (empty($top_stocked)): ?>
-                <p style="color: #7f8c8d;">No stock data available.</p>
-            <?php else: ?>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Part #</th>
-                            <th>Part Name</th>
-                            <th>Qty</th>
-                            <th>Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($top_stocked as $item): ?>
-                        <tr>
-                            <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
-                            <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 30)) ?><?= strlen($item['part_name'] ?? '') > 30 ? '...' : '' ?></td>
-                            <td><?= number_format($item['qty']) ?></td>
-                            <td>₹<?= number_format($item['total_value'], 2) ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
+    <!-- Top 10 Items by Stock Value -->
+    <div class="dashboard-panel" style="margin-bottom: 25px;">
+        <h3>💰 Top 10 Items by Stock Value</h3>
+        <?php if (empty($top_stocked)): ?>
+            <p style="color: #7f8c8d;">No stock data available.</p>
+        <?php else: ?>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">#</th>
+                        <th>Part #</th>
+                        <th>Part Name</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-right">Unit Rate</th>
+                        <th class="text-right" style="background: #e8f5e9;">Total Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    $grandTotal = 0;
+                    $totalQty = 0;
+                    foreach ($top_stocked as $index => $item):
+                        $grandTotal += $item['total_value'];
+                        $totalQty += $item['qty'];
+                    ?>
+                    <tr>
+                        <td><?= $index + 1 ?></td>
+                        <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
+                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 35)) ?><?= strlen($item['part_name'] ?? '') > 35 ? '...' : '' ?></td>
+                        <td class="text-center"><?= number_format($item['qty']) ?></td>
+                        <td class="text-right">₹<?= number_format($item['rate'], 2) ?></td>
+                        <td class="text-right" style="background: #e8f5e9; font-weight: bold; color: #27ae60;">₹<?= number_format($item['total_value'], 2) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+                <tfoot>
+                    <tr style="background: #f8f9fa; font-weight: bold;">
+                        <td colspan="3">Total (Top 10)</td>
+                        <td class="text-center"><?= number_format($totalQty) ?></td>
+                        <td class="text-right">-</td>
+                        <td class="text-right" style="background: #c8e6c9; color: #1b5e20;">₹<?= number_format($grandTotal, 2) ?></td>
+                    </tr>
+                </tfoot>
+            </table>
+        <?php endif; ?>
+    </div>
 
+    <div class="dashboard-row">
         <!-- Stock by Category -->
         <div class="dashboard-panel">
             <h3>📊 Stock by Category</h3>
