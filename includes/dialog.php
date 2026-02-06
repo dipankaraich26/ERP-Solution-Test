@@ -3,6 +3,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Prevent redeclaration if included multiple times
+if (!function_exists('setModal')) {
+
 // Set a modal message to show on next page load
 function setModal($title, $content) {
     $_SESSION['modal'] = [
@@ -60,4 +63,6 @@ function showModal() {
         ";
     }
 }
+
+} // end function_exists check
 ?>
