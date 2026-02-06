@@ -293,7 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <option value="">-- Choose Supplier --</option>
                     <?php foreach ($allSuppliers as $s): ?>
                         <option value="<?= $s['id'] ?>">
-                            <?= htmlspecialchars($s['supplier_name']) ?>
+                            <?= htmlspecialchars($s['supplier_code'] ? $s['supplier_code'] . ' - ' . $s['supplier_name'] : $s['supplier_name']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

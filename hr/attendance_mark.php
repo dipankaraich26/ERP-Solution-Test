@@ -10,9 +10,171 @@ include "../includes/dialog.php";
 $date = $_GET['date'] ?? date('Y-m-d');
 $empFilter = $_GET['emp'] ?? '';
 $debugInfo = [];
+$leaveErrors = [];
+$currentYear = date('Y');
+
+// Fetch active leave types
+$leaveTypes = [];
+try {
+    $leaveTypes = $pdo->query("
+        SELECT * FROM leave_types
+        WHERE is_active = 1
+        ORDER BY leave_code
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Leave tables may not exist
+}
+
+// Fetch holidays for the year
+$holidayDates = [];
+try {
+    $holidays = $pdo->prepare("SELECT holiday_date FROM holidays WHERE YEAR(holiday_date) = ?");
+    $holidays->execute([$currentYear]);
+    $holidayDates = $holidays->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    // Holidays table may not exist
+}
+
+// Handle leave application submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_submit'])) {
+    $employee_id = intval($_POST['leave_employee_id'] ?? 0);
+    $leave_type_id = intval($_POST['leave_type_id'] ?? 0);
+    $start_date = $_POST['leave_start_date'] ?? '';
+    $end_date = $_POST['leave_end_date'] ?? '';
+    $is_half_day = isset($_POST['is_half_day']) ? 1 : 0;
+    $half_day_type = $_POST['half_day_type'] ?? null;
+    $reason = trim($_POST['leave_reason'] ?? '');
+
+    // Validation
+    if (!$employee_id) $leaveErrors[] = "Please select an employee";
+    if (!$leave_type_id) $leaveErrors[] = "Please select a leave type";
+    if (!$start_date) $leaveErrors[] = "Start date is required";
+    if (!$end_date) $leaveErrors[] = "End date is required";
+    if (!$reason) $leaveErrors[] = "Reason is required";
+
+    // Date validation and calculate days
+    $totalDays = 0;
+    if ($start_date && $end_date) {
+        $startDt = new DateTime($start_date);
+        $endDt = new DateTime($end_date);
+
+        if ($endDt < $startDt) {
+            $leaveErrors[] = "End date cannot be before start date";
+        } else {
+            // Calculate working days
+            $current = clone $startDt;
+            while ($current <= $endDt) {
+                $dayOfWeek = $current->format('N');
+                $dateStr = $current->format('Y-m-d');
+                // Skip Sundays (7) and holidays
+                if ($dayOfWeek != 7 && !in_array($dateStr, $holidayDates)) {
+                    $totalDays++;
+                }
+                $current->modify('+1 day');
+            }
+        }
+
+        if ($is_half_day) {
+            $totalDays = 0.5;
+            if (!$half_day_type) {
+                $leaveErrors[] = "Please select First Half or Second Half";
+            }
+        }
+
+        if ($totalDays <= 0 && empty($leaveErrors)) {
+            $leaveErrors[] = "Selected dates have no working days";
+        }
+    }
+
+    // Check leave balance and overlapping leaves
+    if (empty($leaveErrors) && $employee_id && $leave_type_id) {
+        // Get leave type info
+        $leaveTypeInfo = $pdo->prepare("SELECT * FROM leave_types WHERE id = ?");
+        $leaveTypeInfo->execute([$leave_type_id]);
+        $ltInfo = $leaveTypeInfo->fetch(PDO::FETCH_ASSOC);
+
+        // Check balance for leave types with limits
+        if ($ltInfo && $ltInfo['max_days_per_year'] > 0) {
+            $balanceCheck = $pdo->prepare("
+                SELECT balance FROM leave_balances
+                WHERE employee_id = ? AND leave_type_id = ? AND year = ?
+            ");
+            $balanceCheck->execute([$employee_id, $leave_type_id, $currentYear]);
+            $availableBalance = $balanceCheck->fetchColumn();
+            if ($availableBalance === false) $availableBalance = $ltInfo['max_days_per_year'];
+
+            if ($totalDays > $availableBalance) {
+                $leaveErrors[] = "Insufficient leave balance. Available: $availableBalance days, Requested: $totalDays days";
+            }
+        }
+
+        // Check for overlapping leaves
+        $overlapCheck = $pdo->prepare("
+            SELECT COUNT(*) FROM leave_requests
+            WHERE employee_id = ?
+              AND status IN ('Pending', 'Approved')
+              AND ((start_date <= ? AND end_date >= ?) OR (start_date <= ? AND end_date >= ?))
+        ");
+        $overlapCheck->execute([$employee_id, $end_date, $start_date, $start_date, $end_date]);
+
+        if ($overlapCheck->fetchColumn() > 0) {
+            $leaveErrors[] = "Leave request overlaps with an existing pending or approved leave";
+        }
+    }
+
+    // Insert leave request
+    if (empty($leaveErrors)) {
+        try {
+            // Generate leave request number
+            $lastReq = $pdo->query("SELECT MAX(id) FROM leave_requests")->fetchColumn();
+            $reqNo = 'LR-' . date('Y') . '-' . str_pad(($lastReq + 1), 4, '0', STR_PAD_LEFT);
+
+            // Determine status based on leave type
+            $status = $ltInfo['requires_approval'] ? 'Pending' : 'Approved';
+
+            $stmt = $pdo->prepare("
+                INSERT INTO leave_requests
+                (leave_request_no, employee_id, leave_type_id, start_date, end_date, total_days, is_half_day, half_day_type, reason, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $reqNo,
+                $employee_id,
+                $leave_type_id,
+                $start_date,
+                $end_date,
+                $totalDays,
+                $is_half_day,
+                $is_half_day ? $half_day_type : null,
+                $reason,
+                $status
+            ]);
+
+            // If auto-approved, update balance
+            if ($status === 'Approved') {
+                $pdo->prepare("
+                    UPDATE leave_balances
+                    SET used = used + ?, balance = balance - ?
+                    WHERE employee_id = ? AND leave_type_id = ? AND year = ?
+                ")->execute([$totalDays, $totalDays, $employee_id, $leave_type_id, $currentYear]);
+            }
+
+            $message = $status === 'Approved'
+                ? "Leave request $reqNo submitted and auto-approved!"
+                : "Leave request $reqNo submitted successfully! Awaiting approval.";
+
+            setModal("Success", $message);
+            header("Location: attendance_mark.php?date=$date");
+            exit;
+
+        } catch (PDOException $e) {
+            $leaveErrors[] = "Database error: " . $e->getMessage();
+        }
+    }
+}
 
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['leave_submit'])) {
     $attendance = $_POST['attendance'] ?? [];
     $savedCount = 0;
     $errors = [];
@@ -251,6 +413,173 @@ showModal();
             border-radius: 8px;
         }
         .quick-fill button { margin-right: 10px; }
+
+        /* Leave Application Section */
+        .leave-apply-section {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .leave-apply-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            cursor: pointer;
+        }
+        .leave-apply-header h3 {
+            margin: 0;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .leave-apply-header .toggle-icon {
+            transition: transform 0.3s;
+        }
+        .leave-apply-header.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .leave-apply-body {
+            padding: 20px;
+            display: block;
+        }
+        .leave-apply-body.collapsed {
+            display: none;
+        }
+        .leave-form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .leave-form-group {
+            margin-bottom: 0;
+        }
+        .leave-form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 0.9em;
+        }
+        .leave-form-group input,
+        .leave-form-group select,
+        .leave-form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .leave-form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        .leave-form-group input:focus,
+        .leave-form-group select:focus,
+        .leave-form-group textarea:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        .half-day-options {
+            display: none;
+            margin-top: 8px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .half-day-options.show { display: block; }
+        .half-day-options label {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-right: 15px;
+            font-weight: normal;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .leave-days-preview {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            display: none;
+            font-size: 0.95em;
+        }
+        .leave-days-preview.show { display: block; }
+        .leave-error-box {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            color: #721c24;
+        }
+        .leave-error-box ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .leave-submit-row {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .date-nav {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            .date-nav h2 {
+                font-size: 1.2em;
+                order: 1;
+                width: 100%;
+                text-align: center;
+            }
+            .date-nav a {
+                order: 0;
+            }
+            .date-nav form {
+                margin-left: 0 !important;
+                order: 2;
+                width: 100%;
+            }
+            .date-nav form input {
+                width: 100%;
+            }
+            .att-table {
+                display: block;
+                overflow-x: auto;
+            }
+            .att-table th, .att-table td {
+                padding: 8px;
+                font-size: 0.9em;
+            }
+            .quick-fill {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .quick-fill button {
+                margin-right: 0;
+                flex: 1 1 45%;
+            }
+            .leave-form-grid {
+                grid-template-columns: 1fr;
+            }
+            .leave-apply-header h3 {
+                font-size: 1em;
+            }
+        }
     </style>
 </head>
 <body>
@@ -272,7 +601,115 @@ showModal();
 
     <p>
         <a href="attendance.php?month=<?= substr($date, 0, 7) ?>" class="btn btn-secondary">Back to Calendar</a>
+        <a href="leaves.php" class="btn btn-secondary" style="margin-left: 10px;">View Leave Requests</a>
     </p>
+
+    <!-- Leave Application Section -->
+    <?php if (!empty($leaveTypes)): ?>
+    <div class="leave-apply-section">
+        <div class="leave-apply-header" onclick="toggleLeaveForm()">
+            <h3>
+                <span style="font-size: 1.2em;">+</span>
+                Apply for Leave
+            </h3>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="leave-apply-body collapsed" id="leaveFormBody">
+            <?php if (!empty($leaveErrors)): ?>
+                <div class="leave-error-box">
+                    <ul>
+                        <?php foreach ($leaveErrors as $e): ?>
+                            <li><?= htmlspecialchars($e) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" id="leaveApplicationForm">
+                <input type="hidden" name="leave_submit" value="1">
+
+                <div class="leave-form-grid">
+                    <div class="leave-form-group">
+                        <label>Employee *</label>
+                        <select name="leave_employee_id" id="leaveEmployeeSelect" required>
+                            <option value="">-- Select Employee --</option>
+                            <?php foreach ($employees as $emp): ?>
+                                <option value="<?= $emp['id'] ?>"
+                                        <?= (isset($_POST['leave_employee_id']) && $_POST['leave_employee_id'] == $emp['id']) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?>
+                                    (<?= htmlspecialchars($emp['emp_id']) ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="leave-form-group">
+                        <label>Leave Type *</label>
+                        <select name="leave_type_id" id="leaveTypeSelect" required>
+                            <option value="">-- Select Type --</option>
+                            <?php foreach ($leaveTypes as $lt): ?>
+                                <option value="<?= $lt['id'] ?>"
+                                        data-max="<?= $lt['max_days_per_year'] ?>"
+                                        <?= (isset($_POST['leave_type_id']) && $_POST['leave_type_id'] == $lt['id']) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($lt['leave_code'] . ' - ' . $lt['leave_type_name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="leave-form-group">
+                        <label>Start Date *</label>
+                        <input type="date" name="leave_start_date" id="leaveStartDate" required
+                               value="<?= htmlspecialchars($_POST['leave_start_date'] ?? $date) ?>"
+                               onchange="calculateLeaveDays()">
+                    </div>
+
+                    <div class="leave-form-group">
+                        <label>End Date *</label>
+                        <input type="date" name="leave_end_date" id="leaveEndDate" required
+                               value="<?= htmlspecialchars($_POST['leave_end_date'] ?? $date) ?>"
+                               onchange="calculateLeaveDays()">
+                    </div>
+                </div>
+
+                <div class="leave-form-group" style="margin-top: 15px;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="is_half_day" id="halfDayCheck"
+                               <?= isset($_POST['is_half_day']) ? 'checked' : '' ?>
+                               onchange="toggleHalfDayOptions()">
+                        Half Day Leave
+                    </label>
+                    <div id="halfDayOptions" class="half-day-options <?= isset($_POST['is_half_day']) ? 'show' : '' ?>">
+                        <label>
+                            <input type="radio" name="half_day_type" value="First Half"
+                                   <?= (isset($_POST['half_day_type']) && $_POST['half_day_type'] === 'First Half') ? 'checked' : '' ?>>
+                            First Half (Morning)
+                        </label>
+                        <label>
+                            <input type="radio" name="half_day_type" value="Second Half"
+                                   <?= (isset($_POST['half_day_type']) && $_POST['half_day_type'] === 'Second Half') ? 'checked' : '' ?>>
+                            Second Half (Afternoon)
+                        </label>
+                    </div>
+                </div>
+
+                <div id="leaveDaysPreview" class="leave-days-preview">
+                    Total Days: <strong id="leaveTotalDays">0</strong>
+                    <span id="leaveDaysBreakdown" style="font-size: 0.9em; color: #666;"></span>
+                </div>
+
+                <div class="leave-form-group" style="margin-top: 15px;">
+                    <label>Reason *</label>
+                    <textarea name="leave_reason" required placeholder="Please provide a reason for your leave request..."><?= htmlspecialchars($_POST['leave_reason'] ?? '') ?></textarea>
+                </div>
+
+                <div class="leave-submit-row">
+                    <button type="submit" class="btn btn-primary">Submit Leave Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if (!empty($debugInfo)): ?>
         <div style="background: #e3f2fd; border: 1px solid #1976d2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
@@ -393,6 +830,111 @@ function fillAll(status) {
         select.value = status;
     });
 }
+
+// Leave Application Functions
+<?php if (!empty($leaveTypes)): ?>
+const leaveHolidays = <?= json_encode($holidayDates) ?>;
+
+function toggleLeaveForm() {
+    const header = document.querySelector('.leave-apply-header');
+    const body = document.getElementById('leaveFormBody');
+    header.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+}
+
+function toggleHalfDayOptions() {
+    const checked = document.getElementById('halfDayCheck').checked;
+    document.getElementById('halfDayOptions').classList.toggle('show', checked);
+
+    if (checked) {
+        document.getElementById('leaveEndDate').value = document.getElementById('leaveStartDate').value;
+    }
+
+    calculateLeaveDays();
+}
+
+function calculateLeaveDays() {
+    const startDateEl = document.getElementById('leaveStartDate');
+    const endDateEl = document.getElementById('leaveEndDate');
+    const halfDayCheck = document.getElementById('halfDayCheck');
+    const preview = document.getElementById('leaveDaysPreview');
+
+    if (!startDateEl || !endDateEl || !preview) return;
+
+    const startVal = startDateEl.value;
+    const endVal = endDateEl.value;
+    const isHalfDay = halfDayCheck ? halfDayCheck.checked : false;
+
+    if (!startVal || !endVal) {
+        preview.classList.remove('show');
+        return;
+    }
+
+    if (isHalfDay) {
+        document.getElementById('leaveTotalDays').textContent = '0.5';
+        document.getElementById('leaveDaysBreakdown').textContent = ' (Half day)';
+        preview.classList.add('show');
+        return;
+    }
+
+    const start = new Date(startVal);
+    const end = new Date(endVal);
+
+    if (end < start) {
+        preview.classList.remove('show');
+        return;
+    }
+
+    let workingDays = 0;
+    let sundayCount = 0;
+    let holidayCount = 0;
+    const current = new Date(start);
+
+    while (current <= end) {
+        const dayOfWeek = current.getDay();
+        const dateStr = current.toISOString().split('T')[0];
+
+        if (dayOfWeek === 0) {
+            sundayCount++;
+        } else if (leaveHolidays.includes(dateStr)) {
+            holidayCount++;
+        } else {
+            workingDays++;
+        }
+
+        current.setDate(current.getDate() + 1);
+    }
+
+    document.getElementById('leaveTotalDays').textContent = workingDays;
+
+    let breakdown = '';
+    if (sundayCount > 0 || holidayCount > 0) {
+        breakdown = ' (excluding ';
+        const parts = [];
+        if (sundayCount > 0) parts.push(sundayCount + ' Sunday' + (sundayCount > 1 ? 's' : ''));
+        if (holidayCount > 0) parts.push(holidayCount + ' holiday' + (holidayCount > 1 ? 's' : ''));
+        breakdown += parts.join(', ') + ')';
+    }
+    document.getElementById('leaveDaysBreakdown').textContent = breakdown;
+
+    preview.classList.add('show');
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    calculateLeaveDays();
+
+    // If there are leave errors, expand the form
+    <?php if (!empty($leaveErrors)): ?>
+    const header = document.querySelector('.leave-apply-header');
+    const body = document.getElementById('leaveFormBody');
+    if (header && body) {
+        header.classList.remove('collapsed');
+        body.classList.remove('collapsed');
+    }
+    <?php endif; ?>
+});
+<?php endif; ?>
 </script>
 
 </body>
