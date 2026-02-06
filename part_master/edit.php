@@ -135,6 +135,7 @@ if (toggle) {
     <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data">
+        Part No <input type="text" value="<?= htmlspecialchars($part['part_no'] ?? '') ?>" readonly style="background: #f0f0f0; cursor: not-allowed;"><br><br>
         Part Name <input type="text" name="part_name" value="<?= htmlspecialchars($part['part_name'] ?? '') ?>" required><br><br>
         Part ID <input type="text" name="part_id" value="<?= htmlspecialchars($part['part_id'] ?? '') ?>"><br><br>
         Description <input type="text" name="description" value="<?= htmlspecialchars($part['description'] ?? '') ?>"><br><br>
