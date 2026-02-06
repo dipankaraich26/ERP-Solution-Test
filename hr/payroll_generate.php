@@ -81,7 +81,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $presentDays = ($att['present'] ?? 0) + (($att['half_days'] ?? 0) * 0.5);
             $daysAbsent = $att['absent'] ?? 0;
-            $leavesTaken = $att['leaves'] ?? 0;
+            $leavesTakenFromAttendance = $att['leaves'] ?? 0;
+
+            // ALSO count approved leaves from leave_requests table (not just attendance)
+            // This ensures approved leaves count even if attendance wasn't manually marked
+            $approvedLeaveDays = 0;
+            try {
+                $leaveStmt = $pdo->prepare("
+                    SELECT COALESCE(SUM(
+                        CASE
+                            WHEN start_date >= ? AND end_date <= ? THEN total_days
+                            WHEN start_date < ? AND end_date <= ? THEN DATEDIFF(end_date, ?) + 1
+                            WHEN start_date >= ? AND end_date > ? THEN DATEDIFF(?, start_date) + 1
+                            ELSE DATEDIFF(?, ?) + 1
+                        END
+                    ), 0) as approved_days
+                    FROM leave_requests
+                    WHERE employee_id = ?
+                      AND status = 'Approved'
+                      AND start_date <= ?
+                      AND end_date >= ?
+                ");
+                $leaveStmt->execute([
+                    $monthStart, $monthEnd,  // full leave within month
+                    $monthStart, $monthEnd, $monthStart,  // leave started before month
+                    $monthStart, $monthEnd, $monthEnd,  // leave ends after month
+                    $monthEnd, $monthStart,  // leave spans entire month
+                    $empId, $monthEnd, $monthStart
+                ]);
+                $approvedLeaveDays = (float)$leaveStmt->fetchColumn();
+            } catch (PDOException $e) {
+                // Leave tables may not exist
+            }
+
+            // Use the higher of: attendance "On Leave" OR approved leave_requests
+            // This ensures we don't double count but also don't miss any
+            $leavesTaken = max($leavesTakenFromAttendance, $approvedLeaveDays);
 
             // IMPORTANT: Approved leaves count as present for salary calculation
             // So employee doesn't get salary deducted for approved leaves
