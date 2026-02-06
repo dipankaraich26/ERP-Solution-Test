@@ -105,9 +105,16 @@ include "../includes/sidebar.php";
         .summary-card.deductions .value { color: #e74c3c; }
         .summary-card.net .value { color: #2c3e50; }
 
+        .table-scroll-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }
         .payroll-table { width: 100%; border-collapse: collapse; }
         .payroll-table th, .payroll-table td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
-        .payroll-table th { background: #f5f5f5; font-weight: bold; }
+        .payroll-table th { background: #f5f5f5; font-weight: bold; position: sticky; top: 0; z-index: 10; }
         .payroll-table tr:hover { background: #fafafa; }
         .payroll-table .number { text-align: right; }
 
@@ -189,52 +196,54 @@ include "../includes/sidebar.php";
         </div>
     </div>
 
-    <table class="payroll-table">
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Department</th>
-                <th>Days Present</th>
-                <th class="number">Gross</th>
-                <th class="number">Deductions</th>
-                <th class="number">Net Pay</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (empty($payrolls)): ?>
-                <tr><td colspan="8" style="text-align: center; padding: 40px; color: #7f8c8d;">
-                    No payroll records for <?= $monthName ?>
-                    <br><br>
-                    <a href="payroll_generate.php?month=<?= $selectedMonth ?>" class="btn btn-success">Generate Payroll</a>
-                </td></tr>
-            <?php else: ?>
-                <?php foreach ($payrolls as $p): ?>
+    <div class="table-scroll-container">
+        <table class="payroll-table">
+            <thead>
                 <tr>
-                    <td>
-                        <strong><?= htmlspecialchars($p['first_name'] . ' ' . $p['last_name']) ?></strong><br>
-                        <small style="color: #7f8c8d;"><?= htmlspecialchars($p['emp_id']) ?></small>
-                    </td>
-                    <td><?= htmlspecialchars($p['department'] ?? '-') ?></td>
-                    <td><?= $p['days_present'] ?> / <?= $p['working_days'] ?></td>
-                    <td class="number"><?= number_format($p['gross_earnings'], 2) ?></td>
-                    <td class="number"><?= number_format($p['total_deductions'], 2) ?></td>
-                    <td class="number"><strong><?= number_format($p['net_pay'], 2) ?></strong></td>
-                    <td>
-                        <span class="status-badge status-<?= $p['status'] ?>"><?= $p['status'] ?></span>
-                    </td>
-                    <td>
-                        <a href="payroll_view.php?id=<?= $p['id'] ?>" class="btn btn-sm">View</a>
-                        <?php if ($p['status'] === 'Draft'): ?>
-                            <a href="payroll_edit.php?id=<?= $p['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
-                        <?php endif; ?>
-                    </td>
+                    <th>Employee</th>
+                    <th>Department</th>
+                    <th>Days Present</th>
+                    <th class="number">Gross</th>
+                    <th class="number">Deductions</th>
+                    <th class="number">Net Pay</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                 </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php if (empty($payrolls)): ?>
+                    <tr><td colspan="8" style="text-align: center; padding: 40px; color: #7f8c8d;">
+                        No payroll records for <?= $monthName ?>
+                        <br><br>
+                        <a href="payroll_generate.php?month=<?= $selectedMonth ?>" class="btn btn-success">Generate Payroll</a>
+                    </td></tr>
+                <?php else: ?>
+                    <?php foreach ($payrolls as $p): ?>
+                    <tr>
+                        <td>
+                            <strong><?= htmlspecialchars($p['first_name'] . ' ' . $p['last_name']) ?></strong><br>
+                            <small style="color: #7f8c8d;"><?= htmlspecialchars($p['emp_id']) ?></small>
+                        </td>
+                        <td><?= htmlspecialchars($p['department'] ?? '-') ?></td>
+                        <td><?= $p['days_present'] ?> / <?= $p['working_days'] ?></td>
+                        <td class="number"><?= number_format($p['gross_earnings'], 2) ?></td>
+                        <td class="number"><?= number_format($p['total_deductions'], 2) ?></td>
+                        <td class="number"><strong><?= number_format($p['net_pay'], 2) ?></strong></td>
+                        <td>
+                            <span class="status-badge status-<?= $p['status'] ?>"><?= $p['status'] ?></span>
+                        </td>
+                        <td>
+                            <a href="payroll_view.php?id=<?= $p['id'] ?>" class="btn btn-sm">View</a>
+                            <?php if ($p['status'] === 'Draft'): ?>
+                                <a href="payroll_edit.php?id=<?= $p['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 </body>
