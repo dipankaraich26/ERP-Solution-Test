@@ -98,7 +98,7 @@ $stock_by_category = safeQuery($pdo, "
 ");
 
 // Top 20 high value parts (by unit rate) - includes zero stock, excludes specific parts
-$excludedParts = ['yid', '42', '44', '46', '52', '83', '91', '99'];
+$excludedParts = ['yid', '30', '42', '44', '46', '52', '83', '91', '99'];
 $high_value_parts = [];
 try {
     $stmt = $pdo->query("
