@@ -9,14 +9,39 @@ include "../includes/sidebar.php";
 // Search functionality
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
+// Column filters
+$f_part_id = isset($_GET['f_part_id']) ? trim($_GET['f_part_id']) : '';
+$f_part_name = isset($_GET['f_part_name']) ? trim($_GET['f_part_name']) : '';
+$f_part_no = isset($_GET['f_part_no']) ? trim($_GET['f_part_no']) : '';
+$f_category = isset($_GET['f_category']) ? trim($_GET['f_category']) : '';
+$f_description = isset($_GET['f_description']) ? trim($_GET['f_description']) : '';
+$f_uom = isset($_GET['f_uom']) ? trim($_GET['f_uom']) : '';
+$f_rate = isset($_GET['f_rate']) ? trim($_GET['f_rate']) : '';
+$f_hsn = isset($_GET['f_hsn']) ? trim($_GET['f_hsn']) : '';
+$f_gst = isset($_GET['f_gst']) ? trim($_GET['f_gst']) : '';
+$f_stock = isset($_GET['f_stock']) ? trim($_GET['f_stock']) : '';
+$f_on_order = isset($_GET['f_on_order']) ? trim($_GET['f_on_order']) : '';
+$f_in_wo = isset($_GET['f_in_wo']) ? trim($_GET['f_in_wo']) : '';
+
+// Check if any filter is active
+$hasFilters = $f_part_id !== '' || $f_part_name !== '' || $f_part_no !== '' || $f_category !== '' ||
+              $f_description !== '' || $f_uom !== '' || $f_rate !== '' || $f_hsn !== '' ||
+              $f_gst !== '' || $f_stock !== '' || $f_on_order !== '' || $f_in_wo !== '';
+
+// Get dropdown options from database (for entire database, not just current page)
+$categoryOptions = $pdo->query("SELECT DISTINCT category FROM part_master WHERE status='active' AND category IS NOT NULL AND category != '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+$uomOptions = $pdo->query("SELECT DISTINCT uom FROM part_master WHERE status='active' AND uom IS NOT NULL AND uom != '' ORDER BY uom")->fetchAll(PDO::FETCH_COLUMN);
+$gstOptions = $pdo->query("SELECT DISTINCT gst FROM part_master WHERE status='active' AND gst IS NOT NULL AND gst != '' ORDER BY gst")->fetchAll(PDO::FETCH_COLUMN);
+
 // Pagination setup
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page = max(1, $page); // Ensure page is at least 1
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
-// Build query with search
+// Build query with search and filters
 $whereClause = "WHERE p.status='active'";
+$havingClause = "";
 $params = [];
 
 if ($search !== '') {
@@ -29,8 +54,88 @@ if ($search !== '') {
     $params[':search'] = '%' . $search . '%';
 }
 
-// Get total count
-$countSql = "SELECT COUNT(*) FROM part_master p $whereClause";
+// Apply column filters
+if ($f_part_id !== '') {
+    $whereClause .= " AND p.part_id LIKE :f_part_id";
+    $params[':f_part_id'] = '%' . $f_part_id . '%';
+}
+if ($f_part_name !== '') {
+    $whereClause .= " AND p.part_name LIKE :f_part_name";
+    $params[':f_part_name'] = '%' . $f_part_name . '%';
+}
+if ($f_part_no !== '') {
+    $whereClause .= " AND p.part_no LIKE :f_part_no";
+    $params[':f_part_no'] = '%' . $f_part_no . '%';
+}
+if ($f_category !== '') {
+    $whereClause .= " AND p.category = :f_category";
+    $params[':f_category'] = $f_category;
+}
+if ($f_description !== '') {
+    $whereClause .= " AND p.description LIKE :f_description";
+    $params[':f_description'] = '%' . $f_description . '%';
+}
+if ($f_uom !== '') {
+    $whereClause .= " AND p.uom = :f_uom";
+    $params[':f_uom'] = $f_uom;
+}
+if ($f_rate !== '') {
+    $whereClause .= " AND p.rate LIKE :f_rate";
+    $params[':f_rate'] = '%' . $f_rate . '%';
+}
+if ($f_hsn !== '') {
+    $whereClause .= " AND p.hsn_code LIKE :f_hsn";
+    $params[':f_hsn'] = '%' . $f_hsn . '%';
+}
+if ($f_gst !== '') {
+    $whereClause .= " AND p.gst = :f_gst";
+    $params[':f_gst'] = $f_gst;
+}
+
+// Stock, On Order, In WO filters need HAVING clause since they use aggregated/computed columns
+$havingConditions = [];
+if ($f_stock === 'in-stock') {
+    $havingConditions[] = "current_stock > 0";
+} elseif ($f_stock === 'out-of-stock') {
+    $havingConditions[] = "(current_stock <= 0 OR current_stock IS NULL)";
+}
+if ($f_on_order === 'has-orders') {
+    $havingConditions[] = "on_order > 0";
+} elseif ($f_on_order === 'no-orders') {
+    $havingConditions[] = "(on_order <= 0 OR on_order IS NULL)";
+}
+if ($f_in_wo === 'in-wo') {
+    $havingConditions[] = "in_wo > 0";
+} elseif ($f_in_wo === 'not-in-wo') {
+    $havingConditions[] = "(in_wo <= 0 OR in_wo IS NULL)";
+}
+if (!empty($havingConditions)) {
+    $havingClause = "HAVING " . implode(" AND ", $havingConditions);
+}
+
+// Get total count - need to use subquery if we have HAVING clause
+if (!empty($havingConditions)) {
+    $countSql = "SELECT COUNT(*) FROM (
+        SELECT p.id,
+            COALESCE(i.qty, 0) as current_stock,
+            COALESCE((
+                SELECT SUM(po.qty) - COALESCE(SUM((SELECT COALESCE(SUM(se.received_qty),0) FROM stock_entries se WHERE se.po_id = po.id AND se.status='posted')),0)
+                FROM purchase_orders po
+                WHERE po.part_no = p.part_no AND po.status NOT IN ('closed', 'cancelled')
+            ), 0) as on_order,
+            COALESCE((
+                SELECT SUM(wo.qty)
+                FROM work_orders wo
+                WHERE wo.part_no = p.part_no AND wo.status NOT IN ('completed', 'cancelled', 'closed')
+            ), 0) as in_wo
+        FROM part_master p
+        LEFT JOIN inventory i ON p.part_no = i.part_no
+        $whereClause
+        $havingClause
+    ) as filtered_parts";
+} else {
+    $countSql = "SELECT COUNT(*) FROM part_master p $whereClause";
+}
 $countStmt = $pdo->prepare($countSql);
 foreach ($params as $key => $val) {
     $countStmt->bindValue($key, $val);
@@ -39,6 +144,23 @@ $countStmt->execute();
 $total_count = $countStmt->fetchColumn();
 
 $total_pages = ceil($total_count / $per_page);
+
+// Build filter query string for pagination links
+$filterParams = [];
+if ($search !== '') $filterParams[] = 'search=' . urlencode($search);
+if ($f_part_id !== '') $filterParams[] = 'f_part_id=' . urlencode($f_part_id);
+if ($f_part_name !== '') $filterParams[] = 'f_part_name=' . urlencode($f_part_name);
+if ($f_part_no !== '') $filterParams[] = 'f_part_no=' . urlencode($f_part_no);
+if ($f_category !== '') $filterParams[] = 'f_category=' . urlencode($f_category);
+if ($f_description !== '') $filterParams[] = 'f_description=' . urlencode($f_description);
+if ($f_uom !== '') $filterParams[] = 'f_uom=' . urlencode($f_uom);
+if ($f_rate !== '') $filterParams[] = 'f_rate=' . urlencode($f_rate);
+if ($f_hsn !== '') $filterParams[] = 'f_hsn=' . urlencode($f_hsn);
+if ($f_gst !== '') $filterParams[] = 'f_gst=' . urlencode($f_gst);
+if ($f_stock !== '') $filterParams[] = 'f_stock=' . urlencode($f_stock);
+if ($f_on_order !== '') $filterParams[] = 'f_on_order=' . urlencode($f_on_order);
+if ($f_in_wo !== '') $filterParams[] = 'f_in_wo=' . urlencode($f_in_wo);
+$filterQueryString = !empty($filterParams) ? '&' . implode('&', $filterParams) : '';
 ?>
 <!DOCTYPE html>
 <html>
@@ -222,7 +344,7 @@ $total_pages = ceil($total_count / $per_page);
             <a href="inactive.php" class="btn btn-primary">View Inactive Parts</a>
             <a href="import.php" class="btn btn-primary">Import from Excel</a>
             <a href="download_template.php" class="btn btn-secondary">Download Template</a>
-            <a href="download_parts.php<?= $search !== '' ? '?search=' . urlencode($search) : '' ?>" class="btn btn-success">Download Excel</a>
+            <a href="download_parts.php?<?= ltrim($filterQueryString, '&') ?>" class="btn btn-success">Download Excel</a>
         </div>
 
         <!-- Search Form with Dynamic Filtering -->
@@ -264,10 +386,12 @@ $total_pages = ceil($total_count / $per_page);
     </form>
 
     <!-- Filter Info Bar -->
-    <div class="filter-info" id="filterInfo">
-        <span><strong id="filteredCount">0</strong> of <?= $total_count ?> parts shown</span>
-        <button type="button" class="clear-filters-btn" onclick="clearAllFilters()">Clear All Filters</button>
+    <?php if ($hasFilters): ?>
+    <div class="filter-info active">
+        <span><strong><?= $total_count ?></strong> parts found with current filters</span>
+        <a href="list.php" class="clear-filters-btn">Clear All Filters</a>
     </div>
+    <?php endif; ?>
 
     <div style="overflow-x: auto;">
     <table border="1" cellpadding="8" id="partsTable">
@@ -292,51 +416,62 @@ $total_pages = ceil($total_count / $per_page);
         </tr>
         <tr class="filter-row">
             <th class="checkbox-cell">
-                <button type="button" class="clear-filters-btn" onclick="clearAllFilters()" title="Clear all filters">✕</button>
+                <?php if ($hasFilters): ?>
+                <a href="list.php" class="clear-filters-btn" title="Clear all filters">✕</a>
+                <?php endif; ?>
             </th>
-            <th><input type="text" class="column-filter" data-column="1" placeholder="Filter..." onkeyup="filterTable()"></th>
-            <th><input type="text" class="column-filter" data-column="2" placeholder="Filter..." onkeyup="filterTable()"></th>
-            <th><input type="text" class="column-filter" data-column="3" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th><input type="text" class="column-filter <?= $f_part_id !== '' ? 'filter-active' : '' ?>" name="f_part_id" placeholder="Filter..." value="<?= htmlspecialchars($f_part_id) ?>" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
+            <th><input type="text" class="column-filter <?= $f_part_name !== '' ? 'filter-active' : '' ?>" name="f_part_name" placeholder="Filter..." value="<?= htmlspecialchars($f_part_name) ?>" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
+            <th><input type="text" class="column-filter <?= $f_part_no !== '' ? 'filter-active' : '' ?>" name="f_part_no" placeholder="Filter..." value="<?= htmlspecialchars($f_part_no) ?>" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
             <th>
-                <select class="filter-select" data-column="4" onchange="filterTable()">
+                <select class="filter-select <?= $f_category !== '' ? 'filter-active' : '' ?>" name="f_category" onchange="applyFilters()">
                     <option value="">All</option>
+                    <?php foreach ($categoryOptions as $cat): ?>
+                    <option value="<?= htmlspecialchars($cat) ?>" <?= $f_category === $cat ? 'selected' : '' ?>><?= htmlspecialchars($cat) ?></option>
+                    <?php endforeach; ?>
                 </select>
             </th>
-            <th><input type="text" class="column-filter" data-column="5" placeholder="Filter..." onkeyup="filterTable()"></th>
+            <th><input type="text" class="column-filter <?= $f_description !== '' ? 'filter-active' : '' ?>" name="f_description" placeholder="Filter..." value="<?= htmlspecialchars($f_description) ?>" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
             <th>
-                <select class="filter-select" data-column="6" onchange="filterTable()">
+                <select class="filter-select <?= $f_uom !== '' ? 'filter-active' : '' ?>" name="f_uom" onchange="applyFilters()">
                     <option value="">All</option>
+                    <?php foreach ($uomOptions as $u): ?>
+                    <option value="<?= htmlspecialchars($u) ?>" <?= $f_uom === $u ? 'selected' : '' ?>><?= htmlspecialchars($u) ?></option>
+                    <?php endforeach; ?>
                 </select>
             </th>
-            <th><input type="text" class="column-filter" data-column="7" placeholder="Filter..." onkeyup="filterTable()" style="width: 60px;"></th>
-            <th><input type="text" class="column-filter" data-column="8" placeholder="Filter..." onkeyup="filterTable()" style="width: 70px;"></th>
+            <th><input type="text" class="column-filter <?= $f_rate !== '' ? 'filter-active' : '' ?>" name="f_rate" placeholder="Filter..." value="<?= htmlspecialchars($f_rate) ?>" style="width: 60px;" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
+            <th><input type="text" class="column-filter <?= $f_hsn !== '' ? 'filter-active' : '' ?>" name="f_hsn" placeholder="Filter..." value="<?= htmlspecialchars($f_hsn) ?>" style="width: 70px;" onkeydown="if(event.key==='Enter'){applyFilters();}"></th>
             <th>
-                <select class="filter-select" data-column="9" onchange="filterTable()">
+                <select class="filter-select <?= $f_gst !== '' ? 'filter-active' : '' ?>" name="f_gst" onchange="applyFilters()">
                     <option value="">All</option>
-                </select>
-            </th>
-            <th>
-                <select class="filter-select" data-column="10" onchange="filterTable()">
-                    <option value="">All</option>
-                    <option value="in-stock">In Stock</option>
-                    <option value="out-of-stock">Out of Stock</option>
-                </select>
-            </th>
-            <th>
-                <select class="filter-select" data-column="11" onchange="filterTable()">
-                    <option value="">All</option>
-                    <option value="has-orders">Has Orders</option>
-                    <option value="no-orders">No Orders</option>
+                    <?php foreach ($gstOptions as $g): ?>
+                    <option value="<?= htmlspecialchars($g) ?>" <?= $f_gst === $g ? 'selected' : '' ?>><?= htmlspecialchars($g) ?></option>
+                    <?php endforeach; ?>
                 </select>
             </th>
             <th>
-                <select class="filter-select" data-column="12" onchange="filterTable()">
+                <select class="filter-select <?= $f_stock !== '' ? 'filter-active' : '' ?>" name="f_stock" onchange="applyFilters()">
                     <option value="">All</option>
-                    <option value="in-wo">In WO</option>
-                    <option value="not-in-wo">Not in WO</option>
+                    <option value="in-stock" <?= $f_stock === 'in-stock' ? 'selected' : '' ?>>In Stock</option>
+                    <option value="out-of-stock" <?= $f_stock === 'out-of-stock' ? 'selected' : '' ?>>Out of Stock</option>
                 </select>
             </th>
-            <th></th>
+            <th>
+                <select class="filter-select <?= $f_on_order !== '' ? 'filter-active' : '' ?>" name="f_on_order" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="has-orders" <?= $f_on_order === 'has-orders' ? 'selected' : '' ?>>Has Orders</option>
+                    <option value="no-orders" <?= $f_on_order === 'no-orders' ? 'selected' : '' ?>>No Orders</option>
+                </select>
+            </th>
+            <th>
+                <select class="filter-select <?= $f_in_wo !== '' ? 'filter-active' : '' ?>" name="f_in_wo" onchange="applyFilters()">
+                    <option value="">All</option>
+                    <option value="in-wo" <?= $f_in_wo === 'in-wo' ? 'selected' : '' ?>>In WO</option>
+                    <option value="not-in-wo" <?= $f_in_wo === 'not-in-wo' ? 'selected' : '' ?>>Not in WO</option>
+                </select>
+            </th>
+            <th><button type="button" class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;" onclick="applyFilters()">Filter</button></th>
         </tr>
         </thead>
         <tbody>
@@ -364,7 +499,7 @@ $total_pages = ceil($total_count / $per_page);
                 (SELECT COUNT(*) FROM part_supplier_mapping psm WHERE psm.part_no = p.part_no AND psm.active = 1) as supplier_count
                 FROM part_master p
                 LEFT JOIN inventory i ON p.part_no = i.part_no
-                $whereClause ORDER BY p.part_no LIMIT :limit OFFSET :offset";
+                $whereClause $havingClause ORDER BY p.part_no LIMIT :limit OFFSET :offset";
         $stmt = $pdo->prepare($sql);
         foreach ($params as $key => $val) {
             $stmt->bindValue($key, $val);
@@ -434,140 +569,29 @@ $total_pages = ceil($total_count / $per_page);
 
     <!-- JavaScript for Selection and Filtering -->
     <script>
-    // Populate filter dropdowns on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        populateFilterDropdowns();
-    });
+    // Server-side filtering - collect filter values and redirect
+    function applyFilters() {
+        const params = new URLSearchParams();
 
-    function populateFilterDropdowns() {
-        const table = document.getElementById('partsTable');
-        const tbody = table.querySelector('tbody');
-        const rows = tbody.querySelectorAll('tr');
-
-        // Column indices for dropdowns: Category(4), UOM(6), GST(9)
-        const dropdownColumns = {
-            4: new Set(), // Category
-            6: new Set(), // UOM
-            9: new Set()  // GST
-        };
-
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            if (cells.length > 0) {
-                Object.keys(dropdownColumns).forEach(colIndex => {
-                    const cellText = cells[colIndex]?.textContent?.trim();
-                    if (cellText && cellText !== '-') {
-                        dropdownColumns[colIndex].add(cellText);
-                    }
-                });
-            }
-        });
-
-        // Populate the select dropdowns
-        Object.keys(dropdownColumns).forEach(colIndex => {
-            const select = document.querySelector(`.filter-select[data-column="${colIndex}"]`);
-            if (select) {
-                const values = Array.from(dropdownColumns[colIndex]).sort();
-                values.forEach(value => {
-                    const option = document.createElement('option');
-                    option.value = value;
-                    option.textContent = value;
-                    select.appendChild(option);
-                });
-            }
-        });
-    }
-
-    function filterTable() {
-        const table = document.getElementById('partsTable');
-        const tbody = table.querySelector('tbody');
-        const rows = tbody.querySelectorAll('tr');
+        // Get all filter inputs
         const filters = document.querySelectorAll('.column-filter, .filter-select');
-
-        let visibleCount = 0;
-        let hasActiveFilter = false;
-
-        // Check if any filter is active
         filters.forEach(filter => {
-            if (filter.value.trim() !== '') {
-                hasActiveFilter = true;
-                filter.classList.add('filter-active');
-            } else {
-                filter.classList.remove('filter-active');
+            const name = filter.name;
+            const value = filter.value.trim();
+            if (name && value !== '') {
+                params.set(name, value);
             }
         });
 
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            let showRow = true;
-
-            filters.forEach(filter => {
-                const colIndex = parseInt(filter.dataset.column);
-                const filterValue = filter.value.trim().toLowerCase();
-
-                if (filterValue === '') return;
-
-                const cell = cells[colIndex];
-                if (!cell) return;
-
-                const cellText = cell.textContent.trim().toLowerCase();
-
-                // Special handling for Stock, On Order, In WO columns
-                if (colIndex === 10) { // Stock
-                    const stockValue = parseInt(cellText) || 0;
-                    if (filterValue === 'in-stock' && stockValue <= 0) showRow = false;
-                    if (filterValue === 'out-of-stock' && stockValue > 0) showRow = false;
-                } else if (colIndex === 11) { // On Order
-                    const hasOrder = cellText !== '-' && parseInt(cellText) > 0;
-                    if (filterValue === 'has-orders' && !hasOrder) showRow = false;
-                    if (filterValue === 'no-orders' && hasOrder) showRow = false;
-                } else if (colIndex === 12) { // In WO
-                    const hasWO = cellText !== '-' && parseInt(cellText) > 0;
-                    if (filterValue === 'in-wo' && !hasWO) showRow = false;
-                    if (filterValue === 'not-in-wo' && hasWO) showRow = false;
-                } else {
-                    // Text-based filter (contains)
-                    if (!cellText.includes(filterValue)) {
-                        showRow = false;
-                    }
-                }
-            });
-
-            row.style.display = showRow ? '' : 'none';
-            if (showRow) visibleCount++;
-        });
-
-        // Update filter info
-        const filterInfo = document.getElementById('filterInfo');
-        const filteredCount = document.getElementById('filteredCount');
-        filteredCount.textContent = visibleCount;
-
-        if (hasActiveFilter) {
-            filterInfo.classList.add('active');
-        } else {
-            filterInfo.classList.remove('active');
+        // Preserve search if exists
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value.trim() !== '') {
+            params.set('search', searchInput.value.trim());
         }
 
-        updateSelection();
-    }
-
-    function clearAllFilters() {
-        const filters = document.querySelectorAll('.column-filter, .filter-select');
-        filters.forEach(filter => {
-            filter.value = '';
-            filter.classList.remove('filter-active');
-        });
-
-        // Show all rows
-        const table = document.getElementById('partsTable');
-        const tbody = table.querySelector('tbody');
-        const rows = tbody.querySelectorAll('tr');
-        rows.forEach(row => {
-            row.style.display = '';
-        });
-
-        document.getElementById('filterInfo').classList.remove('active');
-        updateSelection();
+        // Navigate with filters
+        const queryString = params.toString();
+        window.location.href = 'list.php' + (queryString ? '?' + queryString : '');
     }
 
     function toggleSelectAll() {
@@ -825,11 +849,10 @@ $total_pages = ceil($total_count / $per_page);
 
     <!-- Pagination -->
     <?php if ($total_pages > 1): ?>
-    <?php $searchParam = $search !== '' ? '&search=' . urlencode($search) : ''; ?>
     <div style="margin-top: 20px; text-align: center;">
         <?php if ($page > 1): ?>
-            <a href="?page=1<?= $searchParam ?>" class="btn btn-secondary">First</a>
-            <a href="?page=<?= $page - 1 ?><?= $searchParam ?>" class="btn btn-secondary">Previous</a>
+            <a href="?page=1<?= $filterQueryString ?>" class="btn btn-secondary">First</a>
+            <a href="?page=<?= $page - 1 ?><?= $filterQueryString ?>" class="btn btn-secondary">Previous</a>
         <?php endif; ?>
 
         <span style="margin: 0 10px;">
@@ -837,8 +860,8 @@ $total_pages = ceil($total_count / $per_page);
         </span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page + 1 ?><?= $searchParam ?>" class="btn btn-secondary">Next</a>
-            <a href="?page=<?= $total_pages ?><?= $searchParam ?>" class="btn btn-secondary">Last</a>
+            <a href="?page=<?= $page + 1 ?><?= $filterQueryString ?>" class="btn btn-secondary">Next</a>
+            <a href="?page=<?= $total_pages ?><?= $filterQueryString ?>" class="btn btn-secondary">Last</a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
