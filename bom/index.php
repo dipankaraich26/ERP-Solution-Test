@@ -11,12 +11,53 @@ try {
     }
 } catch (PDOException $e) {}
 
-// Recursive BOM cost calculation — uses sub-BOM cost for assembly items
+/**
+ * Get LATEST rate for a part based on supplier pricing:
+ * 1. If preferred supplier exists → use that rate
+ * 2. Else if any active supplier exists → use lowest rate
+ * 3. Else → use part_master rate
+ */
+function getPartRate($pdo, $part_no) {
+    try {
+        // First check for preferred supplier
+        $prefStmt = $pdo->prepare("
+            SELECT supplier_rate FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND is_preferred = 1
+            AND supplier_rate > 0
+            LIMIT 1
+        ");
+        $prefStmt->execute([$part_no]);
+        $preferred = $prefStmt->fetchColumn();
+        if ($preferred && $preferred > 0) {
+            return (float)$preferred;
+        }
+
+        // Check for lowest active supplier rate
+        $supStmt = $pdo->prepare("
+            SELECT MIN(supplier_rate) FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND supplier_rate > 0
+        ");
+        $supStmt->execute([$part_no]);
+        $lowestRate = $supStmt->fetchColumn();
+        if ($lowestRate && $lowestRate > 0) {
+            return (float)$lowestRate;
+        }
+    } catch (PDOException $e) {
+        // Table might not exist
+    }
+
+    // Fallback to part_master rate
+    $pmStmt = $pdo->prepare("SELECT rate FROM part_master WHERE part_no = ?");
+    $pmStmt->execute([$part_no]);
+    return (float)$pmStmt->fetchColumn() ?: 0;
+}
+
+// Recursive BOM cost calculation — uses LATEST supplier rates and sub-BOM costs
 function calculateBomCost($pdo, $bom_id, $depth = 0) {
     if ($depth > 10) return 0; // Prevent infinite recursion
 
     $stmt = $pdo->prepare("
-        SELECT bi.qty, bi.rate, bi.component_part_no
+        SELECT bi.qty, bi.component_part_no
         FROM bom_items bi
         WHERE bi.bom_id = ?
     ");
@@ -40,8 +81,9 @@ function calculateBomCost($pdo, $bom_id, $depth = 0) {
             $subCost = calculateBomCost($pdo, $subBom['id'], $depth + 1);
             $total += (float)$item['qty'] * $subCost;
         } else {
-            // Regular part: use bom_items.rate
-            $total += (float)$item['qty'] * (float)$item['rate'];
+            // Regular part: use LATEST supplier rate (not stored rate)
+            $rate = getPartRate($pdo, $item['component_part_no']);
+            $total += (float)$item['qty'] * $rate;
         }
     }
 

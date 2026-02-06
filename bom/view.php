@@ -11,6 +11,47 @@ try {
     }
 } catch (PDOException $e) {}
 
+/**
+ * Get LATEST rate for a part based on supplier pricing:
+ * 1. If preferred supplier exists → use that rate
+ * 2. Else if any active supplier exists → use lowest rate
+ * 3. Else → use part_master rate
+ */
+function getPartRate($pdo, $part_no) {
+    try {
+        // First check for preferred supplier
+        $prefStmt = $pdo->prepare("
+            SELECT supplier_rate FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND is_preferred = 1
+            AND supplier_rate > 0
+            LIMIT 1
+        ");
+        $prefStmt->execute([$part_no]);
+        $preferred = $prefStmt->fetchColumn();
+        if ($preferred && $preferred > 0) {
+            return (float)$preferred;
+        }
+
+        // Check for lowest active supplier rate
+        $supStmt = $pdo->prepare("
+            SELECT MIN(supplier_rate) FROM part_supplier_mapping
+            WHERE part_no = ? AND (active = 1 OR active IS NULL) AND supplier_rate > 0
+        ");
+        $supStmt->execute([$part_no]);
+        $lowestRate = $supStmt->fetchColumn();
+        if ($lowestRate && $lowestRate > 0) {
+            return (float)$lowestRate;
+        }
+    } catch (PDOException $e) {
+        // Table might not exist
+    }
+
+    // Fallback to part_master rate
+    $pmStmt = $pdo->prepare("SELECT rate FROM part_master WHERE part_no = ?");
+    $pmStmt->execute([$part_no]);
+    return (float)$pmStmt->fetchColumn() ?: 0;
+}
+
 $id = $_GET['id'];
 
 $bom = $pdo->prepare("
@@ -70,15 +111,19 @@ function getSubBomItems($pdo, $part_no, $depth = 0) {
         return null;
     }
 
-    // Calculate sub-BOM cost recursively
+    // Calculate sub-BOM cost recursively using LATEST supplier rates
     $subBomCost = 0;
     foreach ($subItems as &$si) {
+        // Get latest rate from supplier pricing
+        $si['rate'] = getPartRate($pdo, $si['part_no']);
+
         // Check if this sub-item itself has a child BOM
         $si['sub_bom'] = getSubBomItems($pdo, $si['part_no'], $depth + 1);
         if (!empty($si['sub_bom'])) {
             // Use child BOM total cost as effective rate
             $si['effective_rate'] = $si['sub_bom']['total_cost'];
         } else {
+            // Use latest supplier rate
             $si['effective_rate'] = (float)$si['rate'];
         }
         $si['effective_cost'] = (float)$si['qty'] * $si['effective_rate'];
@@ -101,14 +146,17 @@ foreach ($itemsData as &$item) {
 }
 unset($item);
 
-// Calculate total BOM cost using sub-BOM costs for assembly items
+// Calculate total BOM cost using LATEST supplier rates and sub-BOM costs
 $totalBomCost = 0;
 foreach ($itemsData as &$item) {
+    // Get latest rate from supplier pricing for this part
+    $item['rate'] = getPartRate($pdo, $item['part_no']);
+
     if (!empty($item['sub_bom'])) {
         // Sub-assembly: cost = qty × sub-BOM total cost
         $item['effective_rate'] = $item['sub_bom']['total_cost'];
     } else {
-        // Regular part: cost = qty × bom_items.rate
+        // Regular part: cost = qty × latest supplier rate
         $item['effective_rate'] = (float)$item['rate'];
     }
     $item['effective_cost'] = (float)$item['qty'] * $item['effective_rate'];
