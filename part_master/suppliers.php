@@ -244,19 +244,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <button onclick="editSupplier(<?= $supplier['id'] ?>)" class="btn btn-small">Edit</button>
-                                    <form method="post" style="display: inline;">
-                                        <input type="hidden" name="action" value="toggle_active">
-                                        <input type="hidden" name="mapping_id" value="<?= $supplier['id'] ?>">
-                                        <button type="submit" class="btn btn-small btn-warning">
-                                            <?= $supplier['active'] ? 'Deactivate' : 'Activate' ?>
-                                        </button>
-                                    </form>
-                                    <form method="post" style="display: inline;" onsubmit="return confirm('Remove this supplier?');">
-                                        <input type="hidden" name="action" value="delete_supplier">
-                                        <input type="hidden" name="mapping_id" value="<?= $supplier['id'] ?>">
-                                        <button type="submit" class="btn btn-small btn-danger">Delete</button>
-                                    </form>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                                        <button type="button" onclick="editSupplier(<?= $supplier['id'] ?>)" class="btn btn-primary" style="padding: 5px 10px; font-size: 12px;">Edit</button>
+                                        <form method="post" style="display: inline;">
+                                            <input type="hidden" name="action" value="toggle_active">
+                                            <input type="hidden" name="mapping_id" value="<?= $supplier['id'] ?>">
+                                            <button type="submit" class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;">
+                                                <?= $supplier['active'] ? 'Deactivate' : 'Activate' ?>
+                                            </button>
+                                        </form>
+                                        <form method="post" style="display: inline;" onsubmit="return confirm('Remove this supplier?');">
+                                            <input type="hidden" name="action" value="delete_supplier">
+                                            <input type="hidden" name="mapping_id" value="<?= $supplier['id'] ?>">
+                                            <button type="submit" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -327,11 +329,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 </div>
 
+<!-- Edit Modal -->
+<div id="editModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 25px; border-radius: 10px; width: 100%; max-width: 500px; margin: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+        <h3 style="margin: 0 0 20px 0; padding-bottom: 10px; border-bottom: 2px solid #3498db;">Edit Supplier Details</h3>
+        <form method="post" id="editForm">
+            <input type="hidden" name="action" value="update_supplier">
+            <input type="hidden" name="mapping_id" id="edit_mapping_id">
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Supplier</label>
+                <input type="text" id="edit_supplier_name" disabled style="width: 100%; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px;">
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Rate (₹) *</label>
+                <input type="number" name="supplier_rate" id="edit_rate" step="0.01" min="0" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div>
+                    <label style="display: block; font-weight: 600; margin-bottom: 5px;">Lead Time (days)</label>
+                    <input type="number" name="lead_time_days" id="edit_lead_time" min="1" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+                <div>
+                    <label style="display: block; font-weight: 600; margin-bottom: 5px;">Min Order Qty</label>
+                    <input type="number" name="min_order_qty" id="edit_min_qty" min="1" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" name="is_preferred" id="edit_preferred">
+                    <span>Mark as Preferred Supplier</span>
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeEditModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+// Store supplier data for edit modal
+const supplierData = <?= json_encode($currentSuppliers) ?>;
+
 function editSupplier(mappingId) {
-    // In a real app, this would open an edit modal or redirect to edit page
-    alert('Edit functionality would be implemented with a modal or separate page');
+    // Find supplier by mapping id
+    const supplier = supplierData.find(s => s.id == mappingId);
+    if (!supplier) {
+        alert('Supplier not found');
+        return;
+    }
+
+    // Populate modal fields
+    document.getElementById('edit_mapping_id').value = mappingId;
+    document.getElementById('edit_supplier_name').value = supplier.supplier_name + (supplier.supplier_code ? ' (' + supplier.supplier_code + ')' : '');
+    document.getElementById('edit_rate').value = parseFloat(supplier.supplier_rate).toFixed(2);
+    document.getElementById('edit_lead_time').value = supplier.lead_time_days || 5;
+    document.getElementById('edit_min_qty').value = supplier.min_order_qty || 1;
+    document.getElementById('edit_preferred').checked = supplier.is_preferred == 1;
+
+    // Show modal
+    document.getElementById('editModal').style.display = 'flex';
 }
+
+function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+
+// Close modal on outside click
+document.getElementById('editModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEditModal();
+    }
+});
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEditModal();
+    }
+});
 
 function updateSupplierFields() {
     // Could auto-populate supplier info here if needed
