@@ -611,8 +611,7 @@ if (toggle) {
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>ID</th>
-                        <th>Part #</th>
+                        <th>Part ID</th>
                         <th>Part Name</th>
                         <th class="text-center">Qty</th>
                         <th class="text-right">Unit Rate</th>
@@ -629,9 +628,8 @@ if (toggle) {
                     ?>
                     <tr>
                         <td><?= $index + 1 ?></td>
-                        <td style="color: #6c757d;"><?= $item['id'] ?></td>
                         <td><a href="/part_master/view.php?part_no=<?= urlencode($item['part_no']) ?>"><?= htmlspecialchars($item['part_no']) ?></a></td>
-                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 35)) ?><?= strlen($item['part_name'] ?? '') > 35 ? '...' : '' ?></td>
+                        <td><?= htmlspecialchars(substr($item['part_name'] ?? '', 0, 40)) ?><?= strlen($item['part_name'] ?? '') > 40 ? '...' : '' ?></td>
                         <td class="text-center"><?= number_format($item['qty']) ?></td>
                         <td class="text-right" style="font-weight: bold; color: #e74c3c;">₹<?= number_format($item['rate'], 2) ?></td>
                         <td class="text-right">₹<?= number_format($item['total_value'], 2) ?></td>
@@ -640,7 +638,7 @@ if (toggle) {
                 </tbody>
                 <tfoot>
                     <tr style="background: #f8f9fa; font-weight: bold;">
-                        <td colspan="4">Total (Top 20)</td>
+                        <td colspan="3">Total (Top 20)</td>
                         <td class="text-center"><?= number_format($totalQtyHV) ?></td>
                         <td class="text-right">-</td>
                         <td class="text-right" style="color: #1b5e20;">₹<?= number_format($totalValueHV, 2) ?></td>
