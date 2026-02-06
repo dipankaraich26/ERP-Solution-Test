@@ -97,13 +97,14 @@ $stock_by_category = safeQuery($pdo, "
     LIMIT 8
 ");
 
-// Top 20 high value parts (by unit rate) - includes zero stock, excludes specific parts
+// Top 20 high value parts (by unit rate) - includes zero stock, excludes specific parts by ID
 $high_value_parts = safeQuery($pdo, "
     SELECT p.part_no, p.part_name, p.description, COALESCE(i.qty, 0) as qty, p.rate, (COALESCE(i.qty, 0) * p.rate) as total_value
     FROM part_master p
     LEFT JOIN inventory i ON i.part_no = p.part_no
     WHERE p.rate > 0
-      AND p.part_no NOT IN ('YID', '42', '44', '46', '52', '83', '91', '99')
+      AND p.id NOT IN (42, 44, 46, 52, 83, 91, 99)
+      AND p.part_no != 'YID'
     ORDER BY p.rate DESC
     LIMIT 20
 ");
