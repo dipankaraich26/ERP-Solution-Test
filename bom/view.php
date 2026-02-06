@@ -272,10 +272,11 @@ if (toggle) {
 <div class="content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">BOM <?= htmlspecialchars($bom['bom_no']) ?></h1>
-        <div class="no-print" style="display: flex; gap: 10px;">
-            <a href="edit.php?id=<?= $id ?>" class="btn btn-warning" style="display: inline-flex; align-items: center; gap: 5px;">✏️ Edit BOM</a>
+        <div class="no-print" style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="edit.php?id=<?= $id ?>" class="btn btn-warning" style="display: inline-flex; align-items: center; gap: 5px;">✏️ Edit</a>
+            <a href="duplicate.php?id=<?= $id ?>" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 5px;" onclick="return confirm('Create a duplicate of this BOM?');">📋 Duplicate</a>
             <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
-            <button onclick="exportToExcel()" class="btn btn-success">📊 Export to Excel</button>
+            <button onclick="exportToExcel()" class="btn btn-success">📊 Export</button>
         </div>
     </div>
 
