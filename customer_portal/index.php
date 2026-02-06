@@ -7,7 +7,7 @@ requireLogin();
 $customer_id = isset($_GET['customer_id']) ? (int)$_GET['customer_id'] : 0;
 
 // Fetch all customers for selection
-$customers = $pdo->query("SELECT id, company_name, customer_name, gst_no FROM customers ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
+$customers = $pdo->query("SELECT id, company_name, customer_name, gstin FROM customers ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get customer details if selected
 $customer = null;
@@ -215,7 +215,7 @@ include "../includes/sidebar.php";
                     <option value="<?= $c['id'] ?>" <?= $customer_id == $c['id'] ? 'selected' : '' ?>>
                         <?= htmlspecialchars($c['company_name']) ?>
                         <?= $c['customer_name'] ? '(' . htmlspecialchars($c['customer_name']) . ')' : '' ?>
-                        <?= $c['gst_no'] ? ' - ' . htmlspecialchars($c['gst_no']) : '' ?>
+                        <?= $c['gstin'] ? ' - ' . htmlspecialchars($c['gstin']) : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -236,15 +236,15 @@ include "../includes/sidebar.php";
                 </div>
                 <div class="info-item">
                     <label>Phone</label>
-                    <span><?= htmlspecialchars($customer['phone'] ?: '-') ?></span>
+                    <span><?= htmlspecialchars($customer['contact'] ?: '-') ?></span>
                 </div>
                 <div class="info-item">
                     <label>GST No</label>
-                    <span><?= htmlspecialchars($customer['gst_no'] ?: '-') ?></span>
+                    <span><?= htmlspecialchars($customer['gstin'] ?: '-') ?></span>
                 </div>
                 <div class="info-item">
                     <label>Address</label>
-                    <span><?= htmlspecialchars($customer['address'] ?: '-') ?></span>
+                    <span><?= htmlspecialchars($customer['address1'] ?: '-') ?></span>
                 </div>
                 <div class="info-item">
                     <label>City / State</label>
