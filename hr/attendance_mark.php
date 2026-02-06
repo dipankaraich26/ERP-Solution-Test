@@ -73,6 +73,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             $savedCount++;
             $debugInfo[] = "✓ Saved for Employee ID $empId";
+
+            // COMP-OFF: If employee works on Holiday/Week Off for > 6 hours, add 1 EL
+            if (in_array($status, ['Holiday', 'Week Off']) && $workingHours > 6) {
+                try {
+                    // Get EL (Earned Leave) type ID
+                    $elTypeStmt = $pdo->prepare("SELECT id FROM leave_types WHERE leave_code = 'EL' AND is_active = 1 LIMIT 1");
+                    $elTypeStmt->execute();
+                    $elTypeId = $elTypeStmt->fetchColumn();
+
+                    if ($elTypeId) {
+                        $currentYear = date('Y', strtotime($date));
+
+                        // Check if balance record exists
+                        $balCheck = $pdo->prepare("SELECT id, allocated, balance FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?");
+                        $balCheck->execute([$empId, $elTypeId, $currentYear]);
+                        $existingBal = $balCheck->fetch(PDO::FETCH_ASSOC);
+
+                        if ($existingBal) {
+                            // Add 1 day to existing balance
+                            $pdo->prepare("UPDATE leave_balances SET allocated = allocated + 1, balance = balance + 1 WHERE id = ?")
+                                ->execute([$existingBal['id']]);
+                        } else {
+                            // Create new balance with 1 day
+                            $pdo->prepare("INSERT INTO leave_balances (employee_id, leave_type_id, year, allocated, used, balance) VALUES (?, ?, ?, 1, 0, 1)")
+                                ->execute([$empId, $elTypeId, $currentYear]);
+                        }
+                        $debugInfo[] = "✓ Added 1 EL (Comp-Off) for Employee ID $empId - worked $workingHours hrs on $status";
+                    }
+                } catch (PDOException $e) {
+                    // Leave tables may not exist - silently skip
+                    $debugInfo[] = "Note: Could not add EL - " . $e->getMessage();
+                }
+            }
         } catch (PDOException $e) {
             // Log the error and continue with other employees
             $errorMsg = $e->getMessage();
@@ -255,6 +288,14 @@ showModal();
     <?php elseif ($isSunday): ?>
         <div class="holiday-notice">
             <strong>Week Off:</strong> Sunday
+        </div>
+    <?php endif; ?>
+
+    <?php if ($holidayName || $isSunday): ?>
+        <div style="background: #d4edda; border: 1px solid #28a745; padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; color: #155724;">
+            <strong>Comp-Off Policy:</strong> If an employee works on this <?= $holidayName ? 'Holiday' : 'Week Off' ?> for more than 6 hours,
+            1 day of Earned Leave (EL) will be automatically added to their leave balance.
+            <br><small>Mark status as "Holiday" or "Week Off" and enter check-in/check-out times to record the extra work.</small>
         </div>
     <?php endif; ?>
 
