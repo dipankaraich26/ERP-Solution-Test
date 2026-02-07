@@ -31,6 +31,8 @@ try {
             i.invoice_date,
             i.released_at,
             i.status,
+            i.eway_bill_no,
+            i.eway_bill_attachment,
             cp.po_no as customer_po_no,
             q.pi_no,
             (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = so.linked_quote_id) as total_value
@@ -205,8 +207,10 @@ include "../includes/sidebar.php";
                             </span>
                         </td>
                         <td>
-                            <a href="/invoices/view.php?id=<?= $inv['id'] ?>" class="btn btn-sm" target="_blank">View</a>
-                            <a href="/invoices/print.php?id=<?= $inv['id'] ?>" class="btn btn-sm btn-secondary" target="_blank">Print</a>
+                            <a href="/invoices/print.php?id=<?= $inv['id'] ?>" class="btn btn-sm btn-primary" target="_blank">Invoice PDF</a>
+                            <?php if (!empty($inv['eway_bill_attachment'])): ?>
+                                <a href="/<?= htmlspecialchars($inv['eway_bill_attachment']) ?>" class="btn btn-sm" style="background: #e74c3c; color: white;" target="_blank">E-Way Bill</a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

@@ -31,6 +31,8 @@ try {
             i.invoice_date,
             i.released_at,
             i.status,
+            i.eway_bill_no,
+            i.eway_bill_attachment,
             cp.po_no as customer_po_no,
             q.pi_no,
             (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = so.linked_quote_id) as total_value
@@ -159,9 +161,11 @@ try {
         .status-draft { background: #fff3cd; color: #856404; }
         .status-released { background: #d4edda; color: #155724; }
 
-        .btn { padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 0.9em; }
+        .btn { padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 0.9em; display: inline-block; margin: 2px 0; }
         .btn-primary { background: #11998e; color: white; }
         .btn-secondary { background: #6c757d; color: white; }
+        .btn-pdf { background: #e74c3c; color: white; }
+        .btn-invoice-pdf { background: #3498db; color: white; }
 
         .empty-state {
             text-align: center;
@@ -256,7 +260,10 @@ try {
                                 </span>
                             </td>
                             <td>
-                                <a href="/invoices/view.php?id=<?= $inv['id'] ?>" class="btn btn-primary" target="_blank">View</a>
+                                <a href="/invoices/print.php?id=<?= $inv['id'] ?>" class="btn btn-invoice-pdf" target="_blank">Invoice PDF</a>
+                                <?php if (!empty($inv['eway_bill_attachment'])): ?>
+                                    <a href="/<?= htmlspecialchars($inv['eway_bill_attachment']) ?>" class="btn btn-pdf" target="_blank">E-Way Bill</a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

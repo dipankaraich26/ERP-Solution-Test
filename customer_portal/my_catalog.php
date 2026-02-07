@@ -16,7 +16,7 @@ if (!$customer) { header("Location: logout.php"); exit; }
 
 $catalogs = [];
 try {
-    $catStmt = $pdo->query("SELECT id, catalog_name, catalog_code, description, category, file_path, thumbnail_path FROM marketing_catalogs WHERE status = 'Active' ORDER BY category, catalog_name");
+    $catStmt = $pdo->query("SELECT id, catalog_name, catalog_code, description, category, image_path, brochure_path FROM marketing_catalogs WHERE status = 'Active' ORDER BY category, catalog_name");
     $catalogs = $catStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
@@ -51,18 +51,52 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
         .back-link { color: #11998e; text-decoration: none; font-weight: 500; }
         .category-section { margin-bottom: 30px; }
         .category-title { font-size: 1.3em; color: #2c3e50; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #11998e; }
-        .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .catalog-grid { display: grid; grid-template-columns: 1fr; gap: 15px; }
         .catalog-card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); overflow: hidden; transition: all 0.3s; }
         .catalog-card:hover { transform: translateY(-3px); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
-        .catalog-thumbnail { width: 100%; height: 160px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); display: flex; align-items: center; justify-content: center; font-size: 4em; color: white; }
-        .catalog-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
-        .catalog-content { padding: 15px; }
-        .catalog-content h4 { margin: 0 0 8px 0; color: #2c3e50; }
-        .catalog-content .desc { font-size: 0.9em; color: #495057; margin-bottom: 15px; line-height: 1.4; max-height: 60px; overflow: hidden; }
-        .catalog-actions { display: flex; gap: 10px; }
-        .catalog-actions a { flex: 1; text-align: center; padding: 8px; border-radius: 6px; text-decoration: none; font-size: 0.9em; }
-        .btn-view { background: #f8f9fa; color: #2c3e50; }
-        .btn-download { background: #11998e; color: white; }
+        .catalog-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            transition: all 0.3s;
+        }
+        .catalog-card:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,0,0,0.12); }
+        .catalog-pdf-icon {
+            width: 60px;
+            height: 70px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.8em;
+            flex-shrink: 0;
+        }
+        .catalog-pdf-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+        .catalog-info { flex: 1; }
+        .catalog-info h4 { margin: 0 0 5px 0; color: #2c3e50; }
+        .catalog-info .code { font-size: 0.85em; color: #7f8c8d; margin-bottom: 5px; }
+        .catalog-info .desc { font-size: 0.9em; color: #495057; line-height: 1.4; }
+        .catalog-actions { display: flex; gap: 10px; flex-shrink: 0; }
+        .btn-pdf-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-pdf-download:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(231,76,60,0.4); }
+        .no-pdf { color: #adb5bd; font-size: 0.9em; font-style: italic; }
         .empty-state { text-align: center; padding: 60px 20px; background: white; border-radius: 12px; color: #7f8c8d; }
         .empty-state .icon { font-size: 4em; margin-bottom: 15px; }
     </style>
@@ -92,14 +126,26 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
             <div class="catalog-grid">
                 <?php foreach ($items as $cat): ?>
                 <div class="catalog-card">
-                    <div class="catalog-thumbnail"><?php if ($cat['thumbnail_path']): ?><img src="/<?= htmlspecialchars($cat['thumbnail_path']) ?>" alt=""><?php else: ?>📄<?php endif; ?></div>
-                    <div class="catalog-content">
+                    <div class="catalog-pdf-icon">
+                        <?php if ($cat['image_path']): ?>
+                            <img src="/<?= htmlspecialchars($cat['image_path']) ?>" alt="">
+                        <?php else: ?>
+                            📄
+                        <?php endif; ?>
+                    </div>
+                    <div class="catalog-info">
                         <h4><?= htmlspecialchars($cat['catalog_name']) ?></h4>
-                        <div class="desc"><?= htmlspecialchars($cat['description'] ?: 'No description available.') ?></div>
-                        <div class="catalog-actions">
-                            <a href="/marketing/catalog_view.php?id=<?= $cat['id'] ?>" class="btn-view" target="_blank">View</a>
-                            <?php if ($cat['file_path']): ?><a href="/<?= htmlspecialchars($cat['file_path']) ?>" class="btn-download" target="_blank" download>Download</a><?php endif; ?>
-                        </div>
+                        <?php if ($cat['catalog_code']): ?><div class="code">Code: <?= htmlspecialchars($cat['catalog_code']) ?></div><?php endif; ?>
+                        <div class="desc"><?= htmlspecialchars($cat['description'] ?: '') ?></div>
+                    </div>
+                    <div class="catalog-actions">
+                        <?php if ($cat['brochure_path']): ?>
+                            <a href="/<?= htmlspecialchars($cat['brochure_path']) ?>" class="btn-pdf-download" target="_blank">
+                                📥 Download PDF
+                            </a>
+                        <?php else: ?>
+                            <span class="no-pdf">PDF not available</span>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endforeach; ?>

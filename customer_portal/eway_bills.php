@@ -20,36 +20,20 @@ if (!$customer) {
     exit;
 }
 
-// Get e-way bills for this customer
+// E-Way bills are stored in invoice_master
 $eway_bills = [];
 try {
-    // Try to get from eway_bills table
     $ewayStmt = $pdo->prepare("
-        SELECT
-            e.id,
-            e.eway_bill_no,
-            e.eway_bill_date,
-            e.valid_upto,
-            e.vehicle_no,
-            e.transporter_name,
-            e.transporter_id,
-            e.distance_km,
-            e.mode_of_transport,
-            e.status,
-            e.invoice_value,
-            i.invoice_no,
-            so.so_no
-        FROM eway_bills e
-        LEFT JOIN invoice_master i ON i.id = e.invoice_id
-        LEFT JOIN sales_orders so ON so.so_no = i.so_no
+        SELECT i.id, i.invoice_no, i.invoice_date, i.eway_bill_no, i.eway_bill_attachment, i.status
+        FROM invoice_master i
+        JOIN (SELECT DISTINCT so_no, customer_id FROM sales_orders) so ON so.so_no = i.so_no
         WHERE so.customer_id = ?
-        ORDER BY e.eway_bill_date DESC
+          AND i.eway_bill_no IS NOT NULL AND i.eway_bill_no != ''
+        ORDER BY i.invoice_date DESC
     ");
     $ewayStmt->execute([$customer_id]);
     $eway_bills = $ewayStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Exception $e) {
-    // Table might not exist
-}
+} catch (Exception $e) {}
 
 include "../includes/sidebar.php";
 ?>
@@ -60,126 +44,28 @@ include "../includes/sidebar.php";
     <title>E-Way Bills - <?= htmlspecialchars($customer['company_name']) ?></title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        .breadcrumb {
-            color: #7f8c8d;
-            margin-bottom: 10px;
-        }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+        .breadcrumb { color: #7f8c8d; margin-bottom: 10px; }
         .breadcrumb a { color: #3498db; text-decoration: none; }
         .breadcrumb a:hover { text-decoration: underline; }
+        .customer-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; }
+        .summary-bar { background: #f8f9fa; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 30px; flex-wrap: wrap; }
+        .summary-item { text-align: center; }
+        .summary-item .value { font-size: 1.5em; font-weight: bold; color: #2c3e50; }
+        .summary-item .label { font-size: 0.85em; color: #7f8c8d; }
 
-        .customer-badge {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: bold;
-        }
+        .eway-card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 15px; overflow: hidden; }
+        .eway-card-header { padding: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid #f0f0f0; }
+        .eway-card-header h4 { margin: 0; color: #2c3e50; }
+        .eway-card-header .invoice-ref { color: #7f8c8d; font-size: 0.9em; }
 
-        .table-scroll-container {
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: white;
-        }
-        .data-table { width: 100%; border-collapse: collapse; }
-        .data-table th, .data-table td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
-        .data-table th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; z-index: 10; }
-        .data-table tr:hover { background: #f8f9fa; }
-        .data-table .text-right { text-align: right; }
-        .data-table .text-center { text-align: center; }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.85em;
-            font-weight: bold;
-        }
-        .status-active { background: #d4edda; color: #155724; }
-        .status-expired { background: #f8d7da; color: #721c24; }
-        .status-cancelled { background: #e2e3e5; color: #383d41; }
-        .status-generated { background: #cce5ff; color: #004085; }
-
-        .summary-bar {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: flex;
-            gap: 30px;
-            flex-wrap: wrap;
-        }
-        .summary-item {
-            text-align: center;
-        }
-        .summary-item .value {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        .summary-item .label {
-            font-size: 0.85em;
-            color: #7f8c8d;
-        }
-
-        .validity-warning {
-            color: #e74c3c;
-            font-size: 0.85em;
-        }
-        .validity-ok {
-            color: #27ae60;
-            font-size: 0.85em;
-        }
-
-        .eway-card {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            padding: 20px;
-            margin-bottom: 15px;
-            border-left: 4px solid #667eea;
-        }
-        .eway-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        .eway-header h4 {
-            margin: 0;
-            color: #2c3e50;
-            font-family: monospace;
-            font-size: 1.2em;
-        }
-        .eway-info {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 15px;
-        }
-        .eway-info-item {
-            font-size: 0.9em;
-        }
-        .eway-info-item label {
-            display: block;
-            color: #7f8c8d;
-            font-size: 0.85em;
-            margin-bottom: 3px;
-        }
-        .eway-info-item span {
-            font-weight: 600;
-            color: #2c3e50;
-        }
+        .pdf-section { padding: 20px; display: flex; gap: 15px; flex-wrap: wrap; }
+        .pdf-btn { display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95em; transition: all 0.3s; }
+        .pdf-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
+        .pdf-btn .pdf-icon { font-size: 1.5em; }
+        .pdf-btn-eway { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; }
+        .pdf-btn-invoice { background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; }
+        .pdf-btn-disabled { background: #e9ecef; color: #6c757d; cursor: not-allowed; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -196,27 +82,10 @@ include "../includes/sidebar.php";
         <span class="customer-badge"><?= htmlspecialchars($customer['company_name']) ?></span>
     </div>
 
-    <?php
-    $total_bills = count($eway_bills);
-    $active_count = count(array_filter($eway_bills, function($e) {
-        if (!$e['valid_upto']) return false;
-        return strtotime($e['valid_upto']) >= time();
-    }));
-    $total_value = array_sum(array_column($eway_bills, 'invoice_value'));
-    ?>
-
     <div class="summary-bar">
         <div class="summary-item">
-            <div class="value"><?= $total_bills ?></div>
+            <div class="value"><?= count($eway_bills) ?></div>
             <div class="label">Total E-Way Bills</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" style="color: #27ae60;"><?= $active_count ?></div>
-            <div class="label">Active</div>
-        </div>
-        <div class="summary-item">
-            <div class="value" style="color: #667eea;"><?= number_format($total_value, 2) ?></div>
-            <div class="label">Total Value (INR)</div>
         </div>
     </div>
 
@@ -227,54 +96,27 @@ include "../includes/sidebar.php";
             <p style="color: #7f8c8d;">No e-way bills have been generated for this customer yet.</p>
         </div>
     <?php else: ?>
-        <?php foreach ($eway_bills as $e):
-            $isExpired = $e['valid_upto'] && strtotime($e['valid_upto']) < time();
-            $statusClass = $isExpired ? 'expired' : 'active';
-        ?>
-            <div class="eway-card" style="border-left-color: <?= $isExpired ? '#e74c3c' : '#27ae60' ?>;">
-                <div class="eway-header">
-                    <h4><?= htmlspecialchars($e['eway_bill_no']) ?></h4>
-                    <span class="status-badge status-<?= $statusClass ?>">
-                        <?= $isExpired ? 'Expired' : 'Active' ?>
-                    </span>
-                </div>
-                <div class="eway-info">
-                    <div class="eway-info-item">
-                        <label>Generated Date</label>
-                        <span><?= $e['eway_bill_date'] ? date('d M Y', strtotime($e['eway_bill_date'])) : '-' ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Valid Until</label>
-                        <span style="color: <?= $isExpired ? '#e74c3c' : '#27ae60' ?>;">
-                            <?= $e['valid_upto'] ? date('d M Y H:i', strtotime($e['valid_upto'])) : '-' ?>
-                        </span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Invoice No</label>
-                        <span><?= htmlspecialchars($e['invoice_no'] ?: '-') ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Invoice Value</label>
-                        <span><?= $e['invoice_value'] ? number_format($e['invoice_value'], 2) : '-' ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Vehicle No</label>
-                        <span><?= htmlspecialchars($e['vehicle_no'] ?: '-') ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Transporter</label>
-                        <span><?= htmlspecialchars($e['transporter_name'] ?: '-') ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Mode of Transport</label>
-                        <span><?= htmlspecialchars($e['mode_of_transport'] ?: '-') ?></span>
-                    </div>
-                    <div class="eway-info-item">
-                        <label>Distance (KM)</label>
-                        <span><?= $e['distance_km'] ? number_format($e['distance_km']) . ' km' : '-' ?></span>
-                    </div>
+        <?php foreach ($eway_bills as $e): ?>
+        <div class="eway-card">
+            <div class="eway-card-header">
+                <div>
+                    <h4>E-Way Bill: <?= htmlspecialchars($e['eway_bill_no']) ?></h4>
+                    <span class="invoice-ref">Invoice: <?= htmlspecialchars($e['invoice_no']) ?> | Date: <?= $e['invoice_date'] ? date('d M Y', strtotime($e['invoice_date'])) : '-' ?></span>
                 </div>
             </div>
+            <div class="pdf-section">
+                <?php if (!empty($e['eway_bill_attachment'])): ?>
+                    <a href="/<?= htmlspecialchars($e['eway_bill_attachment']) ?>" class="pdf-btn pdf-btn-eway" target="_blank">
+                        <span class="pdf-icon">📃</span> View E-Way Bill PDF
+                    </a>
+                <?php else: ?>
+                    <span class="pdf-btn pdf-btn-disabled"><span class="pdf-icon">📃</span> E-Way Bill PDF Not Available</span>
+                <?php endif; ?>
+                <a href="/invoices/print.php?id=<?= $e['id'] ?>" class="pdf-btn pdf-btn-invoice" target="_blank">
+                    <span class="pdf-icon">🧾</span> View Invoice PDF
+                </a>
+            </div>
+        </div>
         <?php endforeach; ?>
     <?php endif; ?>
 

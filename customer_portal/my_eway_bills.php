@@ -14,15 +14,16 @@ $customer = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$customer) { header("Location: logout.php"); exit; }
 
+// E-Way bills are stored in invoice_master as eway_bill_no + eway_bill_attachment
 $eway_bills = [];
 try {
     $ewayStmt = $pdo->prepare("
-        SELECT e.id, e.eway_bill_no, e.eway_bill_date, e.valid_upto, e.vehicle_no, e.transporter_name,
-               e.distance_km, e.mode_of_transport, e.invoice_value, i.invoice_no
-        FROM eway_bills e
-        LEFT JOIN invoice_master i ON i.id = e.invoice_id
-        LEFT JOIN sales_orders so ON so.so_no = i.so_no
-        WHERE so.customer_id = ? ORDER BY e.eway_bill_date DESC
+        SELECT i.id, i.invoice_no, i.invoice_date, i.eway_bill_no, i.eway_bill_attachment, i.status
+        FROM invoice_master i
+        JOIN (SELECT DISTINCT so_no, customer_id FROM sales_orders) so ON so.so_no = i.so_no
+        WHERE so.customer_id = ?
+          AND i.eway_bill_no IS NOT NULL AND i.eway_bill_no != ''
+        ORDER BY i.invoice_date DESC
     ");
     $ewayStmt->execute([$customer_id]);
     $eway_bills = $ewayStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -50,18 +51,69 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
         .page-header { margin-bottom: 25px; }
         .page-header h1 { color: #2c3e50; margin-top: 10px; }
         .back-link { color: #11998e; text-decoration: none; font-weight: 500; }
-        .eway-card { background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 20px; margin-bottom: 15px; border-left: 4px solid #27ae60; }
-        .eway-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
-        .eway-header h4 { margin: 0; color: #2c3e50; font-family: monospace; font-size: 1.2em; }
-        .eway-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; }
-        .eway-info-item { font-size: 0.9em; }
-        .eway-info-item label { display: block; color: #7f8c8d; font-size: 0.85em; margin-bottom: 3px; }
-        .eway-info-item span { font-weight: 600; color: #2c3e50; }
-        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; }
-        .status-active { background: #d4edda; color: #155724; }
-        .status-expired { background: #f8d7da; color: #721c24; }
+
+        .eway-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .eway-card-header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .eway-card-header h4 { margin: 0; color: #2c3e50; }
+        .eway-card-header .invoice-ref { color: #7f8c8d; font-size: 0.9em; }
+
+        .pdf-section {
+            padding: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .pdf-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95em;
+            transition: all 0.3s;
+        }
+        .pdf-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        .pdf-btn .pdf-icon { font-size: 1.5em; }
+        .pdf-btn-eway {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+        }
+        .pdf-btn-invoice {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+        }
+        .pdf-btn-disabled {
+            background: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
         .empty-state { text-align: center; padding: 60px 20px; background: white; border-radius: 12px; color: #7f8c8d; }
         .empty-state .icon { font-size: 4em; margin-bottom: 15px; }
+        .summary-bar { background: white; padding: 20px; border-radius: 12px; margin-bottom: 25px; display: flex; gap: 40px; flex-wrap: wrap; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .summary-item { text-align: center; }
+        .summary-item .value { font-size: 1.8em; font-weight: bold; color: #2c3e50; }
+        .summary-item .label { color: #7f8c8d; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -80,22 +132,42 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
         <a href="my_portal.php" class="back-link">&larr; Back to Portal</a>
         <h1>My E-Way Bills</h1>
     </div>
+
+    <div class="summary-bar">
+        <div class="summary-item">
+            <div class="value"><?= count($eway_bills) ?></div>
+            <div class="label">Total E-Way Bills</div>
+        </div>
+    </div>
+
     <?php if (empty($eway_bills)): ?>
         <div class="empty-state"><div class="icon">📃</div><h3>No E-Way Bills Found</h3><p>Your e-way bills will appear here once generated.</p></div>
     <?php else: ?>
-        <?php foreach ($eway_bills as $e): $isExpired = $e['valid_upto'] && strtotime($e['valid_upto']) < time(); ?>
-        <div class="eway-card" style="border-left-color: <?= $isExpired ? '#e74c3c' : '#27ae60' ?>;">
-            <div class="eway-header">
-                <h4><?= htmlspecialchars($e['eway_bill_no']) ?></h4>
-                <span class="status-badge status-<?= $isExpired ? 'expired' : 'active' ?>"><?= $isExpired ? 'Expired' : 'Active' ?></span>
+        <?php foreach ($eway_bills as $e): ?>
+        <div class="eway-card">
+            <div class="eway-card-header">
+                <div>
+                    <h4>E-Way Bill: <?= htmlspecialchars($e['eway_bill_no']) ?></h4>
+                    <span class="invoice-ref">Invoice: <?= htmlspecialchars($e['invoice_no']) ?> | Date: <?= $e['invoice_date'] ? date('d M Y', strtotime($e['invoice_date'])) : '-' ?></span>
+                </div>
             </div>
-            <div class="eway-info">
-                <div class="eway-info-item"><label>Generated</label><span><?= $e['eway_bill_date'] ? date('d M Y', strtotime($e['eway_bill_date'])) : '-' ?></span></div>
-                <div class="eway-info-item"><label>Valid Until</label><span style="color: <?= $isExpired ? '#e74c3c' : '#27ae60' ?>;"><?= $e['valid_upto'] ? date('d M Y H:i', strtotime($e['valid_upto'])) : '-' ?></span></div>
-                <div class="eway-info-item"><label>Invoice</label><span><?= htmlspecialchars($e['invoice_no'] ?: '-') ?></span></div>
-                <div class="eway-info-item"><label>Value</label><span><?= $e['invoice_value'] ? number_format($e['invoice_value'], 2) : '-' ?></span></div>
-                <div class="eway-info-item"><label>Vehicle</label><span><?= htmlspecialchars($e['vehicle_no'] ?: '-') ?></span></div>
-                <div class="eway-info-item"><label>Transporter</label><span><?= htmlspecialchars($e['transporter_name'] ?: '-') ?></span></div>
+            <div class="pdf-section">
+                <?php if (!empty($e['eway_bill_attachment'])): ?>
+                    <a href="/<?= htmlspecialchars($e['eway_bill_attachment']) ?>" class="pdf-btn pdf-btn-eway" target="_blank">
+                        <span class="pdf-icon">📃</span>
+                        <span>View E-Way Bill PDF</span>
+                    </a>
+                <?php else: ?>
+                    <span class="pdf-btn pdf-btn-disabled">
+                        <span class="pdf-icon">📃</span>
+                        <span>E-Way Bill PDF Not Available</span>
+                    </span>
+                <?php endif; ?>
+
+                <a href="/invoices/print.php?id=<?= $e['id'] ?>" class="pdf-btn pdf-btn-invoice" target="_blank">
+                    <span class="pdf-icon">🧾</span>
+                    <span>View Invoice PDF</span>
+                </a>
             </div>
         </div>
         <?php endforeach; ?>
