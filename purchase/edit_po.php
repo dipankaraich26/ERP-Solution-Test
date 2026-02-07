@@ -69,23 +69,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Delete existing items for this PO
             $pdo->prepare("DELETE FROM purchase_orders WHERE po_no = ?")->execute([$po_no]);
 
-            // Insert updated items
+            // Insert updated items (preserve rate and plan_id)
             $insertStmt = $pdo->prepare("
-                INSERT INTO purchase_orders (po_no, supplier_id, part_no, qty, purchase_date, status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO purchase_orders (po_no, supplier_id, part_no, qty, rate, purchase_date, status, plan_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             foreach ($items as $item) {
                 $partNo = trim($item['part_no']);
                 $qty = (float)$item['qty'];
+                $rate = (float)($item['rate'] ?? 0);
+                $planId = $item['plan_id'] ?? null;
+
+                // If rate is 0, try to get supplier-specific rate
+                if ($rate <= 0) {
+                    try {
+                        $rateStmt = $pdo->prepare("
+                            SELECT supplier_rate FROM part_supplier_mapping
+                            WHERE part_no = ? AND supplier_id = ? AND active = 1
+                            LIMIT 1
+                        ");
+                        $rateStmt->execute([$partNo, $newSupplierId]);
+                        $supplierRate = $rateStmt->fetchColumn();
+                        if ($supplierRate) {
+                            $rate = (float)$supplierRate;
+                        }
+                    } catch (Exception $e) {}
+                }
 
                 $insertStmt->execute([
                     $po_no,
                     $newSupplierId,
                     $partNo,
                     $qty,
+                    $rate,
                     $po['purchase_date'],
-                    $po['status']
+                    $po['status'],
+                    $planId
                 ]);
             }
 
@@ -100,9 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get current line items
+// Get current line items (include rate and plan_id)
 $itemsStmt = $pdo->prepare("
-    SELECT po.id, po.part_no, p.part_name, po.qty
+    SELECT po.id, po.part_no, p.part_name, po.qty,
+           COALESCE(po.rate, 0) AS rate, po.plan_id
     FROM purchase_orders po
     LEFT JOIN part_master p ON p.part_no = po.part_no
     WHERE po.po_no = ?
@@ -392,6 +413,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <th style="width: 50px;">#</th>
                         <th>Part Number *</th>
                         <th>Part Name</th>
+                        <th style="width: 130px;">Rate</th>
                         <th style="width: 150px;">Quantity *</th>
                         <th style="width: 80px;">Action</th>
                     </tr>
@@ -414,6 +436,16 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
                                        class="part-input"
                                        value="<?= htmlspecialchars($item['part_name'] ?? '') ?>"
                                        placeholder="Part Name">
+                            </td>
+                            <td>
+                                <input type="number"
+                                       name="items[<?= $idx ?>][rate]"
+                                       class="qty-input"
+                                       value="<?= (float)($item['rate'] ?? 0) ?>"
+                                       step="0.01"
+                                       min="0"
+                                       placeholder="Rate">
+                                <input type="hidden" name="items[<?= $idx ?>][plan_id]" value="<?= htmlspecialchars($item['plan_id'] ?? '') ?>">
                             </td>
                             <td>
                                 <input type="number"
@@ -478,6 +510,15 @@ function addRow() {
                    name="items[${rowIndex}][part_name]"
                    class="part-input"
                    placeholder="Part Name">
+        </td>
+        <td>
+            <input type="number"
+                   name="items[${rowIndex}][rate]"
+                   class="qty-input"
+                   step="0.01"
+                   min="0"
+                   placeholder="Rate">
+            <input type="hidden" name="items[${rowIndex}][plan_id]" value="">
         </td>
         <td>
             <input type="number"
@@ -579,6 +620,11 @@ function initGlobalSearch() {
 
 // Add selected part to the main table
 function addPartToTable(partNo, partName) {
+    // Find rate from partsData (base rate from part_master)
+    const partData = partsData.find(p => p.part_no === partNo);
+    const baseRate = partData ? parseFloat(partData.rate || 0).toFixed(2) : '0.00';
+
+    const currentRowIndex = rowIndex;
     const tbody = document.getElementById('itemsTableBody');
     const newRow = document.createElement('tr');
     newRow.className = 'item-row';
@@ -601,6 +647,16 @@ function addPartToTable(partNo, partName) {
         </td>
         <td>
             <input type="number"
+                   name="items[${rowIndex}][rate]"
+                   class="qty-input rate-input"
+                   value="${baseRate}"
+                   step="0.01"
+                   min="0"
+                   placeholder="Rate">
+            <input type="hidden" name="items[${rowIndex}][plan_id]" value="">
+        </td>
+        <td>
+            <input type="number"
                    name="items[${rowIndex}][qty]"
                    class="qty-input"
                    step="0.001"
@@ -615,9 +671,26 @@ function addPartToTable(partNo, partName) {
     rowIndex++;
     updateRowNumbers();
 
+    // Try to fetch supplier-specific rate
+    const supplierId = document.querySelector('select[name="supplier_id"]').value;
+    if (supplierId && partNo) {
+        fetch(`get_part_suppliers.php?part_no=${encodeURIComponent(partNo)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.suppliers) {
+                    const match = data.suppliers.find(s => s.supplier_id == supplierId);
+                    if (match && parseFloat(match.supplier_rate) > 0) {
+                        const rateInput = newRow.querySelector('.rate-input');
+                        if (rateInput) rateInput.value = parseFloat(match.supplier_rate).toFixed(2);
+                    }
+                }
+            })
+            .catch(() => {});
+    }
+
     // Focus on the quantity input
     setTimeout(() => {
-        newRow.querySelector('.qty-input').focus();
+        newRow.querySelector('input[name$="[qty]"]').focus();
     }, 10);
 
     // Clear search and hide results

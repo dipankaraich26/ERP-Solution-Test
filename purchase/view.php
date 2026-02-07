@@ -35,10 +35,13 @@ if (!$po) {
 }
 
 /* --- Fetch PO Line Items with HSN, Rate, GST --- */
+/* Use po.rate (supplier rate stored on PO) with fallback to p.rate (base rate) */
 $itemsStmt = $pdo->prepare("
     SELECT po.id, po.part_no, p.part_name, po.qty, po.status,
            COALESCE(inv.qty, 0) AS current_stock,
-           p.hsn_code, p.rate, p.gst
+           p.hsn_code,
+           CASE WHEN COALESCE(po.rate, 0) > 0 THEN po.rate ELSE p.rate END AS rate,
+           p.gst
     FROM purchase_orders po
     JOIN part_master p ON p.part_no = po.part_no
     LEFT JOIN inventory inv ON inv.part_no = po.part_no

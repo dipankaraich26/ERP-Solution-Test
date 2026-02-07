@@ -300,16 +300,26 @@ function convertPlanToPurchaseOrders($pdo, int $planId, string $purchaseDate): ?
                 ];
             }
 
+            // Get supplier rate for this part
+            $rateStmt2 = $pdo->prepare("
+                SELECT supplier_rate FROM part_supplier_mapping
+                WHERE part_no = ? AND supplier_id = ? AND active = 1
+                LIMIT 1
+            ");
+            $rateStmt2->execute([$item['part_no'], $item['supplier_id']]);
+            $itemRate = $rateStmt2->fetchColumn() ?: 0;
+
             // Create PO line item
             $poStmt = $pdo->prepare("
                 INSERT INTO purchase_orders
-                (po_no, part_no, qty, purchase_date, status, supplier_id)
-                VALUES (?, ?, ?, ?, 'open', ?)
+                (po_no, part_no, qty, rate, purchase_date, status, supplier_id)
+                VALUES (?, ?, ?, ?, ?, 'open', ?)
             ");
             $poStmt->execute([
                 $poNo,
                 $item['part_no'],
                 $item['recommended_qty'],
+                $itemRate,
                 $purchaseDate,
                 $item['supplier_id']
             ]);
