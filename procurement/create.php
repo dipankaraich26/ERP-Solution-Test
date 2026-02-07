@@ -742,8 +742,42 @@ if ($step == 3 && $planId) {
                 Any part (direct or BOM child) with Part ID in [<?= htmlspecialchars(implode(', ', getWorkOrderPartIds())) ?>] will be produced <strong>internally via Work Orders</strong>.
             </p>
 
+            <!-- WO Filter Buttons -->
+            <?php if (!$planIsCompleted): ?>
+            <div style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;" id="wo-filters">
+                <button type="button" class="filter-btn active" data-filter="all" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: #059669; color: white; cursor: pointer; font-size: 0.85em;">
+                    All (<?= count($workOrderItems) ?>)
+                </button>
+                <?php if ($woClosedCount): ?>
+                <button type="button" class="filter-btn" data-filter="closed" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #6b7280; cursor: pointer; font-size: 0.85em;">
+                    Closed (<?= $woClosedCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($woCompletedCount): ?>
+                <button type="button" class="filter-btn" data-filter="completed" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #16a34a; cursor: pointer; font-size: 0.85em;">
+                    Completed (<?= $woCompletedCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($woInProgressCount): ?>
+                <button type="button" class="filter-btn" data-filter="in_progress" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #3b82f6; cursor: pointer; font-size: 0.85em;">
+                    In Progress (<?= $woInProgressCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($woInStockCount): ?>
+                <button type="button" class="filter-btn" data-filter="in_stock" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #10b981; cursor: pointer; font-size: 0.85em;">
+                    In Stock (<?= $woInStockCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($woPendingCount): ?>
+                <button type="button" class="filter-btn" data-filter="pending" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #f59e0b; cursor: pointer; font-size: 0.85em;">
+                    Pending (<?= $woPendingCount ?>)
+                </button>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
             <div style="overflow-x: auto; margin-bottom: 20px;">
-                <table>
+                <table id="wo-table">
                     <thead>
                         <tr style="background: #d1fae5;">
                             <th>Part No</th>
@@ -766,8 +800,15 @@ if ($step == 3 && $planId) {
                             $itemIsClosed = $planIsCompleted || in_array($itemActualWoSt, ['closed']);
                             $itemIsCompleted = in_array($itemActualWoSt, ['completed', 'qc_approval']);
                             $rowBg = $itemIsClosed ? '#f3f4f6' : ($itemIsCompleted ? '#dcfce7' : ($hasWO ? '#dbeafe' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4')));
+                            // Determine row filter status
+                            if ($planIsCompleted) { $rowFilterStatus = 'closed'; }
+                            elseif ($hasWO && in_array($itemActualWoSt, ['closed'])) { $rowFilterStatus = 'closed'; }
+                            elseif ($hasWO && in_array($itemActualWoSt, ['completed', 'qc_approval'])) { $rowFilterStatus = 'completed'; }
+                            elseif ($hasWO) { $rowFilterStatus = 'in_progress'; }
+                            elseif ($item['shortage'] <= 0) { $rowFilterStatus = 'in_stock'; }
+                            else { $rowFilterStatus = 'pending'; }
                         ?>
-                            <tr style="background: <?= $rowBg ?>;">
+                            <tr style="background: <?= $rowBg ?>;" data-status="<?= $rowFilterStatus ?>">
                                 <td><?= htmlspecialchars($item['part_no']) ?></td>
                                 <td><?= htmlspecialchars($item['part_name']) ?></td>
                                 <td><strong><?= $item['part_id'] ?></strong></td>
@@ -945,6 +986,7 @@ if ($step == 3 && $planId) {
                 <?php
                 $poOrderedCount = 0;
                 $poPendingCount = 0;
+                $poInStockCount = 0;
                 if ($planIsCompleted) {
                     $poOrderedCount = count($subletItems);
                 } else {
@@ -952,7 +994,9 @@ if ($step == 3 && $planId) {
                         $poStatus = $poItemStatus[$si['part_no']] ?? null;
                         if ($poStatus && $poStatus['created_po_id']) {
                             $poOrderedCount++;
-                        } else if ($si['shortage'] > 0) {
+                        } elseif ($si['shortage'] <= 0) {
+                            $poInStockCount++;
+                        } else {
                             $poPendingCount++;
                         }
                     }
@@ -963,6 +1007,7 @@ if ($step == 3 && $planId) {
                         <span style="color: #16a34a; font-weight: 600;">All <?= count($subletItems) ?> Closed (SOs Released)</span>
                     <?php else: ?>
                         <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
+                        <span style="color: #10b981;"><?= $poInStockCount ?> In Stock</span> |
                         <span style="color: #f59e0b;"><?= $poPendingCount ?> Pending</span>
                     <?php endif; ?>
                 </span>
@@ -970,6 +1015,30 @@ if ($step == 3 && $planId) {
             <p style="color: #666; margin-bottom: 15px;">
                 Any part (direct or BOM child) with Part ID <strong>NOT</strong> in [<?= htmlspecialchars(implode(', ', getWorkOrderPartIds())) ?>] should be procured <strong>externally via Purchase Orders</strong>.
             </p>
+
+            <!-- PO Filter Buttons -->
+            <?php if (!$planIsCompleted): ?>
+            <div style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;" id="po-filters">
+                <button type="button" class="filter-btn active" data-filter="all" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: #d97706; color: white; cursor: pointer; font-size: 0.85em;">
+                    All (<?= count($subletItems) ?>)
+                </button>
+                <?php if ($poOrderedCount): ?>
+                <button type="button" class="filter-btn" data-filter="ordered" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #16a34a; cursor: pointer; font-size: 0.85em;">
+                    Ordered (<?= $poOrderedCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($poInStockCount): ?>
+                <button type="button" class="filter-btn" data-filter="in_stock" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #10b981; cursor: pointer; font-size: 0.85em;">
+                    In Stock (<?= $poInStockCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($poPendingCount): ?>
+                <button type="button" class="filter-btn" data-filter="pending" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #f59e0b; cursor: pointer; font-size: 0.85em;">
+                    Pending (<?= $poPendingCount ?>)
+                </button>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
 
             <?php if (isset($_SESSION['sublet_pos_created']) && !empty($_SESSION['sublet_pos_created'])): ?>
                 <div style="background: #dcfce7; border: 1px solid #16a34a; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
@@ -989,7 +1058,7 @@ if ($step == 3 && $planId) {
                 <input type="hidden" name="sublet_purchase_date" value="<?= date('Y-m-d') ?>">
 
                 <div style="overflow-x: auto; margin-bottom: 20px;">
-                    <table>
+                    <table id="po-table">
                         <thead>
                             <tr style="background: #fef3c7;">
                                 <th>Part No</th>
@@ -1010,8 +1079,13 @@ if ($step == 3 && $planId) {
                                 $poStatus = $poItemStatus[$item['part_no']] ?? null;
                                 $hasPO = $poStatus && $poStatus['created_po_id'];
                                 $poRowBg = $planIsCompleted ? '#f3f4f6' : ($hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7'));
+                                // Determine row filter status
+                                if ($planIsCompleted) { $poRowFilter = 'closed'; }
+                                elseif ($hasPO) { $poRowFilter = 'ordered'; }
+                                elseif ($item['shortage'] <= 0) { $poRowFilter = 'in_stock'; }
+                                else { $poRowFilter = 'pending'; }
                             ?>
-                                <tr style="background: <?= $poRowBg ?>;">
+                                <tr style="background: <?= $poRowBg ?>;" data-status="<?= $poRowFilter ?>">
                                     <td>
                                         <?= htmlspecialchars($item['part_no']) ?>
                                         <?php if (!$hasPO): ?>
@@ -1297,6 +1371,47 @@ if ($step == 3 && $planId) {
     <?php endif; ?>
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var colorMap = {
+        wo: { all: '#059669', closed: '#6b7280', completed: '#16a34a', in_progress: '#3b82f6', in_stock: '#10b981', pending: '#f59e0b' },
+        po: { all: '#d97706', ordered: '#16a34a', in_stock: '#10b981', pending: '#f59e0b' }
+    };
+
+    document.querySelectorAll('.filter-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var filter = this.getAttribute('data-filter');
+            var target = this.getAttribute('data-target');
+            var table = document.getElementById(target + '-table');
+            if (!table) return;
+
+            // Update active button styling
+            var container = document.getElementById(target + '-filters');
+            container.querySelectorAll('.filter-btn').forEach(function(b) {
+                b.style.background = 'white';
+                b.style.color = colorMap[target][b.getAttribute('data-filter')] || '#666';
+                b.style.fontWeight = 'normal';
+                b.classList.remove('active');
+            });
+            this.style.background = colorMap[target][filter] || '#666';
+            this.style.color = 'white';
+            this.style.fontWeight = '600';
+            this.classList.add('active');
+
+            // Filter rows
+            var rows = table.querySelectorAll('tbody tr');
+            rows.forEach(function(row) {
+                if (filter === 'all' || row.getAttribute('data-status') === filter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+});
+</script>
 
 </body>
 </html>
