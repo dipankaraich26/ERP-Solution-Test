@@ -77,6 +77,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $error = "Only draft plans can be cancelled";
         }
     }
+
+    if ($action === 'refresh_bom') {
+        if (!in_array($planDetails['status'], ['completed', 'cancelled'])) {
+            $result = refreshPlanFromBOM($pdo, $planId);
+            if ($result['success']) {
+                $success = $result['message'];
+                $planDetails = getProcurementPlanDetails($pdo, $planId);
+                $planItems = getProcurementPlanItems($pdo, $planId);
+            } else {
+                $error = $result['message'];
+            }
+        } else {
+            $error = "Cannot refresh BOM for a " . $planDetails['status'] . " plan";
+        }
+    }
 }
 
 ?>
@@ -169,6 +184,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </button>
         </form>
         <form method="post" style="display: inline;">
+            <input type="hidden" name="action" value="refresh_bom">
+            <button type="submit" class="btn" style="background: #f59e0b; color: white;" onclick="return confirm('Refresh WO/PO items from latest BOM?');">
+                ↻ Update from BOM
+            </button>
+        </form>
+        <form method="post" style="display: inline;">
             <input type="hidden" name="action" value="cancel">
             <button type="submit" class="btn btn-danger" onclick="return confirm('Cancel this plan?');">
                 ✕ Cancel Plan
@@ -177,20 +198,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </div>
 
     <?php elseif ($planDetails['status'] === 'approved'): ?>
-    <div style="margin-bottom: 20px;">
-        <form method="post">
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+        <form method="post" style="display: inline-flex; gap: 10px; align-items: flex-end;">
             <input type="hidden" name="action" value="convert_to_po">
-            <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
-                <div>
-                    <label for="purchase_date">Purchase Date</label>
-                    <input type="date" id="purchase_date" name="purchase_date" value="<?= date('Y-m-d') ?>" required>
-                </div>
-                <button type="submit" class="btn btn-primary" onclick="return confirm('Convert this plan to Purchase Orders?');">
-                    → Convert to PO
-                </button>
-                <a href="index.php" class="btn btn-secondary">Back to Plans</a>
+            <div>
+                <label for="purchase_date">Purchase Date</label>
+                <input type="date" id="purchase_date" name="purchase_date" value="<?= date('Y-m-d') ?>" required>
             </div>
+            <button type="submit" class="btn btn-primary" onclick="return confirm('Convert this plan to Purchase Orders?');">
+                → Convert to PO
+            </button>
         </form>
+        <form method="post" style="display: inline;">
+            <input type="hidden" name="action" value="refresh_bom">
+            <button type="submit" class="btn" style="background: #f59e0b; color: white;" onclick="return confirm('Refresh WO/PO items from latest BOM?');">
+                ↻ Update from BOM
+            </button>
+        </form>
+        <a href="index.php" class="btn btn-secondary">Back to Plans</a>
+    </div>
+
+    <?php elseif ($planDetails['status'] === 'partiallyordered'): ?>
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <form method="post" style="display: inline;">
+            <input type="hidden" name="action" value="refresh_bom">
+            <button type="submit" class="btn" style="background: #f59e0b; color: white;" onclick="return confirm('Refresh WO/PO items from latest BOM?');">
+                ↻ Update from BOM
+            </button>
+        </form>
+        <a href="index.php" class="btn btn-secondary">Back to Plans</a>
     </div>
 
     <?php else: ?>

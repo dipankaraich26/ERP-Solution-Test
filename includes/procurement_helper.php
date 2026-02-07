@@ -1670,3 +1670,153 @@ function autoClosePlansForReleasedSO($pdo, string $soNo): array {
     } catch (Exception $e) {}
     return $closedPlans;
 }
+
+/**
+ * Refresh WO/PO items for a plan from latest BOM
+ * Re-runs BOM explosion and updates tracking tables
+ * Only works when plan is not completed (SOs not all released)
+ *
+ * @param PDO $pdo
+ * @param int $planId
+ * @return array ['success' => bool, 'message' => string, 'wo_count' => int, 'po_count' => int]
+ */
+function refreshPlanFromBOM($pdo, int $planId): array {
+    try {
+        // Get plan details
+        $planStmt = $pdo->prepare("SELECT id, so_list, status FROM procurement_plans WHERE id = ?");
+        $planStmt->execute([$planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$plan) {
+            return ['success' => false, 'message' => 'Plan not found'];
+        }
+        if ($plan['status'] === 'completed') {
+            return ['success' => false, 'message' => 'Cannot refresh a completed plan'];
+        }
+        if ($plan['status'] === 'cancelled') {
+            return ['success' => false, 'message' => 'Cannot refresh a cancelled plan'];
+        }
+
+        $soList = $plan['so_list'] ?? '';
+        if (empty($soList)) {
+            return ['success' => false, 'message' => 'No SOs linked to this plan'];
+        }
+
+        // Parse SO numbers
+        $soNumbers = array_map('trim', explode(',', $soList));
+        $soNumbers = array_filter($soNumbers);
+
+        if (empty($soNumbers)) {
+            return ['success' => false, 'message' => 'No valid SO numbers found'];
+        }
+
+        // Check which SOs are still active (not released/closed/completed)
+        $activeSOs = [];
+        foreach ($soNumbers as $soNo) {
+            $soStmt = $pdo->prepare("SELECT DISTINCT status FROM sales_orders WHERE so_no = ?");
+            $soStmt->execute([$soNo]);
+            $soStatuses = $soStmt->fetchAll(PDO::FETCH_COLUMN);
+            // Include SO if at least one line is not released/closed/completed
+            $hasActive = false;
+            foreach ($soStatuses as $st) {
+                if (!in_array($st, ['released', 'closed', 'completed', 'cancelled'])) {
+                    $hasActive = true;
+                    break;
+                }
+            }
+            if ($hasActive) {
+                $activeSOs[] = $soNo;
+            }
+        }
+
+        if (empty($activeSOs)) {
+            return ['success' => false, 'message' => 'All linked SOs are already released'];
+        }
+
+        // Re-run BOM explosion for all linked SOs (including released ones for completeness)
+        $allParts = getAllPartsForSalesOrders($pdo, $soNumbers);
+        $workOrderParts = $allParts['work_order'] ?? [];
+        $purchaseOrderParts = $allParts['purchase_order'] ?? [];
+
+        // Prepare work order items with current stock/shortage
+        $workOrderItems = [];
+        foreach ($workOrderParts as $wp) {
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$wp['part_no']]);
+            $currentStock = (int)$stockStmt->fetchColumn();
+            $shortage = max(0, $wp['total_required_qty'] - $currentStock);
+
+            $workOrderItems[] = [
+                'part_no' => $wp['part_no'],
+                'part_name' => $wp['part_name'],
+                'part_id' => $wp['part_id'] ?? '',
+                'so_list' => $wp['so_list'],
+                'demand_qty' => $wp['total_required_qty'],
+                'current_stock' => $currentStock,
+                'shortage' => $shortage,
+            ];
+        }
+
+        // Prepare purchase order items with current stock/shortage and best supplier
+        $subletItems = [];
+        foreach ($purchaseOrderParts as $sp) {
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$sp['part_no']]);
+            $currentStock = (int)$stockStmt->fetchColumn();
+            $shortage = max(0, $sp['total_required_qty'] - $currentStock);
+
+            $bestSupplier = getBestSupplier($pdo, $sp['part_no']);
+
+            $subletItems[] = [
+                'part_no' => $sp['part_no'],
+                'part_name' => $sp['part_name'],
+                'part_id' => $sp['part_id'] ?? '',
+                'so_list' => $sp['so_list'],
+                'demand_qty' => $sp['total_required_qty'],
+                'current_stock' => $currentStock,
+                'shortage' => $shortage,
+                'supplier_id' => $bestSupplier ? $bestSupplier['supplier_id'] : null,
+                'supplier_name' => $bestSupplier ? $bestSupplier['supplier_name'] : 'No Supplier',
+            ];
+        }
+
+        // Save updated items (ON DUPLICATE KEY UPDATE preserves created_wo_id/created_po_id)
+        if (!empty($workOrderItems)) {
+            savePlanWorkOrderItems($pdo, $planId, $workOrderItems);
+        }
+        if (!empty($subletItems)) {
+            savePlanPurchaseOrderItems($pdo, $planId, $subletItems);
+        }
+
+        // Remove WO items no longer in BOM (only if they don't have a linked WO)
+        $newWoPartNos = array_map(function($i) { return $i['part_no']; }, $workOrderItems);
+        if (!empty($newWoPartNos)) {
+            $woPlaceholders = implode(',', array_fill(0, count($newWoPartNos), '?'));
+            $pdo->prepare("
+                DELETE FROM procurement_plan_wo_items
+                WHERE plan_id = ? AND part_no NOT IN ($woPlaceholders)
+                AND (created_wo_id IS NULL OR created_wo_id = 0)
+            ")->execute(array_merge([$planId], $newWoPartNos));
+        }
+
+        // Remove PO items no longer in BOM (only if they don't have a linked PO)
+        $newPoPartNos = array_map(function($i) { return $i['part_no']; }, $subletItems);
+        if (!empty($newPoPartNos)) {
+            $poPlaceholders = implode(',', array_fill(0, count($newPoPartNos), '?'));
+            $pdo->prepare("
+                DELETE FROM procurement_plan_po_items
+                WHERE plan_id = ? AND part_no NOT IN ($poPlaceholders)
+                AND (created_po_id IS NULL OR created_po_id = 0)
+            ")->execute(array_merge([$planId], $newPoPartNos));
+        }
+
+        return [
+            'success' => true,
+            'message' => 'BOM refreshed successfully. WO items: ' . count($workOrderItems) . ', PO items: ' . count($subletItems),
+            'wo_count' => count($workOrderItems),
+            'po_count' => count($subletItems)
+        ];
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => 'Error refreshing BOM: ' . $e->getMessage()];
+    }
+}
