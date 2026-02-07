@@ -121,33 +121,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
     }
 }
 
+// Filter parameters
+$filter_part_no = isset($_GET['part_no']) ? trim($_GET['part_no']) : '';
+$filter_part_id = isset($_GET['part_id']) ? trim($_GET['part_id']) : '';
+$filter_assigned_to = isset($_GET['assigned_to']) ? trim($_GET['assigned_to']) : '';
+$filter_status = isset($_GET['status']) ? trim($_GET['status']) : '';
+
+// Build WHERE clause
+$where = [];
+$params = [];
+
+if ($filter_part_no !== '') {
+    $where[] = "w.part_no LIKE ?";
+    $params[] = "%$filter_part_no%";
+}
+if ($filter_part_id !== '') {
+    $where[] = "p.part_id LIKE ?";
+    $params[] = "%$filter_part_id%";
+}
+if ($filter_assigned_to !== '') {
+    $where[] = "w.assigned_to = ?";
+    $params[] = $filter_assigned_to;
+}
+if ($filter_status !== '') {
+    $where[] = "w.status = ?";
+    $params[] = $filter_status;
+}
+
+$whereSQL = '';
+if (!empty($where)) {
+    $whereSQL = 'WHERE ' . implode(' AND ', $where);
+}
+
+// Fetch distinct employees and part numbers for filter dropdowns
+$employees = $pdo->query("
+    SELECT DISTINCT e.id, e.first_name, e.last_name
+    FROM employees e
+    JOIN work_orders w ON w.assigned_to = e.id
+    ORDER BY e.first_name, e.last_name
+")->fetchAll(PDO::FETCH_ASSOC);
+
 // Pagination setup
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page = max(1, $page); // Ensure page is at least 1
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
-// Get total count
-$total_count = $pdo->query("
-    SELECT COUNT(*) FROM work_orders
-")->fetchColumn();
+// Get total count with filters
+$countStmt = $pdo->prepare("
+    SELECT COUNT(*) FROM work_orders w
+    LEFT JOIN part_master p ON w.part_no = p.part_no
+    $whereSQL
+");
+$countStmt->execute($params);
+$total_count = $countStmt->fetchColumn();
 
 $total_pages = ceil($total_count / $per_page);
 
 $stmt = $pdo->prepare("
     SELECT w.id, w.wo_no, w.part_no, w.qty, w.status, w.created_at, w.assigned_to, w.plan_id,
-           COALESCE(p.part_name, w.part_no) as part_name, b.bom_no,
+           COALESCE(p.part_name, w.part_no) as part_name, p.part_id, b.bom_no,
            e.emp_id, e.first_name, e.last_name
     FROM work_orders w
     LEFT JOIN part_master p ON w.part_no = p.part_no
     LEFT JOIN bom_master b ON w.bom_id = b.id
     LEFT JOIN employees e ON w.assigned_to = e.id
+    $whereSQL
     ORDER BY w.id DESC
-    LIMIT :limit OFFSET :offset
-");
-$stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-$stmt->execute();
+    LIMIT " . (int)$per_page . " OFFSET " . (int)$offset
+);
+$stmt->execute($params);
+
+// Build query string for pagination/export links
+$filterQuery = http_build_query(array_filter([
+    'part_no' => $filter_part_no,
+    'part_id' => $filter_part_id,
+    'assigned_to' => $filter_assigned_to,
+    'status' => $filter_status,
+], function($v) { return $v !== ''; }));
 ?>
 
 <!DOCTYPE html>
@@ -197,13 +248,64 @@ if (toggle) {
     </div>
 <?php endif; ?>
 
-<a href="add.php" class="btn btn-primary">➕ Create Work Order</a>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <a href="add.php" class="btn btn-primary">➕ Create Work Order</a>
+    <form method="GET" action="export_wo.php" style="display:inline;">
+        <input type="hidden" name="part_no" value="<?= htmlspecialchars($filter_part_no) ?>">
+        <input type="hidden" name="part_id" value="<?= htmlspecialchars($filter_part_id) ?>">
+        <input type="hidden" name="assigned_to" value="<?= htmlspecialchars($filter_assigned_to) ?>">
+        <input type="hidden" name="status" value="<?= htmlspecialchars($filter_status) ?>">
+        <button type="submit" class="btn btn-secondary">📥 Export to Excel</button>
+    </form>
+</div>
+
+<!-- Filters -->
+<form method="GET" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+    <div>
+        <label style="display: block; font-size: 0.85em; margin-bottom: 3px; font-weight: 500;">Part No</label>
+        <input type="text" name="part_no" value="<?= htmlspecialchars($filter_part_no) ?>" placeholder="Search part no..." style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9em;">
+    </div>
+    <div>
+        <label style="display: block; font-size: 0.85em; margin-bottom: 3px; font-weight: 500;">Part ID</label>
+        <input type="text" name="part_id" value="<?= htmlspecialchars($filter_part_id) ?>" placeholder="Search part ID..." style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9em;">
+    </div>
+    <div>
+        <label style="display: block; font-size: 0.85em; margin-bottom: 3px; font-weight: 500;">Assigned To</label>
+        <select name="assigned_to" style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9em;">
+            <option value="">All</option>
+            <?php foreach ($employees as $emp): ?>
+                <option value="<?= $emp['id'] ?>" <?= $filter_assigned_to == $emp['id'] ? 'selected' : '' ?>>
+                    <?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <label style="display: block; font-size: 0.85em; margin-bottom: 3px; font-weight: 500;">Status</label>
+        <select name="status" style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9em;">
+            <option value="">All</option>
+            <?php
+            $statuses = ['open', 'created', 'released', 'in_progress', 'completed', 'qc_approval', 'closed', 'cancelled'];
+            foreach ($statuses as $s):
+            ?>
+                <option value="<?= $s ?>" <?= $filter_status === $s ? 'selected' : '' ?>>
+                    <?= ucfirst(str_replace('_', ' ', $s)) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div>
+        <button type="submit" class="btn btn-primary" style="padding: 6px 14px;">Filter</button>
+        <a href="index.php" class="btn btn-secondary" style="padding: 6px 14px;">Clear</a>
+    </div>
+</form>
 
 <div style="overflow-x: auto;">
 <table border="1" cellpadding="8">
 <tr>
     <th>WO No</th>
     <th>Part No</th>
+    <th>Part ID</th>
     <th>Product</th>
     <th>BOM</th>
     <th>Qty</th>
@@ -218,6 +320,7 @@ if (toggle) {
 <tr>
     <td><strong><?= htmlspecialchars($w['wo_no']) ?></strong></td>
     <td><?= htmlspecialchars($w['part_no']) ?></td>
+    <td><?= htmlspecialchars($w['part_id'] ?? '') ?></td>
     <td><?= htmlspecialchars($w['part_name']) ?></td>
     <td><?= $w['bom_no'] ? htmlspecialchars($w['bom_no']) : '<span style="color: #999;">-</span>' ?></td>
     <td><?= $w['qty'] ?></td>
@@ -310,9 +413,10 @@ if (toggle) {
     <!-- Pagination -->
     <?php if ($total_pages > 1): ?>
     <div style="margin-top: 20px; text-align: center;">
+        <?php $paginationQuery = $filterQuery ? "&$filterQuery" : ''; ?>
         <?php if ($page > 1): ?>
-            <a href="?page=1" class="btn btn-secondary">First</a>
-            <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+            <a href="?page=1<?= $paginationQuery ?>" class="btn btn-secondary">First</a>
+            <a href="?page=<?= $page - 1 ?><?= $paginationQuery ?>" class="btn btn-secondary">Previous</a>
         <?php endif; ?>
 
         <span style="margin: 0 10px;">
@@ -320,8 +424,8 @@ if (toggle) {
         </span>
 
         <?php if ($page < $total_pages): ?>
-            <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
-            <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+            <a href="?page=<?= $page + 1 ?><?= $paginationQuery ?>" class="btn btn-secondary">Next</a>
+            <a href="?page=<?= $total_pages ?><?= $paginationQuery ?>" class="btn btn-secondary">Last</a>
         <?php endif; ?>
     </div>
     <?php endif; ?>
