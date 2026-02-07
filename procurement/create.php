@@ -184,6 +184,9 @@ if ($step == 2) {
         ];
     }
 
+    // Adjust PO items: if parent WO parts are "In Stock", child PO parts don't need ordering
+    adjustPoItemsForInStockWoParents($subletItems, $workOrderItems);
+
     // Save WO and PO items to tracking tables for this plan
     if ($currentPlanId && !empty($workOrderItems)) {
         savePlanWorkOrderItems($pdo, $currentPlanId, $workOrderItems);
@@ -1135,6 +1138,9 @@ if ($step == 3 && $planId) {
                                             <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
                                                 In Stock
                                             </span>
+                                            <?php if (!empty($item['parent_in_stock'])): ?>
+                                                <br><small style="color: #059669;">Parent has stock</small>
+                                            <?php endif; ?>
                                         <?php else: ?>
                                             <span style="display: inline-block; padding: 4px 10px; background: #f59e0b; color: white; border-radius: 15px; font-size: 0.8em;">
                                                 Pending

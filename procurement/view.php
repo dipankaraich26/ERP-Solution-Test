@@ -736,6 +736,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
                                         In Stock
                                     </span>
+                                    <?php if ($item['current_stock'] < $item['required_qty']): ?>
+                                        <br><small style="color: #059669;">Parent has stock</small>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span style="display: inline-block; padding: 4px 10px; background: #f59e0b; color: white; border-radius: 15px; font-size: 0.8em;">
                                         Pending

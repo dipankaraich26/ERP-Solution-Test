@@ -1777,8 +1777,12 @@ function refreshPlanFromBOM($pdo, int $planId): array {
                 'shortage' => $shortage,
                 'supplier_id' => $bestSupplier ? $bestSupplier['supplier_id'] : null,
                 'supplier_name' => $bestSupplier ? $bestSupplier['supplier_name'] : 'No Supplier',
+                'parent_parts' => $sp['parent_parts'] ?? [],
             ];
         }
+
+        // Adjust PO items: if parent WO parts are "In Stock", child PO parts don't need ordering
+        adjustPoItemsForInStockWoParents($subletItems, $workOrderItems);
 
         // Save updated items (ON DUPLICATE KEY UPDATE preserves created_wo_id/created_po_id)
         if (!empty($workOrderItems)) {
@@ -1819,4 +1823,46 @@ function refreshPlanFromBOM($pdo, int $planId): array {
     } catch (Exception $e) {
         return ['success' => false, 'message' => 'Error refreshing BOM: ' . $e->getMessage()];
     }
+}
+
+/**
+ * Adjust PO items when their parent WO parts are "In Stock".
+ * If a WO part has sufficient stock (shortage <= 0), it doesn't need production,
+ * so its BOM child PO parts don't need procurement either.
+ *
+ * Only suppresses PO items where ALL parent parts are in-stock WO parts.
+ * If a PO item has mixed parents (some in stock, some not), it stays as-is.
+ *
+ * @param array &$subletItems PO items (modified in-place)
+ * @param array $workOrderItems WO items with shortage info
+ */
+function adjustPoItemsForInStockWoParents(array &$subletItems, array $workOrderItems): void {
+    // Build map of WO part_no => shortage
+    $woShortageMap = [];
+    foreach ($workOrderItems as $wi) {
+        $woShortageMap[$wi['part_no']] = $wi['shortage'] ?? 0;
+    }
+
+    foreach ($subletItems as &$si) {
+        if (empty($si['parent_parts'])) {
+            continue; // Direct SO part, no parent WO to check
+        }
+
+        // Check if ALL parents are in-stock WO parts (shortage <= 0)
+        $allParentsInStock = true;
+        foreach ($si['parent_parts'] as $pp) {
+            $parentPartNo = $pp['part_no'];
+            // Parent must be in WO items AND have shortage <= 0
+            if (!isset($woShortageMap[$parentPartNo]) || $woShortageMap[$parentPartNo] > 0) {
+                $allParentsInStock = false;
+                break;
+            }
+        }
+
+        if ($allParentsInStock) {
+            $si['shortage'] = 0;
+            $si['parent_in_stock'] = true;
+        }
+    }
+    unset($si);
 }
