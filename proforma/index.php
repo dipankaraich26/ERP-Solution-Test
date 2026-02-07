@@ -25,7 +25,24 @@ $stmt = $pdo->prepare("
 $stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
-$invoices = $stmt;
+$invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch product details for each PI
+$piProducts = [];
+if (!empty($invoices)) {
+    $piIds = array_column($invoices, 'id');
+    $placeholders = implode(',', array_fill(0, count($piIds), '?'));
+    $itemsStmt = $pdo->prepare("
+        SELECT quote_id, part_no, part_name, qty, rate, total_amount
+        FROM quote_items
+        WHERE quote_id IN ($placeholders)
+        ORDER BY quote_id, id
+    ");
+    $itemsStmt->execute($piIds);
+    foreach ($itemsStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+        $piProducts[$item['quote_id']][] = $item;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -55,6 +72,7 @@ $invoices = $stmt;
             <th>PI No</th>
             <th>Quote No</th>
             <th>Customer</th>
+            <th>Product Details</th>
             <th>Reference</th>
             <th>Quote Date</th>
             <th>Released At</th>
@@ -62,7 +80,7 @@ $invoices = $stmt;
             <th>Actions</th>
         </tr>
 
-        <?php while ($pi = $invoices->fetch()): ?>
+        <?php foreach ($invoices as $pi): ?>
         <tr>
             <td><strong><?= htmlspecialchars($pi['pi_no']) ?></strong></td>
             <td><?= htmlspecialchars($pi['quote_no']) ?></td>
@@ -70,6 +88,19 @@ $invoices = $stmt;
                 <?= htmlspecialchars($pi['company_name'] ?? '') ?>
                 <?php if ($pi['customer_name']): ?>
                     (<?= htmlspecialchars($pi['customer_name']) ?>)
+                <?php endif; ?>
+            </td>
+            <td style="font-size: 0.85em;">
+                <?php if (!empty($piProducts[$pi['id']])): ?>
+                    <?php foreach ($piProducts[$pi['id']] as $product): ?>
+                        <div style="margin-bottom: 3px; white-space: nowrap;">
+                            <strong><?= htmlspecialchars($product['part_no']) ?></strong>
+                            - <?= htmlspecialchars($product['part_name']) ?>
+                            <span style="color: #666;">(<?= $product['qty'] ?> x <?= number_format($product['rate'], 2) ?>)</span>
+                        </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <span style="color: #999;">-</span>
                 <?php endif; ?>
             </td>
             <td><?= htmlspecialchars($pi['reference'] ?? '') ?></td>
@@ -80,11 +111,11 @@ $invoices = $stmt;
                 <a class="btn btn-secondary" href="view.php?id=<?= $pi['id'] ?>">View</a>
             </td>
         </tr>
-        <?php endwhile; ?>
+        <?php endforeach; ?>
 
         <?php if ($total_count == 0): ?>
         <tr>
-            <td colspan="8" style="text-align: center; padding: 20px;">No Proforma Invoices found. Release a Quotation to create one.</td>
+            <td colspan="9" style="text-align: center; padding: 20px;">No Proforma Invoices found. Release a Quotation to create one.</td>
         </tr>
         <?php endif; ?>
     </table>
