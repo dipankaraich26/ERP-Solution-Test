@@ -292,6 +292,28 @@ if ($step == 2) {
         foreach ($poTracking as $pt) {
             $poItemStatus[$pt['part_no']] = $pt;
         }
+
+        // Clear stale links to cancelled POs so they show as "Pending" again
+        if (!$planIsCompleted) {
+            foreach ($poItemStatus as $partNo => &$ps) {
+                if (!empty($ps['created_po_id'])) {
+                    try {
+                        $chkStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                        $chkStmt->execute([$ps['created_po_id']]);
+                        $poRealStatus = $chkStmt->fetchColumn();
+                        if ($poRealStatus && $poRealStatus === 'cancelled') {
+                            $pdo->prepare("UPDATE procurement_plan_po_items SET created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                                 ->execute([$currentPlanId, $partNo]);
+                            $ps['created_po_id'] = null;
+                            $ps['created_po_no'] = null;
+                            $ps['ordered_qty'] = null;
+                            $ps['status'] = 'pending';
+                        }
+                    } catch (Exception $e) {}
+                }
+            }
+            unset($ps);
+        }
     }
 
     // Handle Work Order creation from this page

@@ -326,6 +326,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
         unset($woItem);
+
+        // Clear stale links to cancelled POs so they show as "Pending" again
+        foreach ($poItems as &$poItem) {
+            if (!empty($poItem['created_po_id'])) {
+                try {
+                    $chkStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                    $chkStmt->execute([$poItem['created_po_id']]);
+                    $poRealStatus = $chkStmt->fetchColumn();
+                    if ($poRealStatus && $poRealStatus === 'cancelled') {
+                        $pdo->prepare("UPDATE procurement_plan_po_items SET created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$planId, $poItem['part_no']]);
+                        $poItem['created_po_id'] = null;
+                        $poItem['created_po_no'] = null;
+                        $poItem['ordered_qty'] = null;
+                        $poItem['status'] = 'pending';
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+        unset($poItem);
     }
 
     // Refresh real-time stock and shortage for WO items
