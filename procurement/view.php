@@ -265,6 +265,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $woItems = getPlanWorkOrderItems($pdo, $planId);
     $poItems = getPlanPurchaseOrderItems($pdo, $planId);
 
+    // Refresh real-time stock and shortage for WO items
+    foreach ($woItems as &$woItem) {
+        try {
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$woItem['part_no']]);
+            $realStock = (int)$stockStmt->fetchColumn();
+            $woItem['current_stock'] = $realStock;
+            $woItem['shortage'] = max(0, $woItem['required_qty'] - $realStock);
+        } catch (Exception $e) {}
+
+        // Also get actual WO status from work_orders table if WO exists
+        if (!empty($woItem['created_wo_id'])) {
+            try {
+                $woStatusStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                $woStatusStmt->execute([$woItem['created_wo_id']]);
+                $actualWoStatus = $woStatusStmt->fetchColumn();
+                if ($actualWoStatus) {
+                    $woItem['actual_wo_status'] = $actualWoStatus;
+                }
+            } catch (Exception $e) {}
+        }
+    }
+    unset($woItem);
+
+    // Refresh real-time stock and shortage for PO items
+    foreach ($poItems as &$poItem) {
+        try {
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$poItem['part_no']]);
+            $realStock = (int)$stockStmt->fetchColumn();
+            $poItem['current_stock'] = $realStock;
+            $poItem['shortage'] = max(0, $poItem['required_qty'] - $realStock);
+        } catch (Exception $e) {}
+    }
+    unset($poItem);
+
     // Group WO items by SO
     $woItemsBySO = [];
     foreach ($woItems as $item) {
@@ -300,12 +336,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ⚙️ Work Order Parts (Internal Production)
             </span>
             <?php
-            $woCreatedCount = 0;
+            $woClosedCount = 0;
+            $woCompletedCount = 0;
+            $woInProgressCount = 0;
             $woPendingCount = 0;
             $woInStockCount = 0;
             foreach ($woItems as $wi) {
+                $woStatus = $wi['actual_wo_status'] ?? '';
                 if ($wi['created_wo_id']) {
-                    $woCreatedCount++;
+                    if (in_array($woStatus, ['closed'])) {
+                        $woClosedCount++;
+                    } elseif (in_array($woStatus, ['completed', 'qc_approval'])) {
+                        $woCompletedCount++;
+                    } else {
+                        $woInProgressCount++;
+                    }
                 } elseif ($wi['shortage'] <= 0) {
                     $woInStockCount++;
                 } else {
@@ -314,7 +359,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
             ?>
             <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
-                <span style="color: #16a34a;"><?= $woCreatedCount ?> Created</span> |
+                <?php if ($woClosedCount): ?><span style="color: #6b7280;"><?= $woClosedCount ?> Closed</span> | <?php endif; ?>
+                <?php if ($woCompletedCount): ?><span style="color: #16a34a;"><?= $woCompletedCount ?> Completed</span> | <?php endif; ?>
+                <span style="color: #3b82f6;"><?= $woInProgressCount ?> In Progress</span> |
                 <span style="color: #10b981;"><?= $woInStockCount ?> In Stock</span> |
                 <span style="color: #f59e0b;"><?= $woPendingCount ?> Pending</span>
             </span>
@@ -338,8 +385,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <tbody>
                     <?php foreach ($woItems as $idx => $item):
                         $hasWO = !empty($item['created_wo_id']);
+                        $itemWoStatus = $item['actual_wo_status'] ?? '';
+                        $isClosed = in_array($itemWoStatus, ['closed']);
+                        $isCompleted = in_array($itemWoStatus, ['completed', 'qc_approval']);
+                        $rowBg = $isClosed ? '#f3f4f6' : ($isCompleted ? '#dcfce7' : ($hasWO ? '#dbeafe' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4')));
                     ?>
-                        <tr style="background: <?= $hasWO ? '#dcfce7' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4') ?>;">
+                        <tr style="background: <?= $rowBg ?>;">
                             <td><?= htmlspecialchars($item['part_no']) ?></td>
                             <td><?= htmlspecialchars($item['part_name']) ?></td>
                             <td><strong><?= htmlspecialchars($item['part_id'] ?? '-') ?></strong></td>
@@ -350,10 +401,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <?= $item['shortage'] ?>
                             </td>
                             <td>
-                                <?php if ($hasWO): ?>
+                                <?php if ($hasWO):
+                                    $woStatus = $item['actual_wo_status'] ?? '';
+                                    if (in_array($woStatus, ['closed'])):
+                                ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #6b7280; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        Closed
+                                    </span>
+                                <?php elseif (in_array($woStatus, ['completed', 'qc_approval'])): ?>
                                     <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        Completed
+                                    </span>
+                                <?php else: ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #3b82f6; color: white; border-radius: 15px; font-size: 0.8em;">
                                         In Progress
                                     </span>
+                                <?php endif; ?>
                                     <br><small style="color: #059669;"><?= htmlspecialchars($item['created_wo_no']) ?></small>
                                 <?php elseif ($item['shortage'] <= 0): ?>
                                     <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
@@ -389,19 +452,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <h4 style="margin: 0 0 15px 0; color: #059669;">📋 Shop Order Wise Work Order Summary</h4>
             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
                 <?php foreach ($woItemsBySO as $soNo => $soItems):
-                    $soCreated = 0;
+                    $soClosed = 0;
+                    $soCompleted = 0;
+                    $soInProgress = 0;
                     $soPending = 0;
                     $soInStock = 0;
                     foreach ($soItems as $si) {
+                        $siWoStatus = $si['actual_wo_status'] ?? '';
                         if (!empty($si['created_wo_id'])) {
-                            $soCreated++;
+                            if (in_array($siWoStatus, ['closed'])) {
+                                $soClosed++;
+                            } elseif (in_array($siWoStatus, ['completed', 'qc_approval'])) {
+                                $soCompleted++;
+                            } else {
+                                $soInProgress++;
+                            }
                         } elseif (($si['shortage'] ?? 0) <= 0) {
                             $soInStock++;
                         } else {
                             $soPending++;
                         }
                     }
-                    $allDone = ($soPending == 0);
+                    $allDone = ($soPending == 0 && $soInProgress == 0);
                 ?>
                 <div style="background: white; padding: 12px; border-radius: 6px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -409,12 +481,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <?php if ($allDone): ?>
                             <span style="background: #10b981; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;">Complete</span>
                         <?php else: ?>
-                            <span style="background: #f59e0b; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;"><?= $soPending ?> Pending</span>
+                            <span style="background: #f59e0b; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75em;"><?= $soPending + $soInProgress ?> Active</span>
                         <?php endif; ?>
                     </div>
                     <div style="font-size: 0.8em; color: #666; margin-top: 5px;">
                         <?= count($soItems) ?> parts |
-                        <span style="color: #16a34a;"><?= $soCreated ?> created</span> |
+                        <?php if ($soClosed): ?><span style="color: #6b7280;"><?= $soClosed ?> closed</span> | <?php endif; ?>
+                        <?php if ($soCompleted): ?><span style="color: #16a34a;"><?= $soCompleted ?> completed</span> | <?php endif; ?>
+                        <?php if ($soInProgress): ?><span style="color: #3b82f6;"><?= $soInProgress ?> in progress</span> | <?php endif; ?>
                         <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
                     </div>
                 </div>
