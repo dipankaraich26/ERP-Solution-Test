@@ -396,6 +396,8 @@ if (isset($_GET['logout'])) {
         <a href="attendance_portal.php" class="header-btn">Attendance</a>
         <a href="my_tasks.php" class="header-btn">Tasks</a>
         <a href="my_calendar.php" class="header-btn">Calendar</a>
+        <a href="my_tada.php" class="header-btn">TADA</a>
+        <a href="my_advance.php" class="header-btn">Advances</a>
         <?php if ($payroll): ?>
             <button onclick="window.print()" class="header-btn">Print Payslip</button>
         <?php endif; ?>

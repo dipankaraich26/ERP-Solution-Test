@@ -16,6 +16,56 @@ $empDesignation = $_SESSION['emp_attendance_designation'];
 $empPhoto = $_SESSION['emp_attendance_photo'];
 $empCode = $_SESSION['emp_attendance_emp_id'];
 
+// Handle task detail AJAX request
+if (isset($_GET['ajax_task_id'])) {
+    header('Content-Type: application/json');
+    $taskId = (int)$_GET['ajax_task_id'];
+    try {
+        $detailStmt = $pdo->prepare("
+            SELECT t.*,
+                   tc.category_name, tc.color_code,
+                   CONCAT(e2.first_name, ' ', e2.last_name) as assigned_by_name,
+                   CONCAT(e3.first_name, ' ', e3.last_name) as created_by_name,
+                   c.customer_name, c.company_name,
+                   p.project_no, p.project_name
+            FROM tasks t
+            LEFT JOIN task_categories tc ON t.category_id = tc.id
+            LEFT JOIN employees e2 ON t.assigned_by = e2.id
+            LEFT JOIN employees e3 ON t.created_by = e3.id
+            LEFT JOIN customers c ON t.customer_id = c.customer_id
+            LEFT JOIN projects p ON t.project_id = p.id
+            WHERE t.id = ? AND t.assigned_to = ?
+        ");
+        $detailStmt->execute([$taskId, $empId]);
+        $taskDetail = $detailStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($taskDetail) {
+            // Get checklist items
+            $clStmt = $pdo->prepare("SELECT * FROM task_checklist WHERE task_id = ? ORDER BY sort_order, id");
+            $clStmt->execute([$taskId]);
+            $taskDetail['checklist'] = $clStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get comments
+            $cmStmt = $pdo->prepare("
+                SELECT tc.*, CONCAT(e.first_name, ' ', e.last_name) as commenter_name
+                FROM task_comments tc
+                LEFT JOIN employees e ON tc.commented_by = e.id
+                WHERE tc.task_id = ?
+                ORDER BY tc.created_at DESC LIMIT 10
+            ");
+            $cmStmt->execute([$taskId]);
+            $taskDetail['comments'] = $cmStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            echo json_encode(['success' => true, 'task' => $taskDetail]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'Task not found']);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Filters
 $status = $_GET['status'] ?? '';
 $priority = $_GET['priority'] ?? '';
@@ -245,6 +295,84 @@ if (isset($_GET['logout'])) {
             line-height: 1.4;
         }
 
+        .task-card { cursor: pointer; }
+        .view-detail-btn {
+            display: inline-block; padding: 5px 14px; border-radius: 6px;
+            background: #667eea; color: white; font-size: 0.8em; font-weight: 600;
+            text-decoration: none; cursor: pointer; border: none; margin-top: 8px;
+        }
+        .view-detail-btn:hover { background: #5a6fd6; }
+
+        /* Modal Overlay */
+        .task-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            justify-content: center; align-items: flex-start; padding: 30px 15px;
+            overflow-y: auto;
+        }
+        .task-modal-overlay.active { display: flex; }
+        .task-modal {
+            background: white; border-radius: 16px; width: 100%; max-width: 700px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;
+            animation: modalSlideIn 0.3s ease;
+        }
+        @keyframes modalSlideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .modal-header {
+            padding: 20px 25px; border-bottom: 1px solid #eee;
+            display: flex; justify-content: space-between; align-items: flex-start;
+        }
+        .modal-header h3 { margin: 0; color: #2c3e50; font-size: 1.2em; flex: 1; margin-right: 15px; }
+        .modal-close {
+            width: 36px; height: 36px; border-radius: 50%; border: none;
+            background: #f5f5f5; font-size: 1.3em; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; color: #666;
+        }
+        .modal-close:hover { background: #e0e0e0; }
+        .modal-body { padding: 25px; max-height: 70vh; overflow-y: auto; }
+        .modal-loading { text-align: center; padding: 40px; color: #999; }
+
+        .detail-section { margin-bottom: 20px; }
+        .detail-section h4 {
+            font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;
+            color: #999; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0;
+        }
+        .detail-row {
+            display: flex; justify-content: space-between; padding: 8px 0;
+            border-bottom: 1px solid #f8f8f8; font-size: 0.95em;
+        }
+        .detail-row:last-child { border-bottom: none; }
+        .detail-label { color: #888; flex-shrink: 0; width: 140px; }
+        .detail-value { color: #2c3e50; font-weight: 500; text-align: right; flex: 1; }
+        .detail-description {
+            background: #f8f9fa; padding: 15px; border-radius: 8px;
+            color: #555; line-height: 1.6; font-size: 0.95em; white-space: pre-wrap;
+        }
+        .detail-badge {
+            display: inline-block; padding: 3px 12px; border-radius: 12px;
+            font-size: 0.8em; font-weight: 600;
+        }
+        .detail-link {
+            color: #667eea; font-weight: 600; text-decoration: none;
+        }
+        .detail-link:hover { text-decoration: underline; }
+
+        .checklist-item {
+            display: flex; align-items: center; gap: 10px; padding: 6px 0;
+            font-size: 0.9em;
+        }
+        .checklist-check { color: #27ae60; font-weight: bold; }
+        .checklist-uncheck { color: #ccc; }
+        .checklist-done { text-decoration: line-through; color: #999; }
+
+        .comment-item {
+            background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 8px;
+        }
+        .comment-header { font-size: 0.8em; color: #999; margin-bottom: 5px; }
+        .comment-text { font-size: 0.9em; color: #555; }
+
         .empty-state {
             background: white; border-radius: 12px; padding: 50px;
             text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,0.08);
@@ -282,6 +410,8 @@ if (isset($_GET['logout'])) {
         <a href="attendance_portal.php" class="header-btn">Attendance</a>
         <a href="my_payslip.php" class="header-btn">Payslips</a>
         <a href="my_calendar.php" class="header-btn">Calendar</a>
+        <a href="my_tada.php" class="header-btn">TADA</a>
+        <a href="my_advance.php" class="header-btn">Advances</a>
         <a href="?logout=1" class="header-btn">Logout</a>
     </div>
 </div>
@@ -392,11 +522,181 @@ if (isset($_GET['logout'])) {
                 <span>By: <?= htmlspecialchars($task['assigned_by_name']) ?></span>
                 <?php endif; ?>
             </div>
+
+            <button class="view-detail-btn" onclick="event.stopPropagation(); viewTaskDetail(<?= $task['id'] ?>)">View Details</button>
         </div>
         <?php endforeach; ?>
     </div>
     <?php endif; ?>
 </div>
+
+<!-- Task Detail Modal -->
+<div class="task-modal-overlay" id="taskModalOverlay" onclick="closeTaskModal(event)">
+    <div class="task-modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 id="modalTaskTitle">Task Details</h3>
+            <button class="modal-close" onclick="closeTaskModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <div class="modal-loading" id="modalLoading">Loading task details...</div>
+            <div id="modalContent" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+function viewTaskDetail(taskId) {
+    const overlay = document.getElementById('taskModalOverlay');
+    const loading = document.getElementById('modalLoading');
+    const content = document.getElementById('modalContent');
+
+    overlay.classList.add('active');
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    document.body.style.overflow = 'hidden';
+
+    fetch('my_tasks.php?ajax_task_id=' + taskId)
+        .then(r => r.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (!data.success) {
+                content.innerHTML = '<p style="color:#e74c3c;">Could not load task details.</p>';
+                content.style.display = 'block';
+                return;
+            }
+            const t = data.task;
+            document.getElementById('modalTaskTitle').textContent = t.task_name;
+
+            let statusClass = 'status-' + t.status.toLowerCase().replace(/ /g, '-');
+            let priorityClass = 'priority-' + t.priority.toLowerCase();
+
+            let html = '';
+
+            // Status & Priority badges
+            html += '<div style="margin-bottom:18px; display:flex; gap:8px; flex-wrap:wrap;">';
+            html += '<span class="badge badge-status ' + statusClass + '">' + escHtml(t.status) + '</span>';
+            html += '<span class="badge badge-priority ' + priorityClass + '">' + escHtml(t.priority) + '</span>';
+            if (t.category_name) {
+                html += '<span class="badge badge-category" style="background:' + escHtml(t.color_code || '#95a5a6') + '">' + escHtml(t.category_name) + '</span>';
+            }
+            html += '</div>';
+
+            // Task Info
+            html += '<div class="detail-section">';
+            html += '<h4>Task Information</h4>';
+            html += detailRow('Task No', t.task_no);
+            if (t.start_date) html += detailRow('Start Date', formatDate(t.start_date));
+            if (t.due_date) html += detailRow('Due Date', formatDate(t.due_date));
+            if (t.estimated_hours) html += detailRow('Estimated Hours', parseFloat(t.estimated_hours).toFixed(1) + 'h');
+            if (t.actual_hours) html += detailRow('Actual Hours', parseFloat(t.actual_hours).toFixed(1) + 'h');
+            if (t.progress_percent > 0) {
+                html += '<div class="detail-row"><span class="detail-label">Progress</span><span class="detail-value">';
+                html += '<div class="progress-bar" style="width:120px;display:inline-block;vertical-align:middle;margin-right:8px;">';
+                html += '<div class="progress-bar-fill" style="width:' + t.progress_percent + '%"></div></div>';
+                html += t.progress_percent + '%</span></div>';
+            }
+            if (t.assigned_by_name) html += detailRow('Assigned By', t.assigned_by_name);
+            if (t.created_by_name) html += detailRow('Created By', t.created_by_name);
+            if (t.created_at) html += detailRow('Created', formatDateTime(t.created_at));
+            html += '</div>';
+
+            // Description
+            if (t.task_description) {
+                html += '<div class="detail-section">';
+                html += '<h4>Description</h4>';
+                html += '<div class="detail-description">' + escHtml(t.task_description) + '</div>';
+                html += '</div>';
+            }
+
+            // Related Info
+            if (t.related_module || t.project_name || t.company_name) {
+                html += '<div class="detail-section">';
+                html += '<h4>Related Information</h4>';
+                if (t.related_module) html += detailRow('Module', t.related_module);
+                if (t.related_reference) html += detailRow('Reference', t.related_reference);
+                if (t.project_name) html += detailRow('Project', t.project_no + ' - ' + t.project_name);
+                if (t.company_name) html += detailRow('Customer', t.company_name);
+                html += '</div>';
+            }
+
+            // Checklist
+            if (t.checklist && t.checklist.length > 0) {
+                let done = t.checklist.filter(c => c.is_completed == 1).length;
+                html += '<div class="detail-section">';
+                html += '<h4>Checklist (' + done + '/' + t.checklist.length + ')</h4>';
+                t.checklist.forEach(function(item) {
+                    let isDone = item.is_completed == 1;
+                    html += '<div class="checklist-item">';
+                    html += '<span class="' + (isDone ? 'checklist-check' : 'checklist-uncheck') + '">';
+                    html += isDone ? '&#10003;' : '&#9675;';
+                    html += '</span>';
+                    html += '<span class="' + (isDone ? 'checklist-done' : '') + '">' + escHtml(item.item_text) + '</span>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            // Comments
+            if (t.comments && t.comments.length > 0) {
+                html += '<div class="detail-section">';
+                html += '<h4>Recent Comments</h4>';
+                t.comments.forEach(function(c) {
+                    html += '<div class="comment-item">';
+                    html += '<div class="comment-header">' + escHtml(c.commenter_name || 'System') + ' &middot; ' + formatDateTime(c.created_at) + '</div>';
+                    html += '<div class="comment-text">' + escHtml(c.comment_text) + '</div>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
+            content.innerHTML = html;
+            content.style.display = 'block';
+        })
+        .catch(function() {
+            loading.style.display = 'none';
+            content.innerHTML = '<p style="color:#e74c3c;">Failed to load task details. Please try again.</p>';
+            content.style.display = 'block';
+        });
+}
+
+function closeTaskModal(e) {
+    if (e && e.target !== e.currentTarget) return;
+    document.getElementById('taskModalOverlay').classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeTaskModal();
+});
+
+function detailRow(label, value) {
+    return '<div class="detail-row"><span class="detail-label">' + escHtml(label) + '</span><span class="detail-value">' + escHtml(value || '-') + '</span></div>';
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function formatDate(d) {
+    if (!d) return '-';
+    var dt = new Date(d);
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear();
+}
+
+function formatDateTime(d) {
+    if (!d) return '-';
+    var dt = new Date(d);
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var h = dt.getHours(), m = dt.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return dt.getDate() + ' ' + months[dt.getMonth()] + ' ' + dt.getFullYear() + ', ' + h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+}
+</script>
 
 </body>
 </html>

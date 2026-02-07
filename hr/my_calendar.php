@@ -372,6 +372,8 @@ $todayUrl = "?view=$view";
         <a href="attendance_portal.php" class="header-btn">Attendance</a>
         <a href="my_tasks.php" class="header-btn">Tasks</a>
         <a href="my_payslip.php" class="header-btn">Payslips</a>
+        <a href="my_tada.php" class="header-btn">TADA</a>
+        <a href="my_advance.php" class="header-btn">Advances</a>
         <a href="?logout=1" class="header-btn">Logout</a>
     </div>
 </div>

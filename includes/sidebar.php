@@ -273,6 +273,8 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/hr/attendance.php" class="<?= $currentDir === 'hr' && in_array($current, ['attendance.php', 'attendance_mark.php', 'holidays.php']) ? 'active' : '' ?>">Attendance</a>
             <a href="/hr/leaves.php" class="<?= $currentDir === 'hr' && in_array($current, ['leaves.php', 'leave_apply.php', 'leave_view.php', 'leave_balance.php', 'leave_types.php']) ? 'active' : '' ?>">Leave Management</a>
             <a href="/hr/payroll.php" class="<?= $currentDir === 'hr' && in_array($current, ['payroll.php', 'payroll_generate.php', 'payroll_view.php', 'payroll_edit.php']) ? 'active' : '' ?>">Payroll</a>
+            <a href="/hr/tada.php" class="<?= $currentDir === 'hr' && in_array($current, ['tada.php', 'tada_add.php', 'tada_view.php']) ? 'active' : '' ?>">TADA</a>
+            <a href="/hr/advance_payment.php" class="<?= $currentDir === 'hr' && in_array($current, ['advance_payment.php', 'advance_add.php', 'advance_view.php']) ? 'active' : '' ?>">Advance Payment</a>
             <a href="/hr/appraisal_cycles.php" class="<?= $currentDir === 'hr' && in_array($current, ['appraisal_cycles.php', 'appraisals.php', 'appraisal_form.php', 'appraisal_criteria.php']) ? 'active' : '' ?>">Appraisals</a>
         </div>
     </div>

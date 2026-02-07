@@ -989,6 +989,8 @@ if (isset($_GET['logout'])) {
         <a href="my_tasks.php" class="logout-btn">My Tasks</a>
         <a href="my_calendar.php" class="logout-btn">Calendar</a>
         <a href="my_payslip.php" class="logout-btn">Payslips</a>
+        <a href="my_tada.php" class="logout-btn">TADA</a>
+        <a href="my_advance.php" class="logout-btn">Advances</a>
         <a href="?logout=1" class="logout-btn">Logout</a>
     </div>
 </div>
