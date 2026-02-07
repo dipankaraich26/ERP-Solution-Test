@@ -191,7 +191,7 @@ if ($step == 2) {
     }
 
     // Also detect work orders created outside the procurement page (from work_orders module)
-    // Match by part_no and status not closed/cancelled
+    // Match by part_no - include ALL statuses (open, in_progress, completed, closed) except cancelled
     if (!empty($workOrderItems)) {
         foreach ($workOrderItems as $wi) {
             $partNo = $wi['part_no'];
@@ -199,18 +199,32 @@ if ($step == 2) {
             if (isset($woItemStatus[$partNo]) && !empty($woItemStatus[$partNo]['created_wo_id'])) {
                 continue;
             }
-            // Look for any existing open/in-progress work order for this part
+            // Look for any existing work order for this part (including closed/completed)
             $extWoStmt = $pdo->prepare("
                 SELECT id, wo_no, qty, status FROM work_orders
-                WHERE part_no = ? AND status NOT IN ('closed', 'cancelled')
+                WHERE part_no = ? AND status != 'cancelled'
                 ORDER BY id DESC LIMIT 1
             ");
             $extWoStmt->execute([$partNo]);
             $extWo = $extWoStmt->fetch(PDO::FETCH_ASSOC);
             if ($extWo) {
+                // Map WO status to procurement tracking status
+                $woStatusMap = [
+                    'open' => 'in_progress', 'created' => 'in_progress',
+                    'released' => 'in_progress', 'in_progress' => 'in_progress',
+                    'completed' => 'completed', 'qc_approval' => 'completed',
+                    'closed' => 'closed'
+                ];
+                $trackingStatus = $woStatusMap[$extWo['status']] ?? 'in_progress';
+
                 // Link it to the tracking table if plan exists
                 if ($currentPlanId) {
                     updatePlanWoItemStatus($pdo, $currentPlanId, $partNo, (int)$extWo['id'], $extWo['wo_no']);
+                    // Also update the status in tracking table
+                    try {
+                        $pdo->prepare("UPDATE procurement_plan_wo_items SET status = ? WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$trackingStatus, $currentPlanId, $partNo]);
+                    } catch (Exception $e) {}
                     // Also set plan_id on the work_orders row so status sync works
                     try {
                         $pdo->prepare("UPDATE work_orders SET plan_id = ? WHERE id = ? AND (plan_id IS NULL OR plan_id = 0)")
@@ -230,11 +244,27 @@ if ($step == 2) {
                     'part_no' => $partNo,
                     'created_wo_id' => $extWo['id'],
                     'created_wo_no' => $extWo['wo_no'],
-                    'status' => 'in_progress'
+                    'status' => $trackingStatus,
+                    'actual_wo_status' => $extWo['status']
                 ];
             }
         }
     }
+
+    // For existing tracked WO items, also fetch the actual WO status
+    foreach ($woItemStatus as $partNo => &$ws) {
+        if (!empty($ws['created_wo_id']) && !isset($ws['actual_wo_status'])) {
+            try {
+                $woActualStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                $woActualStmt->execute([$ws['created_wo_id']]);
+                $actualStatus = $woActualStmt->fetchColumn();
+                if ($actualStatus) {
+                    $ws['actual_wo_status'] = $actualStatus;
+                }
+            } catch (Exception $e) {}
+        }
+    }
+    unset($ws);
 
     // Load existing tracking status for PO items
     $poItemStatus = [];
@@ -644,19 +674,34 @@ if ($step == 3 && $planId) {
                     ⚙️ Work Order Parts (Internal Production)
                 </span>
                 <?php
-                $woCreatedCount = 0;
+                $woClosedCount = 0;
+                $woCompletedCount = 0;
+                $woInProgressCount = 0;
                 $woPendingCount = 0;
+                $woInStockCount = 0;
                 foreach ($workOrderItems as $wi) {
-                    $woStatus = $woItemStatus[$wi['part_no']] ?? null;
-                    if ($woStatus && $woStatus['created_wo_id']) {
-                        $woCreatedCount++;
-                    } else if ($wi['shortage'] > 0) {
+                    $woSt = $woItemStatus[$wi['part_no']] ?? null;
+                    $actualWoSt = $woSt['actual_wo_status'] ?? '';
+                    if ($woSt && $woSt['created_wo_id']) {
+                        if (in_array($actualWoSt, ['closed'])) {
+                            $woClosedCount++;
+                        } elseif (in_array($actualWoSt, ['completed', 'qc_approval'])) {
+                            $woCompletedCount++;
+                        } else {
+                            $woInProgressCount++;
+                        }
+                    } elseif ($wi['shortage'] <= 0) {
+                        $woInStockCount++;
+                    } else {
                         $woPendingCount++;
                     }
                 }
                 ?>
                 <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
-                    <span style="color: #16a34a;"><?= $woCreatedCount ?> Created</span> |
+                    <?php if ($woClosedCount): ?><span style="color: #6b7280;"><?= $woClosedCount ?> Closed</span> | <?php endif; ?>
+                    <?php if ($woCompletedCount): ?><span style="color: #16a34a;"><?= $woCompletedCount ?> Completed</span> | <?php endif; ?>
+                    <span style="color: #3b82f6;"><?= $woInProgressCount ?> In Progress</span> |
+                    <span style="color: #10b981;"><?= $woInStockCount ?> In Stock</span> |
                     <span style="color: #f59e0b;"><?= $woPendingCount ?> Pending</span>
                 </span>
             </h3>
@@ -684,8 +729,12 @@ if ($step == 3 && $planId) {
                         <?php foreach ($workOrderItems as $idx => $item):
                             $woStatus = $woItemStatus[$item['part_no']] ?? null;
                             $hasWO = $woStatus && $woStatus['created_wo_id'];
+                            $itemActualWoSt = $woStatus['actual_wo_status'] ?? '';
+                            $itemIsClosed = in_array($itemActualWoSt, ['closed']);
+                            $itemIsCompleted = in_array($itemActualWoSt, ['completed', 'qc_approval']);
+                            $rowBg = $itemIsClosed ? '#f3f4f6' : ($itemIsCompleted ? '#dcfce7' : ($hasWO ? '#dbeafe' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4')));
                         ?>
-                            <tr style="background: <?= $hasWO ? '#dcfce7' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4') ?>;">
+                            <tr style="background: <?= $rowBg ?>;">
                                 <td><?= htmlspecialchars($item['part_no']) ?></td>
                                 <td><?= htmlspecialchars($item['part_name']) ?></td>
                                 <td><strong><?= $item['part_id'] ?></strong></td>
@@ -710,10 +759,22 @@ if ($step == 3 && $planId) {
                                     <?= $item['shortage'] ?>
                                 </td>
                                 <td>
-                                    <?php if ($hasWO): ?>
+                                    <?php if ($hasWO):
+                                        $actualWoSt = $woStatus['actual_wo_status'] ?? '';
+                                        if (in_array($actualWoSt, ['closed'])):
+                                    ?>
+                                        <span style="display: inline-block; padding: 4px 10px; background: #6b7280; color: white; border-radius: 15px; font-size: 0.8em;">
+                                            Closed
+                                        </span>
+                                    <?php elseif (in_array($actualWoSt, ['completed', 'qc_approval'])): ?>
                                         <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                            Completed
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="display: inline-block; padding: 4px 10px; background: #3b82f6; color: white; border-radius: 15px; font-size: 0.8em;">
                                             In Progress
                                         </span>
+                                    <?php endif; ?>
                                         <br><small style="color: #059669;"><?= htmlspecialchars($woStatus['created_wo_no']) ?></small>
                                     <?php elseif ($item['shortage'] <= 0): ?>
                                         <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
@@ -773,21 +834,30 @@ if ($step == 3 && $planId) {
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                     <?php foreach ($woItemsBySO as $soNo => $soItems):
-                        // Count pending vs created for this SO
+                        // Count by actual WO status for this SO
+                        $soClosed = 0;
+                        $soCompleted = 0;
+                        $soInProgress = 0;
                         $soPending = 0;
-                        $soCreated = 0;
                         $soInStock = 0;
                         foreach ($soItems as $si) {
                             $status = $woItemStatus[$si['part_no']] ?? null;
+                            $siActualSt = $status['actual_wo_status'] ?? '';
                             if ($status && $status['created_wo_id']) {
-                                $soCreated++;
+                                if (in_array($siActualSt, ['closed'])) {
+                                    $soClosed++;
+                                } elseif (in_array($siActualSt, ['completed', 'qc_approval'])) {
+                                    $soCompleted++;
+                                } else {
+                                    $soInProgress++;
+                                }
                             } elseif (($si['shortage'] ?? 0) <= 0) {
                                 $soInStock++;
                             } else {
                                 $soPending++;
                             }
                         }
-                        $allDone = ($soPending == 0);
+                        $allDone = ($soPending == 0 && $soInProgress == 0);
                     ?>
                     <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -795,12 +865,14 @@ if ($step == 3 && $planId) {
                             <?php if ($allDone): ?>
                                 <span style="background: #10b981; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;">Complete</span>
                             <?php else: ?>
-                                <span style="background: #f59e0b; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;"><?= $soPending ?> Pending</span>
+                                <span style="background: #f59e0b; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;"><?= $soPending + $soInProgress ?> Active</span>
                             <?php endif; ?>
                         </div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
                             <?= count($soItems) ?> parts |
-                            <span style="color: #16a34a;"><?= $soCreated ?> created</span> |
+                            <?php if ($soClosed): ?><span style="color: #6b7280;"><?= $soClosed ?> closed</span> | <?php endif; ?>
+                            <?php if ($soCompleted): ?><span style="color: #16a34a;"><?= $soCompleted ?> completed</span> | <?php endif; ?>
+                            <?php if ($soInProgress): ?><span style="color: #3b82f6;"><?= $soInProgress ?> in progress</span> | <?php endif; ?>
                             <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
                         </div>
                         <?php if ($soPending > 0): ?>
