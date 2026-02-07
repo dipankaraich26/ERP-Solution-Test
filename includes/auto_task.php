@@ -56,6 +56,49 @@ function syncMissingWoTasks($pdo) {
     }
 }
 
+/**
+ * Backfill tasks for scheduled/in_progress installations that don't have tasks yet
+ */
+function syncMissingInstallationTasks($pdo) {
+    try {
+        $missing = $pdo->query("
+            SELECT i.id, i.installation_no, i.installation_date, i.engineer_type, i.engineer_id,
+                   i.customer_id, c.company_name
+            FROM installations i
+            LEFT JOIN customers c ON i.customer_id = c.id
+            WHERE i.status IN ('scheduled', 'in_progress')
+              AND i.engineer_type = 'internal'
+              AND i.engineer_id IS NOT NULL
+              AND i.id NOT IN (
+                  SELECT related_id FROM tasks
+                  WHERE related_module = 'Installation' AND related_id IS NOT NULL
+              )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $count = 0;
+        foreach ($missing as $inst) {
+            $result = createAutoTask($pdo, [
+                'task_name' => "Installation {$inst['installation_no']}",
+                'task_description' => "Complete installation {$inst['installation_no']} scheduled on {$inst['installation_date']}" .
+                    ($inst['company_name'] ? " for {$inst['company_name']}" : ''),
+                'priority' => 'High',
+                'assigned_to' => $inst['engineer_id'],
+                'start_date' => $inst['installation_date'],
+                'due_date' => $inst['installation_date'],
+                'related_module' => 'Installation',
+                'related_id' => $inst['id'],
+                'related_reference' => $inst['installation_no'],
+                'customer_id' => $inst['customer_id'],
+            ]);
+            if ($result) $count++;
+        }
+        return $count;
+    } catch (Exception $e) {
+        error_log("syncMissingInstallationTasks failed: " . $e->getMessage());
+        return 0;
+    }
+}
+
 function createAutoTask($pdo, $params) {
     try {
         // Generate next task number

@@ -104,10 +104,11 @@ $low_stock_items = safeQuery($pdo, "
     LIMIT 10
 ");
 
-// Sync missing WO tasks (backfill for WOs released before auto-task was added)
+// Sync missing tasks (backfill for WOs/Installations created before auto-task was added)
 try {
     include_once "../includes/auto_task.php";
     syncMissingWoTasks($pdo);
+    syncMissingInstallationTasks($pdo);
 } catch (Exception $e) {
     // silently ignore
 }

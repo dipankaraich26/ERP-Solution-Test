@@ -133,6 +133,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
     }
+
+    if ($_POST['action'] === 'create_task') {
+        try {
+            include_once "../includes/auto_task.php";
+            $taskAssignee = ($installation['engineer_type'] === 'internal' && $installation['engineer_id']) ? $installation['engineer_id'] : null;
+            $taskId = createAutoTask($pdo, [
+                'task_name' => "Installation {$installation['installation_no']}",
+                'task_description' => "Complete installation {$installation['installation_no']} scheduled on {$installation['installation_date']}" .
+                    ($installation['company_name'] ? " for {$installation['company_name']}" : ''),
+                'priority' => 'High',
+                'assigned_to' => $taskAssignee,
+                'start_date' => $installation['installation_date'],
+                'due_date' => $installation['installation_date'],
+                'related_module' => 'Installation',
+                'related_id' => $id,
+                'related_reference' => $installation['installation_no'],
+                'customer_id' => $installation['customer_id'],
+                'created_by' => $_SESSION['user_id'] ?? 1
+            ]);
+            if ($taskId) {
+                setModal("Success", "Task created successfully for this installation!");
+            } else {
+                setModal("Error", "Failed to create task. Please try again.");
+            }
+        } catch (Exception $e) {
+            setModal("Error", "Failed to create task: " . $e->getMessage());
+        }
+        header("Location: view.php?id=$id");
+        exit;
+    }
+}
+
+// Check if a task exists for this installation
+$instTaskExists = false;
+$instTask = null;
+try {
+    $taskCheck = $pdo->prepare("SELECT id, task_no, status FROM tasks WHERE related_module = 'Installation' AND related_id = ? LIMIT 1");
+    $taskCheck->execute([$id]);
+    $instTask = $taskCheck->fetch();
+    $instTaskExists = !empty($instTask);
+} catch (Exception $e) {
+    // tasks table might not exist
 }
 
 include "../includes/sidebar.php";
@@ -270,6 +312,16 @@ showModal();
                     <option value="cancelled">Cancelled</option>
                 </select>
             </form>
+            <?php if (!$instTaskExists && in_array($installation['status'], ['scheduled', 'in_progress'])): ?>
+                <form method="post" style="display: inline;">
+                    <input type="hidden" name="action" value="create_task">
+                    <button type="submit" class="btn" style="background: #3b82f6; color: white;">Create Task</button>
+                </form>
+            <?php elseif ($instTaskExists): ?>
+                <a href="/tasks/index.php?search=<?= urlencode($installation['installation_no']) ?>" class="btn" style="background: #6366f1; color: white;">
+                    View Task (<?= htmlspecialchars($instTask['task_no']) ?>)
+                </a>
+            <?php endif; ?>
             <a href="edit.php?id=<?= $id ?>" class="btn btn-primary">Edit</a>
             <a href="index.php" class="btn btn-secondary">Back to List</a>
         </div>
