@@ -22,6 +22,9 @@ if (!$po) {
     die("Purchase Order not found");
 }
 
+// Get all suppliers for dropdown
+$suppliers = $pdo->query("SELECT id, supplier_name FROM suppliers ORDER BY supplier_name")->fetchAll(PDO::FETCH_ASSOC);
+
 // Get all parts for autocomplete
 $parts = $pdo->query("
     SELECT part_no, part_name, hsn_code, rate, gst
@@ -34,7 +37,13 @@ $partsJson = json_encode($parts);
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $items = $_POST['items'] ?? [];
+    $newSupplierId = (int)($_POST['supplier_id'] ?? $po['supplier_id']);
     $errors = [];
+
+    // Validate supplier
+    if ($newSupplierId <= 0) {
+        $errors[] = "Please select a valid supplier";
+    }
 
     // Validate items
     foreach ($items as $idx => $item) {
@@ -72,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $insertStmt->execute([
                     $po_no,
-                    $po['supplier_id'],
+                    $newSupplierId,
                     $partNo,
                     $qty,
                     $po['purchase_date'],
@@ -349,7 +358,13 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="po-info">
                 <div class="po-info-item">
                     <span class="po-info-label">Supplier:</span>
-                    <span><?= htmlspecialchars($po['supplier_name']) ?></span>
+                    <select name="supplier_id" form="poForm" style="padding: 6px 12px; border-radius: 6px; border: none; font-size: 14px; min-width: 200px;">
+                        <?php foreach ($suppliers as $sup): ?>
+                            <option value="<?= $sup['id'] ?>" <?= $sup['id'] == $po['supplier_id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($sup['supplier_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="po-info-item">
                     <span class="po-info-label">Date:</span>
