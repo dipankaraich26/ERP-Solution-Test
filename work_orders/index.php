@@ -15,6 +15,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
             case 'release':
                 $stmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
                 $stmt->execute([$woId]);
+
+                // Auto-create task for assigned engineer
+                $woData = $pdo->prepare("SELECT wo_no, part_no, qty, assigned_to FROM work_orders WHERE id = ?");
+                $woData->execute([$woId]);
+                $woInfo = $woData->fetch();
+                if ($woInfo && !empty($woInfo['assigned_to'])) {
+                    include_once "../includes/auto_task.php";
+                    $pn = $pdo->prepare("SELECT part_name FROM part_master WHERE part_no = ?");
+                    $pn->execute([$woInfo['part_no']]);
+                    $woPartName = $pn->fetchColumn() ?: $woInfo['part_no'];
+                    createAutoTask($pdo, [
+                        'task_name' => "Work Order {$woInfo['wo_no']} - Production",
+                        'task_description' => "Work Order {$woInfo['wo_no']} has been released. Complete production for Part: {$woInfo['part_no']} - $woPartName, Qty: {$woInfo['qty']}",
+                        'priority' => 'High',
+                        'assigned_to' => $woInfo['assigned_to'],
+                        'start_date' => date('Y-m-d'),
+                        'related_module' => 'Work Order',
+                        'related_id' => $woId,
+                        'related_reference' => $woInfo['wo_no'],
+                        'created_by' => $_SESSION['user_id'] ?? null
+                    ]);
+                }
+
                 $success = "Work Order released successfully!";
                 break;
             case 'start':
