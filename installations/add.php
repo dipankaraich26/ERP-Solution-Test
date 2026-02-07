@@ -163,6 +163,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // Auto-create task for engineer
+            include_once "../includes/auto_task.php";
+            $taskAssignee = ($engineer_type === 'internal' && $engineer_id) ? $engineer_id : null;
+            createAutoTask($pdo, [
+                'task_name' => "Installation $installation_no",
+                'task_description' => "Complete installation $installation_no scheduled on $installation_date",
+                'priority' => 'High',
+                'assigned_to' => $taskAssignee,
+                'start_date' => $installation_date,
+                'due_date' => $installation_date,
+                'related_module' => 'Installation',
+                'related_id' => $installation_id,
+                'related_reference' => $installation_no,
+                'customer_id' => $customer_id,
+                'created_by' => $_SESSION['user_id'] ?? 1
+            ]);
+
             $pdo->commit();
             setModal("Success", "Installation $installation_no created successfully");
             header("Location: view.php?id=$installation_id");

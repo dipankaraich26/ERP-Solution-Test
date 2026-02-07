@@ -68,6 +68,22 @@ if (isset($_POST['release']) && $_POST['release'] === '1') {
         if ($updateStmt->rowCount() > 0) {
             $message = "Quotation released as Proforma Invoice: " . $pi_no;
 
+            // Auto-create task for PO addition
+            include_once "../includes/auto_task.php";
+            $piCustomerId = $pdo->prepare("SELECT customer_id FROM quote_master WHERE id = ?");
+            $piCustomerId->execute([$id]);
+            $piCustId = $piCustomerId->fetchColumn();
+            createAutoTask($pdo, [
+                'task_name' => "Create PO for PI $pi_no",
+                'task_description' => "Proforma Invoice $pi_no has been generated. Create a Purchase Order for procurement.",
+                'priority' => 'High',
+                'related_module' => 'Proforma Invoice',
+                'related_id' => $id,
+                'related_reference' => $pi_no,
+                'customer_id' => $piCustId ?: null,
+                'created_by' => $_SESSION['user_id'] ?? null
+            ]);
+
             // AUTO-UPDATE: When PI is released, update lead status to HOT
             if ($leadReference && $leadStatusUpper === 'WARM') {
                 $leadUpdateStmt = $pdo->prepare("
