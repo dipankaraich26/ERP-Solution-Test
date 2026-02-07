@@ -188,10 +188,32 @@ if ($step == 2) {
         foreach ($woTracking as $wt) {
             $woItemStatus[$wt['part_no']] = $wt;
         }
+
+        // Clear stale links to closed/cancelled WOs from old released SOs
+        // If a tracked WO is closed/cancelled, unlink it so the part shows as Pending again
+        foreach ($woItemStatus as $partNo => &$ws) {
+            if (!empty($ws['created_wo_id'])) {
+                try {
+                    $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                    $chkStmt->execute([$ws['created_wo_id']]);
+                    $woRealStatus = $chkStmt->fetchColumn();
+                    if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
+                        // Unlink the closed/cancelled WO from this plan's tracking
+                        $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$currentPlanId, $partNo]);
+                        // Clear from in-memory status too
+                        $ws['created_wo_id'] = null;
+                        $ws['created_wo_no'] = null;
+                        $ws['status'] = 'pending';
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+        unset($ws);
     }
 
     // Also detect work orders created outside the procurement page (from work_orders module)
-    // Match by part_no - include ALL statuses (open, in_progress, completed, closed) except cancelled
+    // Only pick up ACTIVE WOs - closed/cancelled WOs belong to completed SO cycles and should NOT be linked
     if (!empty($workOrderItems)) {
         foreach ($workOrderItems as $wi) {
             $partNo = $wi['part_no'];
@@ -199,52 +221,35 @@ if ($step == 2) {
             if (isset($woItemStatus[$partNo]) && !empty($woItemStatus[$partNo]['created_wo_id'])) {
                 continue;
             }
-            // Look for any existing work order for this part (including closed/completed)
+            // Only find active (not closed/cancelled) work orders for this part
             $extWoStmt = $pdo->prepare("
                 SELECT id, wo_no, qty, status FROM work_orders
-                WHERE part_no = ? AND status != 'cancelled'
+                WHERE part_no = ? AND status NOT IN ('closed', 'cancelled')
                 ORDER BY id DESC LIMIT 1
             ");
             $extWoStmt->execute([$partNo]);
             $extWo = $extWoStmt->fetch(PDO::FETCH_ASSOC);
             if ($extWo) {
-                // Map WO status to procurement tracking status
-                $woStatusMap = [
-                    'open' => 'in_progress', 'created' => 'in_progress',
-                    'released' => 'in_progress', 'in_progress' => 'in_progress',
-                    'completed' => 'completed', 'qc_approval' => 'completed',
-                    'closed' => 'closed'
-                ];
-                $trackingStatus = $woStatusMap[$extWo['status']] ?? 'in_progress';
-
                 // Link it to the tracking table if plan exists
                 if ($currentPlanId) {
                     updatePlanWoItemStatus($pdo, $currentPlanId, $partNo, (int)$extWo['id'], $extWo['wo_no']);
-                    // Also update the status in tracking table
-                    try {
-                        $pdo->prepare("UPDATE procurement_plan_wo_items SET status = ? WHERE plan_id = ? AND part_no = ?")
-                             ->execute([$trackingStatus, $currentPlanId, $partNo]);
-                    } catch (Exception $e) {}
                     // Also set plan_id on the work_orders row so status sync works
                     try {
                         $pdo->prepare("UPDATE work_orders SET plan_id = ? WHERE id = ? AND (plan_id IS NULL OR plan_id = 0)")
                              ->execute([$currentPlanId, $extWo['id']]);
                     } catch (Exception $e) {
-                        // plan_id column might not exist yet, add it
                         try {
                             $pdo->exec("ALTER TABLE work_orders ADD COLUMN plan_id INT NULL");
                             $pdo->prepare("UPDATE work_orders SET plan_id = ? WHERE id = ?")
                                  ->execute([$currentPlanId, $extWo['id']]);
-                        } catch (Exception $e2) {
-                            // ignore
-                        }
+                        } catch (Exception $e2) {}
                     }
                 }
                 $woItemStatus[$partNo] = [
                     'part_no' => $partNo,
                     'created_wo_id' => $extWo['id'],
                     'created_wo_no' => $extWo['wo_no'],
-                    'status' => $trackingStatus,
+                    'status' => 'in_progress',
                     'actual_wo_status' => $extWo['status']
                 ];
             }

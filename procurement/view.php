@@ -265,6 +265,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $woItems = getPlanWorkOrderItems($pdo, $planId);
     $poItems = getPlanPurchaseOrderItems($pdo, $planId);
 
+    // Clear stale links to closed/cancelled WOs (from old released SOs)
+    foreach ($woItems as &$woItem) {
+        if (!empty($woItem['created_wo_id'])) {
+            try {
+                $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                $chkStmt->execute([$woItem['created_wo_id']]);
+                $woRealStatus = $chkStmt->fetchColumn();
+                if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
+                    // Unlink the closed/cancelled WO
+                    $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                         ->execute([$planId, $woItem['part_no']]);
+                    $woItem['created_wo_id'] = null;
+                    $woItem['created_wo_no'] = null;
+                    $woItem['status'] = 'pending';
+                }
+            } catch (Exception $e) {}
+        }
+    }
+    unset($woItem);
+
     // Refresh real-time stock and shortage for WO items
     foreach ($woItems as &$woItem) {
         try {
