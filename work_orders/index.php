@@ -33,14 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && isset($_
                 $woStmt->execute([$woId]);
                 $woData = $woStmt->fetch();
 
-                // Must be in qc_approval status to close
-                if ($woData && $woData['status'] !== 'qc_approval') {
+                // Must be in completed or qc_approval status to close
+                if ($woData && !in_array($woData['status'], ['completed', 'qc_approval'])) {
                     $error = "Work Order must complete Quality Check & Approval before closing.";
                     break;
                 }
 
                 // Check approval exists
-                $approvalCheck = $pdo->prepare("SELECT status FROM wo_closing_approvals WHERE wo_id = ? ORDER BY id DESC LIMIT 1");
+                $approvalCheck = $pdo->prepare("SELECT status FROM wo_closing_approvals WHERE work_order_id = ? ORDER BY id DESC LIMIT 1");
                 $approvalCheck->execute([$woId]);
                 $approvalData = $approvalCheck->fetch();
 

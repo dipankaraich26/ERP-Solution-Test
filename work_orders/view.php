@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $statusCheck->execute([$id]);
         $currentStatus = $statusCheck->fetchColumn();
 
-        if ($currentStatus !== 'qc_approval') {
+        if (!in_array($currentStatus, ['completed', 'qc_approval'])) {
             $error = "Work Order must complete Quality Check & Approval before closing.";
         }
 
@@ -617,12 +617,8 @@ if (toggle) {
                 </button>
             </form>
 
-        <?php elseif ($wo['status'] === 'completed'): ?>
-            <!-- Completed: Proceed to QC workflow -->
-            <span style="color: #0891b2; font-weight: 500;">Complete Quality Check & Approval below to proceed</span>
-
-        <?php elseif ($wo['status'] === 'qc_approval'): ?>
-            <!-- QC Approval: Show close button if approved -->
+        <?php elseif (in_array($wo['status'], ['completed', 'qc_approval'])): ?>
+            <!-- Completed/QC Approval: Show close button if approved -->
             <?php if ($canClose): ?>
                 <form method="post" style="display: inline;">
                     <input type="hidden" name="action" value="close">
@@ -632,7 +628,7 @@ if (toggle) {
                     </button>
                 </form>
             <?php else: ?>
-                <span style="color: #0891b2; font-weight: 500;">QC & Approval in progress - see workflow below</span>
+                <span style="color: #0891b2; font-weight: 500;">Complete Quality Check & Approval below to proceed</span>
             <?php endif; ?>
 
         <?php elseif ($wo['status'] === 'closed'): ?>
