@@ -121,11 +121,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get current line items (include rate and plan_id)
+// Use po.rate first, fallback to supplier rate from part_supplier_mapping, then p.rate (base rate)
 $itemsStmt = $pdo->prepare("
     SELECT po.id, po.part_no, p.part_name, po.qty,
-           COALESCE(po.rate, 0) AS rate, po.plan_id
+           CASE
+               WHEN COALESCE(po.rate, 0) > 0 THEN po.rate
+               WHEN psm.supplier_rate IS NOT NULL AND psm.supplier_rate > 0 THEN psm.supplier_rate
+               ELSE COALESCE(p.rate, 0)
+           END AS rate,
+           po.plan_id
     FROM purchase_orders po
     LEFT JOIN part_master p ON p.part_no = po.part_no
+    LEFT JOIN part_supplier_mapping psm ON psm.part_no = po.part_no AND psm.supplier_id = po.supplier_id AND psm.active = 1
     WHERE po.po_no = ?
     ORDER BY po.id
 ");
