@@ -438,8 +438,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </span>
         </h3>
 
+        <!-- WO Filter Buttons -->
+        <?php if (!$planIsCompleted): ?>
+        <div style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;" id="wo-filters">
+            <button type="button" class="filter-btn active" data-filter="all" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: #059669; color: white; cursor: pointer; font-size: 0.85em;">
+                All (<?= count($woItems) ?>)
+            </button>
+            <?php if ($woClosedCount): ?>
+            <button type="button" class="filter-btn" data-filter="closed" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #6b7280; cursor: pointer; font-size: 0.85em;">
+                Closed (<?= $woClosedCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($woCompletedCount): ?>
+            <button type="button" class="filter-btn" data-filter="completed" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #16a34a; cursor: pointer; font-size: 0.85em;">
+                Completed (<?= $woCompletedCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($woInProgressCount): ?>
+            <button type="button" class="filter-btn" data-filter="in_progress" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #3b82f6; cursor: pointer; font-size: 0.85em;">
+                In Progress (<?= $woInProgressCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($woInStockCount): ?>
+            <button type="button" class="filter-btn" data-filter="in_stock" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #10b981; cursor: pointer; font-size: 0.85em;">
+                In Stock (<?= $woInStockCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($woPendingCount): ?>
+            <button type="button" class="filter-btn" data-filter="pending" data-target="wo" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #f59e0b; cursor: pointer; font-size: 0.85em;">
+                Pending (<?= $woPendingCount ?>)
+            </button>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <div style="overflow-x: auto; margin-bottom: 20px;">
-            <table>
+            <table id="wo-table">
                 <thead>
                     <tr style="background: #d1fae5;">
                         <th>Part No</th>
@@ -460,8 +494,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $isClosed = $planIsCompleted || in_array($itemWoStatus, ['closed']);
                         $isCompleted = in_array($itemWoStatus, ['completed', 'qc_approval']);
                         $rowBg = $isClosed ? '#f3f4f6' : ($isCompleted ? '#dcfce7' : ($hasWO ? '#dbeafe' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4')));
+                        // Determine row filter status
+                        if ($planIsCompleted) { $rowFilterStatus = 'closed'; }
+                        elseif ($hasWO && in_array($itemWoStatus, ['closed'])) { $rowFilterStatus = 'closed'; }
+                        elseif ($hasWO && in_array($itemWoStatus, ['completed', 'qc_approval'])) { $rowFilterStatus = 'completed'; }
+                        elseif ($hasWO) { $rowFilterStatus = 'in_progress'; }
+                        elseif ($item['shortage'] <= 0) { $rowFilterStatus = 'in_stock'; }
+                        else { $rowFilterStatus = 'pending'; }
                     ?>
-                        <tr style="background: <?= $rowBg ?>;">
+                        <tr style="background: <?= $rowBg ?>;" data-status="<?= $rowFilterStatus ?>">
                             <td><?= htmlspecialchars($item['part_no']) ?></td>
                             <td><?= htmlspecialchars($item['part_name']) ?></td>
                             <td><strong><?= htmlspecialchars($item['part_id'] ?? '-') ?></strong></td>
@@ -612,8 +653,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </span>
         </h3>
 
+        <!-- PO Filter Buttons -->
+        <?php if (!$planIsCompleted): ?>
+        <div style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;" id="po-filters">
+            <button type="button" class="filter-btn active" data-filter="all" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: #d97706; color: white; cursor: pointer; font-size: 0.85em;">
+                All (<?= count($poItems) ?>)
+            </button>
+            <?php if ($poOrderedCount): ?>
+            <button type="button" class="filter-btn" data-filter="ordered" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #16a34a; cursor: pointer; font-size: 0.85em;">
+                Ordered (<?= $poOrderedCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($poInStockCount): ?>
+            <button type="button" class="filter-btn" data-filter="in_stock" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #10b981; cursor: pointer; font-size: 0.85em;">
+                In Stock (<?= $poInStockCount ?>)
+            </button>
+            <?php endif; ?>
+            <?php if ($poPendingCount): ?>
+            <button type="button" class="filter-btn" data-filter="pending" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #f59e0b; cursor: pointer; font-size: 0.85em;">
+                Pending (<?= $poPendingCount ?>)
+            </button>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <div style="overflow-x: auto; margin-bottom: 20px;">
-            <table>
+            <table id="po-table">
                 <thead>
                     <tr style="background: #fef3c7;">
                         <th>Part No</th>
@@ -633,8 +698,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <?php foreach ($poItems as $idx => $item):
                         $hasPO = !empty($item['created_po_id']);
                         $poRowBg = $planIsCompleted ? '#f3f4f6' : ($hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7'));
+                        // Determine row filter status
+                        if ($planIsCompleted) { $poRowFilter = 'closed'; }
+                        elseif ($hasPO) { $poRowFilter = 'ordered'; }
+                        elseif ($item['shortage'] <= 0) { $poRowFilter = 'in_stock'; }
+                        else { $poRowFilter = 'pending'; }
                     ?>
-                        <tr style="background: <?= $poRowBg ?>;">
+                        <tr style="background: <?= $poRowBg ?>;" data-status="<?= $poRowFilter ?>">
                             <td><?= htmlspecialchars($item['part_no']) ?></td>
                             <td><?= htmlspecialchars($item['part_name']) ?></td>
                             <td><strong><?= htmlspecialchars($item['part_id'] ?? '-') ?></strong></td>
@@ -786,6 +856,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <?php endif; ?>
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var colorMap = {
+        wo: { all: '#059669', closed: '#6b7280', completed: '#16a34a', in_progress: '#3b82f6', in_stock: '#10b981', pending: '#f59e0b' },
+        po: { all: '#d97706', ordered: '#16a34a', in_stock: '#10b981', pending: '#f59e0b' }
+    };
+
+    document.querySelectorAll('.filter-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var filter = this.getAttribute('data-filter');
+            var target = this.getAttribute('data-target');
+            var table = document.getElementById(target + '-table');
+            if (!table) return;
+
+            // Update active button styling
+            var container = document.getElementById(target + '-filters');
+            container.querySelectorAll('.filter-btn').forEach(function(b) {
+                b.style.background = 'white';
+                b.style.color = colorMap[target][b.getAttribute('data-filter')] || '#666';
+                b.style.fontWeight = 'normal';
+                b.classList.remove('active');
+            });
+            this.style.background = colorMap[target][filter] || '#666';
+            this.style.color = 'white';
+            this.style.fontWeight = '600';
+            this.classList.add('active');
+
+            // Filter rows
+            var rows = table.querySelectorAll('tbody tr');
+            rows.forEach(function(row) {
+                if (filter === 'all' || row.getAttribute('data-status') === filter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+});
+</script>
 
 </body>
 </html>
