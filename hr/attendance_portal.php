@@ -985,7 +985,10 @@ if (isset($_GET['logout'])) {
             <p><?= htmlspecialchars($empCode) ?> | <?= htmlspecialchars($empDesignation ?: $empDept) ?></p>
         </div>
     </div>
-    <a href="?logout=1" class="logout-btn">Logout</a>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        <a href="my_payslip.php" class="logout-btn">My Payslips</a>
+        <a href="?logout=1" class="logout-btn">Logout</a>
+    </div>
 </div>
 
 <div class="container">
