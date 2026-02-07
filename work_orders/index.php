@@ -206,6 +206,49 @@ $filterQuery = http_build_query(array_filter([
 <head>
     <title>Work Orders</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <style>
+        @media print {
+            .sidebar, .no-print {
+                display: none !important;
+            }
+            .content {
+                margin-left: 0 !important;
+                padding: 10px !important;
+                width: 100% !important;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            @page {
+                size: A4 landscape;
+                margin: 10mm;
+            }
+            table {
+                border: 1px solid #000 !important;
+                page-break-inside: avoid;
+                width: 100% !important;
+                font-size: 10px !important;
+                border-collapse: collapse;
+            }
+            table th, table td {
+                padding: 4px 6px !important;
+                border: 1px solid #000 !important;
+            }
+            table th {
+                background: #f0f0f0 !important;
+                color: #000 !important;
+            }
+            h1 {
+                font-size: 18px !important;
+            }
+            .filter-bar, form[style*="flex"] {
+                display: none !important;
+            }
+        }
+    </style>
 </head>
 <script>
 const toggle = document.getElementById("themeToggle");
@@ -248,19 +291,22 @@ if (toggle) {
     </div>
 <?php endif; ?>
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+<div class="no-print" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
     <a href="add.php" class="btn btn-primary">➕ Create Work Order</a>
-    <form method="GET" action="export_wo.php" style="display:inline;">
-        <input type="hidden" name="part_no" value="<?= htmlspecialchars($filter_part_no) ?>">
-        <input type="hidden" name="part_id" value="<?= htmlspecialchars($filter_part_id) ?>">
-        <input type="hidden" name="assigned_to" value="<?= htmlspecialchars($filter_assigned_to) ?>">
-        <input type="hidden" name="status" value="<?= htmlspecialchars($filter_status) ?>">
-        <button type="submit" class="btn btn-secondary">📥 Export to Excel</button>
-    </form>
+    <div style="display: flex; gap: 8px;">
+        <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
+        <form method="GET" action="export_wo.php" style="display:inline;">
+            <input type="hidden" name="part_no" value="<?= htmlspecialchars($filter_part_no) ?>">
+            <input type="hidden" name="part_id" value="<?= htmlspecialchars($filter_part_id) ?>">
+            <input type="hidden" name="assigned_to" value="<?= htmlspecialchars($filter_assigned_to) ?>">
+            <input type="hidden" name="status" value="<?= htmlspecialchars($filter_status) ?>">
+            <button type="submit" class="btn btn-secondary">📥 Export to Excel</button>
+        </form>
+    </div>
 </div>
 
 <!-- Filters -->
-<form method="GET" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+<form method="GET" class="no-print" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
     <div>
         <label style="display: block; font-size: 0.85em; margin-bottom: 3px; font-weight: 500;">Part No</label>
         <input type="text" name="part_no" value="<?= htmlspecialchars($filter_part_no) ?>" placeholder="Search part no..." style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9em;">
@@ -313,7 +359,7 @@ if (toggle) {
     <th>Status</th>
     <th>Source</th>
     <th>Date</th>
-    <th>Action</th>
+    <th class="no-print">Action</th>
 </tr>
 
 <?php while ($w = $stmt->fetch()): ?>
@@ -353,7 +399,7 @@ if (toggle) {
         <?php endif; ?>
     </td>
     <td><?= date('Y-m-d', strtotime($w['created_at'])) ?></td>
-    <td style="white-space: nowrap;">
+    <td class="no-print" style="white-space: nowrap;">
         <a class="btn btn-secondary" href="view.php?id=<?= $w['id'] ?>">View</a>
 
         <?php if (in_array($w['status'], ['open', 'created'])): ?>
@@ -412,7 +458,7 @@ if (toggle) {
 
     <!-- Pagination -->
     <?php if ($total_pages > 1): ?>
-    <div style="margin-top: 20px; text-align: center;">
+    <div class="no-print" style="margin-top: 20px; text-align: center;">
         <?php $paginationQuery = $filterQuery ? "&$filterQuery" : ''; ?>
         <?php if ($page > 1): ?>
             <a href="?page=1<?= $paginationQuery ?>" class="btn btn-secondary">First</a>
