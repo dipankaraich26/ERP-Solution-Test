@@ -104,6 +104,20 @@ $low_stock_items = safeQuery($pdo, "
     LIMIT 10
 ");
 
+// Released Work Orders
+$released_wos = safeQuery($pdo, "
+    SELECT w.id, w.wo_no, w.part_no, w.qty, w.status, w.created_at, w.assigned_to,
+           COALESCE(p.part_name, w.part_no) as part_name,
+           CONCAT(e.first_name, ' ', e.last_name) as engineer_name, e.emp_id
+    FROM work_orders w
+    LEFT JOIN part_master p ON w.part_no = p.part_no
+    LEFT JOIN employees e ON w.assigned_to = e.id
+    WHERE w.status = 'released'
+    ORDER BY w.created_at DESC
+    LIMIT 15
+");
+$stats['wo_released'] = safeCount($pdo, "SELECT COUNT(*) FROM work_orders WHERE status = 'released'");
+
 // Monthly purchase trend (last 6 months)
 $monthly_trend = safeQuery($pdo, "
     SELECT DATE_FORMAT(purchase_date, '%Y-%m') as month_key,
@@ -497,6 +511,10 @@ if (toggle) {
             <div class="stat-label">Partial Receipt</div>
         </div>
         <?php endif; ?>
+        <div class="stat-card danger">
+            <div class="stat-value"><?= $stats['wo_released'] ?></div>
+            <div class="stat-label">WOs Released</div>
+        </div>
         <div class="stat-card purple">
             <div class="stat-value"><?= $stats['pi_tasks_pending'] ?></div>
             <div class="stat-label">PIs Awaiting PO</div>
@@ -569,6 +587,62 @@ if (toggle) {
                 <div style="text-align: center; margin-top: 10px; font-size: 0.85em; color: #7f8c8d;">
                     Total: Rs <?= number_format($stats['po_value_total']) ?>
                 </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Released Work Orders -->
+    <div class="dashboard-row">
+        <div class="dashboard-panel full-width">
+            <h3>
+                Released Work Orders
+                <?php if ($stats['wo_released'] > 0): ?>
+                    <span class="panel-badge"><?= $stats['wo_released'] ?></span>
+                <?php endif; ?>
+            </h3>
+            <?php if (empty($released_wos)): ?>
+                <p style="color: #7f8c8d;">No released work orders found.</p>
+            <?php else: ?>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>WO No</th>
+                            <th>Part No</th>
+                            <th>Part Name</th>
+                            <th>Qty</th>
+                            <th>Assigned Engineer</th>
+                            <th>Created</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($released_wos as $wo): ?>
+                        <tr>
+                            <td><a href="/work_orders/view.php?id=<?= $wo['id'] ?>"><strong><?= htmlspecialchars($wo['wo_no']) ?></strong></a></td>
+                            <td><?= htmlspecialchars($wo['part_no']) ?></td>
+                            <td><?= htmlspecialchars($wo['part_name']) ?></td>
+                            <td><?= htmlspecialchars($wo['qty']) ?></td>
+                            <td>
+                                <?php if ($wo['engineer_name'] && trim($wo['engineer_name'])): ?>
+                                    <?= htmlspecialchars($wo['engineer_name']) ?>
+                                    <span style="color: #999; font-size: 0.85em;">(<?= htmlspecialchars($wo['emp_id']) ?>)</span>
+                                <?php else: ?>
+                                    <span style="color: #999;">Not assigned</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="white-space: nowrap;"><?= $wo['created_at'] ? date('d M Y', strtotime($wo['created_at'])) : '-' ?></td>
+                            <td>
+                                <a href="/work_orders/view.php?id=<?= $wo['id'] ?>" class="task-action-btn">View</a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php if ($stats['wo_released'] > 15): ?>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <a href="/work_orders/index.php?status=released" style="color: #f5576c; font-weight: 600;">View all <?= $stats['wo_released'] ?> released work orders</a>
+                    </div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
