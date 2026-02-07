@@ -104,6 +104,14 @@ $low_stock_items = safeQuery($pdo, "
     LIMIT 10
 ");
 
+// Sync missing WO tasks (backfill for WOs released before auto-task was added)
+try {
+    include_once "../includes/auto_task.php";
+    syncMissingWoTasks($pdo);
+} catch (Exception $e) {
+    // silently ignore
+}
+
 // Released Work Orders
 $released_wos = safeQuery($pdo, "
     SELECT w.id, w.wo_no, w.part_no, w.qty, w.status, w.created_at, w.assigned_to,

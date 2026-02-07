@@ -17,6 +17,45 @@
  *   - created_by
  * @return int|false Created task ID or false on failure
  */
+/**
+ * Backfill tasks for released WOs that don't have tasks yet
+ */
+function syncMissingWoTasks($pdo) {
+    try {
+        $missing = $pdo->query("
+            SELECT w.id, w.wo_no, w.part_no, w.qty, w.assigned_to,
+                   COALESCE(p.part_name, w.part_no) as part_name
+            FROM work_orders w
+            LEFT JOIN part_master p ON w.part_no = p.part_no
+            WHERE w.status IN ('released', 'in_progress')
+              AND w.assigned_to IS NOT NULL
+              AND w.id NOT IN (
+                  SELECT related_id FROM tasks
+                  WHERE related_module = 'Work Order' AND related_id IS NOT NULL
+              )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $count = 0;
+        foreach ($missing as $wo) {
+            $result = createAutoTask($pdo, [
+                'task_name' => "Work Order {$wo['wo_no']} - Production",
+                'task_description' => "Work Order {$wo['wo_no']} has been released. Complete production for Part: {$wo['part_no']} - {$wo['part_name']}, Qty: {$wo['qty']}",
+                'priority' => 'High',
+                'assigned_to' => $wo['assigned_to'],
+                'start_date' => date('Y-m-d'),
+                'related_module' => 'Work Order',
+                'related_id' => $wo['id'],
+                'related_reference' => $wo['wo_no'],
+            ]);
+            if ($result) $count++;
+        }
+        return $count;
+    } catch (Exception $e) {
+        error_log("syncMissingWoTasks failed: " . $e->getMessage());
+        return 0;
+    }
+}
+
 function createAutoTask($pdo, $params) {
     try {
         // Generate next task number

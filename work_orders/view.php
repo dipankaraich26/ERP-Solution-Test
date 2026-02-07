@@ -246,6 +246,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    if ($action === 'create_task') {
+        try {
+            include_once "../includes/auto_task.php";
+            $woData = $pdo->prepare("SELECT wo_no, part_no, qty, assigned_to FROM work_orders WHERE id = ?");
+            $woData->execute([$id]);
+            $woInfo = $woData->fetch();
+            if ($woInfo && !empty($woInfo['assigned_to'])) {
+                $pn = $pdo->prepare("SELECT part_name FROM part_master WHERE part_no = ?");
+                $pn->execute([$woInfo['part_no']]);
+                $woPartName = $pn->fetchColumn() ?: $woInfo['part_no'];
+                $taskId = createAutoTask($pdo, [
+                    'task_name' => "Work Order {$woInfo['wo_no']} - Production",
+                    'task_description' => "Work Order {$woInfo['wo_no']} has been released. Complete production for Part: {$woInfo['part_no']} - $woPartName, Qty: {$woInfo['qty']}",
+                    'priority' => 'High',
+                    'assigned_to' => $woInfo['assigned_to'],
+                    'start_date' => date('Y-m-d'),
+                    'related_module' => 'Work Order',
+                    'related_id' => $id,
+                    'related_reference' => $woInfo['wo_no'],
+                    'created_by' => $_SESSION['user_id'] ?? null
+                ]);
+                if ($taskId) {
+                    $success = "Task created successfully for this Work Order!";
+                } else {
+                    $error = "Failed to create task. Please try again.";
+                }
+            } else {
+                $error = "Cannot create task: No engineer assigned to this Work Order.";
+            }
+        } catch (Exception $e) {
+            $error = "Failed to create task: " . $e->getMessage();
+        }
+    }
+
     if ($action === 'reopen') {
         try {
             $checkStmt = $pdo->prepare("SELECT wo_no, part_no, qty, status, bom_id FROM work_orders WHERE id = ?");
@@ -347,6 +381,18 @@ $wo = $woStmt->fetch();
 
 if (!$wo) {
     die("Work Order not found");
+}
+
+// Check if a task exists for this WO
+$woTaskExists = false;
+$woTask = null;
+try {
+    $taskCheck = $pdo->prepare("SELECT id, task_no, status FROM tasks WHERE related_module = 'Work Order' AND related_id = ? LIMIT 1");
+    $taskCheck->execute([$id]);
+    $woTask = $taskCheck->fetch();
+    $woTaskExists = !empty($woTask);
+} catch (Exception $e) {
+    // tasks table might not exist
 }
 
 // Fetch all employees for assignment dropdown
@@ -623,6 +669,18 @@ if (toggle) {
                     Cancel WO
                 </button>
             </form>
+            <?php if (!$woTaskExists && !empty($wo['assigned_to'])): ?>
+                <form method="post" style="display: inline;">
+                    <input type="hidden" name="action" value="create_task">
+                    <button type="submit" class="btn" style="background: #3b82f6; color: white;">
+                        Create Task
+                    </button>
+                </form>
+            <?php elseif ($woTaskExists): ?>
+                <a href="/tasks/index.php?search=<?= urlencode($wo['wo_no']) ?>" class="btn" style="background: #6366f1; color: white;">
+                    View Task (<?= htmlspecialchars($woTask['task_no']) ?>)
+                </a>
+            <?php endif; ?>
 
         <?php elseif ($wo['status'] === 'in_progress'): ?>
             <form method="post" style="display: inline;">
