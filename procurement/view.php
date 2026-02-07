@@ -384,6 +384,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
     unset($poItem);
 
+    // Cascade "In Stock" from parent WO parts to child WO/PO parts
+    // If a WO parent is in stock (no WO + shortage <= 0), its BOM children don't need production/procurement
+    if (!$planIsCompleted) {
+        // Build map of WO part_no => shortage and check which are truly "in stock"
+        $woPartMap = [];
+        foreach ($woItems as $wi) {
+            $woPartMap[$wi['part_no']] = [
+                'shortage' => $wi['shortage'],
+                'has_wo' => !empty($wi['created_wo_id']),
+            ];
+        }
+
+        // Build map of PO part_no => index for quick lookup
+        $poPartIndex = [];
+        foreach ($poItems as $idx => $pi) {
+            $poPartIndex[$pi['part_no']] = $idx;
+        }
+
+        // Build map of WO part_no => index for quick lookup
+        $woPartIndex = [];
+        foreach ($woItems as $idx => $wi) {
+            $woPartIndex[$wi['part_no']] = $idx;
+        }
+
+        // Find WO parts that are "In Stock" (no active WO and sufficient inventory)
+        $inStockWoParts = [];
+        foreach ($woPartMap as $partNo => $info) {
+            if (!$info['has_wo'] && $info['shortage'] <= 0) {
+                $inStockWoParts[] = $partNo;
+            }
+        }
+
+        // Cascade: for each in-stock WO parent, mark its BOM children as in-stock too
+        $processed = [];
+        while (!empty($inStockWoParts)) {
+            $nextInStock = [];
+            foreach ($inStockWoParts as $parentPartNo) {
+                if (isset($processed[$parentPartNo])) continue;
+                $processed[$parentPartNo] = true;
+
+                try {
+                    $childParts = getBomChildParts($pdo, $parentPartNo);
+                    foreach ($childParts as $child) {
+                        $childPartNo = $child['part_no'];
+
+                        // If child is a WO item, mark it in-stock and cascade further
+                        if (isset($woPartIndex[$childPartNo])) {
+                            $idx = $woPartIndex[$childPartNo];
+                            if (empty($woItems[$idx]['created_wo_id']) && $woItems[$idx]['shortage'] > 0) {
+                                $woItems[$idx]['shortage'] = 0;
+                                $nextInStock[] = $childPartNo;
+                            }
+                        }
+
+                        // If child is a PO item, mark it in-stock
+                        if (isset($poPartIndex[$childPartNo])) {
+                            $idx = $poPartIndex[$childPartNo];
+                            if (empty($poItems[$idx]['created_po_id']) && $poItems[$idx]['shortage'] > 0) {
+                                $poItems[$idx]['shortage'] = 0;
+                            }
+                        }
+                    }
+                } catch (Exception $e) {}
+            }
+            $inStockWoParts = $nextInStock;
+        }
+    }
+
     // Group WO items by SO
     $woItemsBySO = [];
     foreach ($woItems as $item) {
