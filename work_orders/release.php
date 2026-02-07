@@ -65,6 +65,25 @@ $pdo->prepare("
     UPDATE work_orders SET status='released' WHERE id=?
 ")->execute([$id]);
 
+/* Auto-create task for assigned engineer */
+if (!empty($wo['assigned_to'])) {
+    include_once "../includes/auto_task.php";
+    $partName = $pdo->prepare("SELECT part_name FROM part_master WHERE part_no = ?");
+    $partName->execute([$wo['part_no']]);
+    $woPartName = $partName->fetchColumn() ?: $wo['part_no'];
+    createAutoTask($pdo, [
+        'task_name' => "Work Order {$wo['wo_no']} - Production",
+        'task_description' => "Work Order {$wo['wo_no']} has been released. Complete production for Part: {$wo['part_no']} - $woPartName, Qty: {$wo['qty']}",
+        'priority' => 'High',
+        'assigned_to' => $wo['assigned_to'],
+        'start_date' => date('Y-m-d'),
+        'related_module' => 'Work Order',
+        'related_id' => $id,
+        'related_reference' => $wo['wo_no'],
+        'created_by' => $_SESSION['user_id'] ?? null
+    ]);
+}
+
 /* Add parent part to inventory */
 $pdo->prepare("
     INSERT INTO inventory (part_no, qty)

@@ -99,20 +99,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             $insertedId = $pdo->lastInsertId();
 
-            // Auto-create task for assigned employee
-            include_once "../includes/auto_task.php";
-            createAutoTask($pdo, [
-                'task_name' => "Work Order $wo_no - Production",
-                'task_description' => "Complete production for Work Order $wo_no, Part: $partNo, Qty: $qty",
-                'priority' => 'High',
-                'assigned_to' => $assignedTo ?: null,
-                'start_date' => date('Y-m-d'),
-                'related_module' => 'Work Order',
-                'related_id' => $insertedId,
-                'related_reference' => $wo_no,
-                'created_by' => $_SESSION['user_id'] ?? null
-            ]);
-
             // Verify the status was saved
             $verify = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
             $verify->execute([$insertedId]);
