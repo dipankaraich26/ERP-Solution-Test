@@ -73,6 +73,17 @@ if ($step == 2) {
     $currentPlanNo = $planResult['plan_no'] ?? '';
     $isExistingPlan = $planResult['is_existing'] ?? false;
 
+    // Auto-close plan if all linked SOs are released
+    $planIsCompleted = false;
+    if ($currentPlanId) {
+        autoClosePlanIfAllSOsReleased($pdo, $currentPlanId);
+        // Check current plan status
+        $planStatusStmt = $pdo->prepare("SELECT status FROM procurement_plans WHERE id = ?");
+        $planStatusStmt->execute([$currentPlanId]);
+        $currentPlanStatus = $planStatusStmt->fetchColumn();
+        $planIsCompleted = ($currentPlanStatus === 'completed');
+    }
+
     // Get selected sales orders by part
     $sosByPart = getSelectedSalesOrdersByPart($pdo, $selectedSOs);
 
@@ -189,27 +200,27 @@ if ($step == 2) {
             $woItemStatus[$wt['part_no']] = $wt;
         }
 
-        // Clear stale links to closed/cancelled WOs from old released SOs
-        // If a tracked WO is closed/cancelled, unlink it so the part shows as Pending again
-        foreach ($woItemStatus as $partNo => &$ws) {
-            if (!empty($ws['created_wo_id'])) {
-                try {
-                    $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
-                    $chkStmt->execute([$ws['created_wo_id']]);
-                    $woRealStatus = $chkStmt->fetchColumn();
-                    if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
-                        // Unlink the closed/cancelled WO from this plan's tracking
-                        $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
-                             ->execute([$currentPlanId, $partNo]);
-                        // Clear from in-memory status too
-                        $ws['created_wo_id'] = null;
-                        $ws['created_wo_no'] = null;
-                        $ws['status'] = 'pending';
-                    }
-                } catch (Exception $e) {}
+        // Only clear stale links if plan is NOT completed
+        if (!$planIsCompleted) {
+            // Clear stale links to closed/cancelled WOs from old released SOs
+            foreach ($woItemStatus as $partNo => &$ws) {
+                if (!empty($ws['created_wo_id'])) {
+                    try {
+                        $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                        $chkStmt->execute([$ws['created_wo_id']]);
+                        $woRealStatus = $chkStmt->fetchColumn();
+                        if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
+                            $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                                 ->execute([$currentPlanId, $partNo]);
+                            $ws['created_wo_id'] = null;
+                            $ws['created_wo_no'] = null;
+                            $ws['status'] = 'pending';
+                        }
+                    } catch (Exception $e) {}
+                }
             }
+            unset($ws);
         }
-        unset($ws);
     }
 
     // Also detect work orders created outside the procurement page (from work_orders module)
@@ -671,6 +682,15 @@ if ($step == 3 && $planId) {
         </form>
         <?php endif; ?>
 
+        <?php if ($planIsCompleted): ?>
+        <!-- Plan Completed Banner -->
+        <div style="margin-top: 30px; padding: 20px; background: linear-gradient(135deg, #dcfce7, #d1fae5); border: 2px solid #16a34a; border-radius: 10px; text-align: center;">
+            <h3 style="color: #16a34a; margin: 0 0 8px 0;">Plan Completed - All SOs Released</h3>
+            <p style="color: #059669; margin: 0;">All linked Sales Orders have been released. This procurement plan is now closed.</p>
+            <a href="view.php?id=<?= $currentPlanId ?>" class="btn btn-primary" style="margin-top: 10px; display: inline-block;">View Plan Details</a>
+        </div>
+        <?php endif; ?>
+
         <?php if (!empty($workOrderItems)): ?>
         <!-- Work Order Parts Section -->
         <div style="margin-top: 40px; padding-top: 30px; border-top: 3px solid #10b981;">
@@ -684,30 +704,38 @@ if ($step == 3 && $planId) {
                 $woInProgressCount = 0;
                 $woPendingCount = 0;
                 $woInStockCount = 0;
-                foreach ($workOrderItems as $wi) {
-                    $woSt = $woItemStatus[$wi['part_no']] ?? null;
-                    $actualWoSt = $woSt['actual_wo_status'] ?? '';
-                    if ($woSt && $woSt['created_wo_id']) {
-                        if (in_array($actualWoSt, ['closed'])) {
-                            $woClosedCount++;
-                        } elseif (in_array($actualWoSt, ['completed', 'qc_approval'])) {
-                            $woCompletedCount++;
+                if ($planIsCompleted) {
+                    $woClosedCount = count($workOrderItems);
+                } else {
+                    foreach ($workOrderItems as $wi) {
+                        $woSt = $woItemStatus[$wi['part_no']] ?? null;
+                        $actualWoSt = $woSt['actual_wo_status'] ?? '';
+                        if ($woSt && $woSt['created_wo_id']) {
+                            if (in_array($actualWoSt, ['closed'])) {
+                                $woClosedCount++;
+                            } elseif (in_array($actualWoSt, ['completed', 'qc_approval'])) {
+                                $woCompletedCount++;
+                            } else {
+                                $woInProgressCount++;
+                            }
+                        } elseif ($wi['shortage'] <= 0) {
+                            $woInStockCount++;
                         } else {
-                            $woInProgressCount++;
+                            $woPendingCount++;
                         }
-                    } elseif ($wi['shortage'] <= 0) {
-                        $woInStockCount++;
-                    } else {
-                        $woPendingCount++;
                     }
                 }
                 ?>
                 <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
-                    <?php if ($woClosedCount): ?><span style="color: #6b7280;"><?= $woClosedCount ?> Closed</span> | <?php endif; ?>
-                    <?php if ($woCompletedCount): ?><span style="color: #16a34a;"><?= $woCompletedCount ?> Completed</span> | <?php endif; ?>
-                    <span style="color: #3b82f6;"><?= $woInProgressCount ?> In Progress</span> |
-                    <span style="color: #10b981;"><?= $woInStockCount ?> In Stock</span> |
-                    <span style="color: #f59e0b;"><?= $woPendingCount ?> Pending</span>
+                    <?php if ($planIsCompleted): ?>
+                        <span style="color: #16a34a; font-weight: 600;">All <?= count($workOrderItems) ?> Closed (SOs Released)</span>
+                    <?php else: ?>
+                        <?php if ($woClosedCount): ?><span style="color: #6b7280;"><?= $woClosedCount ?> Closed</span> | <?php endif; ?>
+                        <?php if ($woCompletedCount): ?><span style="color: #16a34a;"><?= $woCompletedCount ?> Completed</span> | <?php endif; ?>
+                        <span style="color: #3b82f6;"><?= $woInProgressCount ?> In Progress</span> |
+                        <span style="color: #10b981;"><?= $woInStockCount ?> In Stock</span> |
+                        <span style="color: #f59e0b;"><?= $woPendingCount ?> Pending</span>
+                    <?php endif; ?>
                 </span>
             </h3>
             <p style="color: #666; margin-bottom: 15px;">
@@ -735,7 +763,7 @@ if ($step == 3 && $planId) {
                             $woStatus = $woItemStatus[$item['part_no']] ?? null;
                             $hasWO = $woStatus && $woStatus['created_wo_id'];
                             $itemActualWoSt = $woStatus['actual_wo_status'] ?? '';
-                            $itemIsClosed = in_array($itemActualWoSt, ['closed']);
+                            $itemIsClosed = $planIsCompleted || in_array($itemActualWoSt, ['closed']);
                             $itemIsCompleted = in_array($itemActualWoSt, ['completed', 'qc_approval']);
                             $rowBg = $itemIsClosed ? '#f3f4f6' : ($itemIsCompleted ? '#dcfce7' : ($hasWO ? '#dbeafe' : ($idx % 2 ? '#ecfdf5' : '#f0fdf4')));
                         ?>
@@ -764,7 +792,11 @@ if ($step == 3 && $planId) {
                                     <?= $item['shortage'] ?>
                                 </td>
                                 <td>
-                                    <?php if ($hasWO):
+                                    <?php if ($planIsCompleted): ?>
+                                        <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                            Closed
+                                        </span>
+                                    <?php elseif ($hasWO):
                                         $actualWoSt = $woStatus['actual_wo_status'] ?? '';
                                         if (in_array($actualWoSt, ['closed'])):
                                     ?>
@@ -792,7 +824,9 @@ if ($step == 3 && $planId) {
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($hasWO): ?>
+                                    <?php if ($planIsCompleted): ?>
+                                        <span style="color: #16a34a;">✓ Done</span>
+                                    <?php elseif ($hasWO): ?>
                                         <a href="/work_orders/view.php?id=<?= $woStatus['created_wo_id'] ?>"
                                            class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
                                             View WO
@@ -839,48 +873,49 @@ if ($step == 3 && $planId) {
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                     <?php foreach ($woItemsBySO as $soNo => $soItems):
-                        // Count by actual WO status for this SO
-                        $soClosed = 0;
-                        $soCompleted = 0;
-                        $soInProgress = 0;
-                        $soPending = 0;
-                        $soInStock = 0;
-                        foreach ($soItems as $si) {
-                            $status = $woItemStatus[$si['part_no']] ?? null;
-                            $siActualSt = $status['actual_wo_status'] ?? '';
-                            if ($status && $status['created_wo_id']) {
-                                if (in_array($siActualSt, ['closed'])) {
-                                    $soClosed++;
-                                } elseif (in_array($siActualSt, ['completed', 'qc_approval'])) {
-                                    $soCompleted++;
-                                } else {
-                                    $soInProgress++;
-                                }
-                            } elseif (($si['shortage'] ?? 0) <= 0) {
-                                $soInStock++;
-                            } else {
-                                $soPending++;
+                        $allDone = $planIsCompleted;
+                        $soClosed = 0; $soCompleted = 0; $soInProgress = 0; $soPending = 0; $soInStock = 0;
+                        if ($planIsCompleted) {
+                            $soClosed = count($soItems);
+                        } else {
+                            foreach ($soItems as $si) {
+                                $status = $woItemStatus[$si['part_no']] ?? null;
+                                $siActualSt = $status['actual_wo_status'] ?? '';
+                                if ($status && $status['created_wo_id']) {
+                                    if (in_array($siActualSt, ['closed'])) { $soClosed++; }
+                                    elseif (in_array($siActualSt, ['completed', 'qc_approval'])) { $soCompleted++; }
+                                    else { $soInProgress++; }
+                                } elseif (($si['shortage'] ?? 0) <= 0) { $soInStock++; }
+                                else { $soPending++; }
                             }
+                            $allDone = ($soPending == 0 && $soInProgress == 0);
                         }
-                        $allDone = ($soPending == 0 && $soInProgress == 0);
                     ?>
                     <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <strong style="font-size: 1.1em; color: #1f2937;"><?= htmlspecialchars($soNo) ?></strong>
-                            <?php if ($allDone): ?>
+                            <?php if ($planIsCompleted): ?>
+                                <span style="background: #16a34a; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;">SO Released</span>
+                            <?php elseif ($allDone): ?>
                                 <span style="background: #10b981; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;">Complete</span>
                             <?php else: ?>
                                 <span style="background: #f59e0b; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;"><?= $soPending + $soInProgress ?> Active</span>
                             <?php endif; ?>
                         </div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
-                            <?= count($soItems) ?> parts |
-                            <?php if ($soClosed): ?><span style="color: #6b7280;"><?= $soClosed ?> closed</span> | <?php endif; ?>
-                            <?php if ($soCompleted): ?><span style="color: #16a34a;"><?= $soCompleted ?> completed</span> | <?php endif; ?>
-                            <?php if ($soInProgress): ?><span style="color: #3b82f6;"><?= $soInProgress ?> in progress</span> | <?php endif; ?>
-                            <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
+                            <?php if ($planIsCompleted): ?>
+                                <?= count($soItems) ?> parts | <span style="color: #16a34a;">All closed</span>
+                            <?php else: ?>
+                                <?= count($soItems) ?> parts |
+                                <?php if ($soClosed): ?><span style="color: #6b7280;"><?= $soClosed ?> closed</span> | <?php endif; ?>
+                                <?php if ($soCompleted): ?><span style="color: #16a34a;"><?= $soCompleted ?> completed</span> | <?php endif; ?>
+                                <?php if ($soInProgress): ?><span style="color: #3b82f6;"><?= $soInProgress ?> in progress</span> | <?php endif; ?>
+                                <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
+                            <?php endif; ?>
                         </div>
-                        <?php if ($soPending > 0): ?>
+                        <?php if ($planIsCompleted): ?>
+                        <span style="color: #16a34a; font-weight: 500;">✓ Plan completed - SO released</span>
+                        <?php elseif ($soPending > 0): ?>
                         <form method="post" action="create.php?step=2" style="display: inline;">
                             <input type="hidden" name="action" value="create_all_wo_for_so">
                             <input type="hidden" name="target_so" value="<?= htmlspecialchars($soNo) ?>">
@@ -910,18 +945,26 @@ if ($step == 3 && $planId) {
                 <?php
                 $poOrderedCount = 0;
                 $poPendingCount = 0;
-                foreach ($subletItems as $si) {
-                    $poStatus = $poItemStatus[$si['part_no']] ?? null;
-                    if ($poStatus && $poStatus['created_po_id']) {
-                        $poOrderedCount++;
-                    } else if ($si['shortage'] > 0) {
-                        $poPendingCount++;
+                if ($planIsCompleted) {
+                    $poOrderedCount = count($subletItems);
+                } else {
+                    foreach ($subletItems as $si) {
+                        $poStatus = $poItemStatus[$si['part_no']] ?? null;
+                        if ($poStatus && $poStatus['created_po_id']) {
+                            $poOrderedCount++;
+                        } else if ($si['shortage'] > 0) {
+                            $poPendingCount++;
+                        }
                     }
                 }
                 ?>
                 <span style="margin-left: 15px; font-size: 0.85em; font-weight: normal;">
-                    <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
-                    <span style="color: #f59e0b;"><?= $poPendingCount ?> Pending</span>
+                    <?php if ($planIsCompleted): ?>
+                        <span style="color: #16a34a; font-weight: 600;">All <?= count($subletItems) ?> Closed (SOs Released)</span>
+                    <?php else: ?>
+                        <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
+                        <span style="color: #f59e0b;"><?= $poPendingCount ?> Pending</span>
+                    <?php endif; ?>
                 </span>
             </h3>
             <p style="color: #666; margin-bottom: 15px;">
@@ -966,8 +1009,9 @@ if ($step == 3 && $planId) {
                             <?php foreach ($subletItems as $idx => $item):
                                 $poStatus = $poItemStatus[$item['part_no']] ?? null;
                                 $hasPO = $poStatus && $poStatus['created_po_id'];
+                                $poRowBg = $planIsCompleted ? '#f3f4f6' : ($hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7'));
                             ?>
-                                <tr style="background: <?= $hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7') ?>;">
+                                <tr style="background: <?= $poRowBg ?>;">
                                     <td>
                                         <?= htmlspecialchars($item['part_no']) ?>
                                         <?php if (!$hasPO): ?>
@@ -1004,7 +1048,11 @@ if ($step == 3 && $planId) {
                                         <?= $item['shortage'] ?>
                                     </td>
                                     <td>
-                                        <?php if ($hasPO): ?>
+                                        <?php if ($planIsCompleted): ?>
+                                            <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
+                                                Closed
+                                            </span>
+                                        <?php elseif ($hasPO): ?>
                                             <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
                                                 Ordered
                                             </span>
@@ -1020,7 +1068,9 @@ if ($step == 3 && $planId) {
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if ($hasPO): ?>
+                                        <?php if ($planIsCompleted): ?>
+                                            <span style="color: #16a34a;">✓ Done</span>
+                                        <?php elseif ($hasPO): ?>
                                             <span style="color: #16a34a; font-weight: bold;"><?= $poStatus['ordered_qty'] ?></span>
                                         <?php else: ?>
                                             <input type="number" name="sublet_qty[]"
@@ -1105,43 +1155,45 @@ if ($step == 3 && $planId) {
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                     <?php foreach ($poItemsBySO as $soNo => $soItems):
-                        // Count pending vs ordered for this SO
-                        $soPending = 0;
-                        $soOrdered = 0;
-                        $soInStock = 0;
-                        $soNoSupplier = 0;
-                        foreach ($soItems as $si) {
-                            $status = $poItemStatus[$si['part_no']] ?? null;
-                            if ($status && $status['created_po_id']) {
-                                $soOrdered++;
-                            } elseif (($si['shortage'] ?? 0) <= 0) {
-                                $soInStock++;
-                            } elseif (empty($si['supplier_id'])) {
-                                $soNoSupplier++;
-                            } else {
-                                $soPending++;
+                        $allDone = $planIsCompleted;
+                        $soPending = 0; $soOrdered = 0; $soInStock = 0; $soNoSupplier = 0;
+                        if (!$planIsCompleted) {
+                            foreach ($soItems as $si) {
+                                $status = $poItemStatus[$si['part_no']] ?? null;
+                                if ($status && $status['created_po_id']) { $soOrdered++; }
+                                elseif (($si['shortage'] ?? 0) <= 0) { $soInStock++; }
+                                elseif (empty($si['supplier_id'])) { $soNoSupplier++; }
+                                else { $soPending++; }
                             }
+                            $allDone = ($soPending == 0);
                         }
-                        $allDone = ($soPending == 0);
                     ?>
                     <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid <?= $allDone ? '#10b981' : '#f59e0b' ?>;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                             <strong style="font-size: 1.1em; color: #1f2937;"><?= htmlspecialchars($soNo) ?></strong>
-                            <?php if ($allDone): ?>
+                            <?php if ($planIsCompleted): ?>
+                                <span style="background: #16a34a; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;">SO Released</span>
+                            <?php elseif ($allDone): ?>
                                 <span style="background: #10b981; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;">Complete</span>
                             <?php else: ?>
                                 <span style="background: #f59e0b; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8em;"><?= $soPending ?> Pending</span>
                             <?php endif; ?>
                         </div>
                         <div style="font-size: 0.85em; color: #666; margin-bottom: 12px;">
-                            <?= count($soItems) ?> parts |
-                            <span style="color: #16a34a;"><?= $soOrdered ?> ordered</span> |
-                            <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
-                            <?php if ($soNoSupplier > 0): ?>
-                                | <span style="color: #dc2626;"><?= $soNoSupplier ?> no supplier</span>
+                            <?php if ($planIsCompleted): ?>
+                                <?= count($soItems) ?> parts | <span style="color: #16a34a;">All closed</span>
+                            <?php else: ?>
+                                <?= count($soItems) ?> parts |
+                                <span style="color: #16a34a;"><?= $soOrdered ?> ordered</span> |
+                                <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
+                                <?php if ($soNoSupplier > 0): ?>
+                                    | <span style="color: #dc2626;"><?= $soNoSupplier ?> no supplier</span>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
-                        <?php if ($soPending > 0): ?>
+                        <?php if ($planIsCompleted): ?>
+                        <span style="color: #16a34a; font-weight: 500;">✓ Plan completed - SO released</span>
+                        <?php elseif ($soPending > 0): ?>
                         <form method="post" action="create.php?step=2" style="display: inline;">
                             <input type="hidden" name="action" value="create_all_po_for_so">
                             <input type="hidden" name="target_so" value="<?= htmlspecialchars($soNo) ?>">

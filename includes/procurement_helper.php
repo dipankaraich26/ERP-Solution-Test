@@ -1573,3 +1573,100 @@ function groupPurchaseOrderItemsBySO(array $subletItems): array {
     ksort($grouped); // Sort by SO number
     return $grouped;
 }
+
+/**
+ * Check if all SOs in a procurement plan are released/closed/completed.
+ * If so, auto-close the plan and mark all WO/PO items as closed.
+ * @param PDO $pdo Database connection
+ * @param int $planId Plan ID to check
+ * @return bool True if plan was auto-closed
+ */
+function autoClosePlanIfAllSOsReleased($pdo, int $planId): bool {
+    try {
+        // Get plan details
+        $planStmt = $pdo->prepare("SELECT id, so_list, status FROM procurement_plans WHERE id = ?");
+        $planStmt->execute([$planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$plan || in_array($plan['status'], ['completed', 'cancelled'])) {
+            return false; // Already closed or cancelled
+        }
+
+        $soList = $plan['so_list'] ?? '';
+        if (empty($soList)) {
+            return false;
+        }
+
+        // Parse SO numbers from comma-separated list
+        $soNumbers = array_map('trim', explode(',', $soList));
+        $soNumbers = array_filter($soNumbers);
+
+        if (empty($soNumbers)) {
+            return false;
+        }
+
+        // Check if ALL SOs are released/closed/completed
+        $placeholders = implode(',', array_fill(0, count($soNumbers), '?'));
+        $checkStmt = $pdo->prepare("
+            SELECT COUNT(DISTINCT so_no) as total,
+                   COUNT(DISTINCT CASE WHEN status IN ('released', 'closed', 'completed') THEN so_no END) as released_count
+            FROM sales_orders
+            WHERE so_no IN ($placeholders)
+        ");
+        $checkStmt->execute(array_values($soNumbers));
+        $result = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$result || $result['total'] == 0) {
+            return false;
+        }
+
+        // All SOs must be released/closed/completed
+        if ($result['released_count'] < $result['total']) {
+            return false;
+        }
+
+        // All SOs are released - auto-close the procurement plan
+        $pdo->prepare("UPDATE procurement_plans SET status = 'completed' WHERE id = ?")
+             ->execute([$planId]);
+
+        // Mark all WO items as closed
+        $pdo->prepare("UPDATE procurement_plan_wo_items SET status = 'closed' WHERE plan_id = ?")
+             ->execute([$planId]);
+
+        // Mark all PO items as closed
+        $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'closed' WHERE plan_id = ?")
+             ->execute([$planId]);
+
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Check all procurement plans that contain a given SO number and auto-close if needed.
+ * Call this after an SO is released.
+ * @param PDO $pdo Database connection
+ * @param string $soNo The SO number that was just released
+ * @return array List of plan IDs that were auto-closed
+ */
+function autoClosePlansForReleasedSO($pdo, string $soNo): array {
+    $closedPlans = [];
+    try {
+        // Find all plans that contain this SO
+        $stmt = $pdo->prepare("
+            SELECT id FROM procurement_plans
+            WHERE FIND_IN_SET(?, REPLACE(so_list, ' ', '')) > 0
+            AND status NOT IN ('completed', 'cancelled')
+        ");
+        $stmt->execute([$soNo]);
+        $plans = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        foreach ($plans as $planId) {
+            if (autoClosePlanIfAllSOsReleased($pdo, (int)$planId)) {
+                $closedPlans[] = $planId;
+            }
+        }
+    } catch (Exception $e) {}
+    return $closedPlans;
+}

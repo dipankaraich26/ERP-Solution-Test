@@ -8,6 +8,14 @@ $page = max(1, $page);
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
+// Auto-close plans where all SOs are released
+try {
+    $activePlans = $pdo->query("SELECT id FROM procurement_plans WHERE status NOT IN ('completed', 'cancelled')")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($activePlans as $apId) {
+        autoClosePlanIfAllSOsReleased($pdo, (int)$apId);
+    }
+} catch (Exception $e) {}
+
 // Get total count
 $total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans")->fetchColumn();
 $total_pages = ceil($total_count / $per_page);

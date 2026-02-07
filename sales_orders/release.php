@@ -76,7 +76,16 @@ try {
     ")->execute([$so_no]);
 
     $pdo->commit();
-    setModal("Success", "Sales Order $so_no released successfully. Inventory has been deducted.");
+
+    // Auto-close any procurement plans where all linked SOs are now released
+    require_once __DIR__ . '/../includes/procurement_helper.php';
+    $closedPlans = autoClosePlansForReleasedSO($pdo, $so_no);
+    $extraMsg = '';
+    if (!empty($closedPlans)) {
+        $extraMsg = ' Procurement Plan(s) auto-closed: ' . count($closedPlans) . '.';
+    }
+
+    setModal("Success", "Sales Order $so_no released successfully. Inventory has been deducted." . $extraMsg);
 
 } catch (Exception $e) {
     $pdo->rollBack();
