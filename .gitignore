@@ -5,3 +5,4 @@ migration*
 Dump*
 db_repair_analyzer.php
 repair_online_db.sql
+nul
