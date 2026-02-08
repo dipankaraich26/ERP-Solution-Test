@@ -440,6 +440,10 @@ try {
                     <div class="icon">📚</div>
                     <div class="title">Catalog</div>
                 </a>
+                <a href="my_order_tracking.php" class="menu-item">
+                    <div class="icon">📊</div>
+                    <div class="title">Order Tracking</div>
+                </a>
                 <a href="my_dockets.php" class="menu-item">
                     <div class="icon">🚚</div>
                     <div class="title">Dockets</div>

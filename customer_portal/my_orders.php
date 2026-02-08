@@ -28,6 +28,52 @@ try {
     $orders = $orderStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
+// Get procurement plan progress for each SO
+foreach ($orders as &$o) {
+    $o['pp_progress'] = null;
+    $o['pp_no'] = null;
+    $o['pp_status'] = null;
+    try {
+        $ppStmt = $pdo->prepare("
+            SELECT pp.id, pp.plan_no, pp.status
+            FROM procurement_plans pp
+            WHERE FIND_IN_SET(?, REPLACE(pp.so_list, ' ', '')) > 0
+            AND pp.status NOT IN ('cancelled')
+            LIMIT 1
+        ");
+        $ppStmt->execute([$o['so_no']]);
+        $pp = $ppStmt->fetch(PDO::FETCH_ASSOC);
+        if ($pp) {
+            $o['pp_no'] = $pp['plan_no'];
+            $o['pp_status'] = $pp['status'];
+            if ($pp['status'] === 'completed') {
+                $o['pp_progress'] = 100;
+            } else {
+                $totalStmt = $pdo->prepare("
+                    SELECT
+                        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ?) +
+                        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ?) as total
+                ");
+                $totalStmt->execute([$pp['id'], $pp['id']]);
+                $totalParts = (int)$totalStmt->fetchColumn();
+                if ($totalParts > 0) {
+                    $doneStmt = $pdo->prepare("
+                        SELECT
+                            (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ? AND (status IN ('completed', 'closed') OR (created_wo_id IS NULL AND shortage <= 0))) +
+                            (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ? AND (status IN ('received', 'closed') OR (created_po_id IS NULL AND shortage <= 0))) as done
+                    ");
+                    $doneStmt->execute([$pp['id'], $pp['id']]);
+                    $doneParts = (int)$doneStmt->fetchColumn();
+                    $o['pp_progress'] = round(($doneParts / $totalParts) * 100);
+                } else {
+                    $o['pp_progress'] = 0;
+                }
+            }
+        }
+    } catch (Exception $e) {}
+}
+unset($o);
+
 $company_settings = null;
 try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
 ?>
@@ -98,7 +144,7 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
     <?php else: ?>
         <div class="table-container"><div class="table-scroll">
             <table class="data-table">
-                <thead><tr><th>#</th><th>SO No</th><th>Your PO</th><th>Date</th><th class="text-right">Value</th><th class="text-center">Invoice</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>#</th><th>SO No</th><th>Your PO</th><th>Date</th><th class="text-right">Value</th><th class="text-center">Invoice</th><th>Status</th><th>Production</th><th>Actions</th></tr></thead>
                 <tbody>
                 <?php foreach ($orders as $i => $o): ?>
                 <tr>
@@ -109,6 +155,18 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
                     <td class="text-right" style="font-weight: bold;"><?= $o['total_value'] ? number_format($o['total_value'], 2) : '-' ?></td>
                     <td class="text-center"><?= $o['invoice_count'] > 0 ? '<span class="invoice-badge">' . $o['invoice_count'] . '</span>' : '-' ?></td>
                     <td><span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>"><?= htmlspecialchars($o['status'] ?: 'Pending') ?></span></td>
+                    <td>
+                        <?php if ($o['pp_progress'] !== null): ?>
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
+                                <div style="background: #e9ecef; border-radius: 4px; width: 70px; height: 20px; overflow: hidden; flex-shrink: 0;">
+                                    <div style="background: <?= $o['pp_progress'] >= 100 ? '#27ae60' : ($o['pp_progress'] > 0 ? '#3498db' : '#e9ecef') ?>; height: 100%; width: <?= $o['pp_progress'] ?>%; border-radius: 4px;"></div>
+                                </div>
+                                <span style="font-size: 0.85em; font-weight: 600; color: <?= $o['pp_progress'] >= 100 ? '#27ae60' : '#2c3e50' ?>;"><?= $o['pp_progress'] ?>%</span>
+                            </div>
+                        <?php else: ?>
+                            <span style="color: #999; font-size: 0.85em;">-</span>
+                        <?php endif; ?>
+                    </td>
                     <td><a href="/sales_orders/view.php?so_no=<?= urlencode($o['so_no']) ?>" class="btn" target="_blank">View</a></td>
                 </tr>
                 <?php endforeach; ?>
