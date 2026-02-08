@@ -1,0 +1,88 @@
+{
+    "name": "Customer Portal",
+    "short_name": "Customer",
+    "description": "Customer self-service portal - Orders, Quotations, Invoices, Tracking & more",
+    "start_url": "/customer_portal/login.php",
+    "display": "standalone",
+    "background_color": "#11998e",
+    "theme_color": "#11998e",
+    "orientation": "portrait",
+    "scope": "/customer_portal/",
+    "icons": [
+        {
+            "src": "/customer_portal/icons/icon.php?size=72",
+            "sizes": "72x72",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=96",
+            "sizes": "96x96",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=128",
+            "sizes": "128x128",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=144",
+            "sizes": "144x144",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=152",
+            "sizes": "152x152",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=192",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=384",
+            "sizes": "384x384",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/customer_portal/icons/icon.php?size=512",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": ["business", "productivity"],
+    "shortcuts": [
+        {
+            "name": "My Orders",
+            "url": "/customer_portal/my_orders.php",
+            "description": "View your sales orders",
+            "icons": [{"src": "/customer_portal/icons/icon.php?size=96", "sizes": "96x96"}]
+        },
+        {
+            "name": "Quotations",
+            "url": "/customer_portal/my_quotations.php",
+            "description": "View quotations and download",
+            "icons": [{"src": "/customer_portal/icons/icon.php?size=96", "sizes": "96x96"}]
+        },
+        {
+            "name": "Invoices",
+            "url": "/customer_portal/my_invoices.php",
+            "description": "View invoices and payments",
+            "icons": [{"src": "/customer_portal/icons/icon.php?size=96", "sizes": "96x96"}]
+        },
+        {
+            "name": "Order Tracking",
+            "url": "/customer_portal/my_order_tracking.php",
+            "description": "Track order progress",
+            "icons": [{"src": "/customer_portal/icons/icon.php?size=96", "sizes": "96x96"}]
+        }
+    ]
+}

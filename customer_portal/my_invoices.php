@@ -61,6 +61,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?php include 'includes/pwa_head.php'; ?>
     <title>My Invoices - Customer Portal</title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
@@ -275,5 +276,6 @@ try {
 </div>
 
 <?php include 'includes/whatsapp_button.php'; ?>
+<?php include 'includes/pwa_sw.php'; ?>
 </body>
 </html>

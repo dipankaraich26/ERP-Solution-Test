@@ -66,6 +66,13 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#11998e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Customer Portal">
+    <link rel="manifest" href="/customer_portal/manifest.json">
+    <link rel="apple-touch-icon" href="/customer_portal/icons/icon.php?size=192">
     <title>Customer Portal Login - <?= htmlspecialchars($company_settings['company_name'] ?? 'ERP System') ?></title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
@@ -265,5 +272,14 @@ try {
     </div>
 </div>
 
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/customer_portal/sw.js')
+            .then(function(reg) { console.log('SW registered:', reg.scope); })
+            .catch(function(err) { console.log('SW failed:', err); });
+    });
+}
+</script>
 </body>
 </html>
