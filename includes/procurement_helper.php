@@ -519,12 +519,19 @@ function getBlockedQtyForPart($pdo, string $partNo): float {
 /**
  * Get available stock (actual - blocked) for a part
  */
-function getAvailableStock($pdo, string $partNo): float {
+function getAvailableStock($pdo, string $partNo, ?int $excludePlanId = null): float {
     try {
         $stmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
         $stmt->execute([$partNo]);
         $actual = (float)$stmt->fetchColumn();
-        $blocked = getBlockedQtyForPart($pdo, $partNo);
+        if ($excludePlanId) {
+            ensureStockBlocksTable($pdo);
+            $blockedStmt = $pdo->prepare("SELECT COALESCE(SUM(blocked_qty), 0) FROM stock_blocks WHERE part_no = ? AND plan_id != ?");
+            $blockedStmt->execute([$partNo, $excludePlanId]);
+            $blocked = (float)$blockedStmt->fetchColumn();
+        } else {
+            $blocked = getBlockedQtyForPart($pdo, $partNo);
+        }
         return max(0, $actual - $blocked);
     } catch (Exception $e) {
         return 0;
@@ -1938,7 +1945,7 @@ function refreshPlanFromBOM($pdo, int $planId): array {
         // Prepare work order items with available stock (actual - blocked)
         $workOrderItems = [];
         foreach ($workOrderParts as $wp) {
-            $currentStock = (int)getAvailableStock($pdo, $wp['part_no']);
+            $currentStock = (int)getAvailableStock($pdo, $wp['part_no'], $planId);
             $shortage = max(0, $wp['total_required_qty'] - $currentStock);
 
             $workOrderItems[] = [
@@ -1955,7 +1962,7 @@ function refreshPlanFromBOM($pdo, int $planId): array {
         // Prepare purchase order items with available stock and best supplier
         $subletItems = [];
         foreach ($purchaseOrderParts as $sp) {
-            $currentStock = (int)getAvailableStock($pdo, $sp['part_no']);
+            $currentStock = (int)getAvailableStock($pdo, $sp['part_no'], $planId);
             $shortage = max(0, $sp['total_required_qty'] - $currentStock);
 
             $bestSupplier = getBestSupplier($pdo, $sp['part_no']);

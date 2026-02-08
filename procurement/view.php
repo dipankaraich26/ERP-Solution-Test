@@ -409,7 +409,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // Refresh real-time stock and shortage for WO items (using available stock)
     foreach ($woItems as &$woItem) {
         try {
-            $woItem['current_stock'] = (int)getAvailableStock($pdo, $woItem['part_no']);
+            $woItem['current_stock'] = (int)getAvailableStock($pdo, $woItem['part_no'], $planId);
             $woItem['shortage'] = max(0, $woItem['required_qty'] - $woItem['current_stock']);
         } catch (Exception $e) {}
 
@@ -430,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // Refresh real-time stock and shortage for PO items (using available stock)
     foreach ($poItems as &$poItem) {
         try {
-            $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no']);
+            $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no'], $planId);
             $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
         } catch (Exception $e) {}
     }
