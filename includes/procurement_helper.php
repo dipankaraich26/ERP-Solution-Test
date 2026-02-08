@@ -439,7 +439,10 @@ function getProcurementPlanDetails($pdo, int $planId): ?array {
             pp.*,
             COUNT(ppi.id) AS item_count,
             SUM(ppi.recommended_qty) AS total_order_qty,
-            SUM(ppi.line_total) AS total_estimated_cost
+            SUM(ppi.line_total) AS total_estimated_cost,
+            SUM(CASE WHEN ppi.status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN ppi.status = 'ordered' THEN 1 ELSE 0 END) AS ordered_count,
+            SUM(CASE WHEN ppi.status = 'received' THEN 1 ELSE 0 END) AS received_count
         FROM procurement_plans pp
         LEFT JOIN procurement_plan_items ppi ON pp.id = ppi.plan_id
         WHERE pp.id = ?
