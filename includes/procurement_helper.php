@@ -442,7 +442,13 @@ function getProcurementPlanDetails($pdo, int $planId): ?array {
             SUM(ppi.line_total) AS total_estimated_cost,
             SUM(CASE WHEN ppi.status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
             SUM(CASE WHEN ppi.status = 'ordered' THEN 1 ELSE 0 END) AS ordered_count,
-            SUM(CASE WHEN ppi.status = 'received' THEN 1 ELSE 0 END) AS received_count
+            SUM(CASE WHEN ppi.status = 'received' THEN 1 ELSE 0 END) AS received_count,
+            (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id) AS wo_total,
+            (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status IN ('completed', 'closed')) AS wo_done,
+            (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status = 'in_progress') AS wo_in_progress,
+            (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id) AS po_total,
+            (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id AND status IN ('received', 'closed')) AS po_done,
+            (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id AND status = 'ordered') AS po_in_progress
         FROM procurement_plans pp
         LEFT JOIN procurement_plan_items ppi ON pp.id = ppi.plan_id
         WHERE pp.id = ?

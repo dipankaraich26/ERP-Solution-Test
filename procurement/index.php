@@ -34,9 +34,10 @@ $stmt = $pdo->prepare("
         pp.total_items_to_order,
         pp.total_estimated_cost,
         COUNT(ppi.id) AS item_count,
-        SUM(CASE WHEN ppi.status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-        SUM(CASE WHEN ppi.status = 'ordered' THEN 1 ELSE 0 END) AS ordered_count,
-        SUM(CASE WHEN ppi.status = 'received' THEN 1 ELSE 0 END) AS received_count
+        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id) AS wo_total,
+        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status IN ('completed', 'closed')) AS wo_done,
+        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id) AS po_total,
+        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id AND status IN ('received', 'closed')) AS po_done
     FROM procurement_plans pp
     LEFT JOIN procurement_plan_items ppi ON pp.id = ppi.plan_id
     GROUP BY pp.id, pp.plan_no, pp.plan_date, pp.status, pp.total_parts,
@@ -151,13 +152,20 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <td>₹ <?= number_format($plan['total_estimated_cost'] ?? 0, 2) ?></td>
                             <td>
                                 <?php
-                                $total = ($plan['pending_count'] ?? 0) + ($plan['ordered_count'] ?? 0) + ($plan['received_count'] ?? 0);
-                                $ordered = ($plan['ordered_count'] ?? 0) + ($plan['received_count'] ?? 0);
-                                $percentage = $total > 0 ? round(($ordered / $total) * 100) : 0;
+                                if ($plan['status'] === 'completed') {
+                                    $percentage = 100;
+                                } elseif ($plan['status'] === 'cancelled') {
+                                    $percentage = 0;
+                                } else {
+                                    $totalTasks = ($plan['wo_total'] ?? 0) + ($plan['po_total'] ?? 0);
+                                    $doneTasks = ($plan['wo_done'] ?? 0) + ($plan['po_done'] ?? 0);
+                                    $percentage = $totalTasks > 0 ? round(($doneTasks / $totalTasks) * 100) : 0;
+                                }
+                                $barColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#e5e7eb');
                                 ?>
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <div style="background: #e5e7eb; border-radius: 4px; width: 60px; height: 20px; position: relative; overflow: hidden;">
-                                        <div style="background: #10b981; height: 100%; width: <?= $percentage ?>%;"></div>
+                                        <div style="background: <?= $barColor ?>; height: 100%; width: <?= $percentage ?>%;"></div>
                                     </div>
                                     <span style="font-size: 0.9em; color: #666;"><?= $percentage ?>%</span>
                                 </div>

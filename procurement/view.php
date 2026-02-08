@@ -164,13 +164,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         <div style="padding: 15px; background: #f3f4f6; border-radius: 8px;">
             <div style="color: #666; font-size: 0.9em;">Progress</div>
             <?php
-            $pending = $planDetails['pending_count'] ?? 0;
-            $ordered = $planDetails['ordered_count'] ?? 0;
-            $received = $planDetails['received_count'] ?? 0;
-            $total = $pending + $ordered + $received;
-            $percentage = $total > 0 ? round((($ordered + $received) / $total) * 100) : 0;
+            if ($planDetails['status'] === 'completed') {
+                $percentage = 100;
+            } elseif ($planDetails['status'] === 'cancelled') {
+                $percentage = 0;
+            } else {
+                $woTotal = (int)($planDetails['wo_total'] ?? 0);
+                $woDone = (int)($planDetails['wo_done'] ?? 0);
+                $woInProg = (int)($planDetails['wo_in_progress'] ?? 0);
+                $poTotal = (int)($planDetails['po_total'] ?? 0);
+                $poDone = (int)($planDetails['po_done'] ?? 0);
+                $poInProg = (int)($planDetails['po_in_progress'] ?? 0);
+                $totalTasks = $woTotal + $poTotal;
+                $doneTasks = $woDone + $poDone;
+                if ($totalTasks > 0) {
+                    $percentage = round(($doneTasks / $totalTasks) * 100);
+                } else {
+                    $percentage = 0;
+                }
+            }
+            $pColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#6b7280');
             ?>
-            <div style="font-size: 1.8em; font-weight: bold; color: #059669;"><?= $percentage ?>%</div>
+            <div style="font-size: 1.8em; font-weight: bold; color: <?= $pColor ?>;"><?= $percentage ?>%</div>
+            <?php if (isset($totalTasks) && $totalTasks > 0): ?>
+            <div style="font-size: 0.75em; color: #666; margin-top: 2px;">
+                <?= $doneTasks ?>/<?= $totalTasks ?> WO+PO done
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
