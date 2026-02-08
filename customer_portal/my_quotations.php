@@ -21,7 +21,7 @@ try {
                (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = q.id) as total_value
         FROM quote_master q WHERE q.customer_id = ? ORDER BY q.quote_date DESC
     ");
-    $quoteStmt->execute([$customer_id]);
+    $quoteStmt->execute([$customer['customer_id']]);
     $quotations = $quoteStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 

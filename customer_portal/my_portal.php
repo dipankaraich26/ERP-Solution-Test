@@ -51,14 +51,14 @@ try {
 // Get quotations count
 try {
     $quoteStmt = $pdo->prepare("SELECT COUNT(*) FROM quote_master WHERE customer_id = ?");
-    $quoteStmt->execute([$customer_id]);
+    $quoteStmt->execute([$customer['customer_id']]);
     $stats['total_quotations'] = $quoteStmt->fetchColumn() ?: 0;
 } catch (Exception $e) {}
 
 // Get proforma count
 try {
     $piStmt = $pdo->prepare("SELECT COUNT(*) FROM quote_master WHERE customer_id = ? AND pi_no IS NOT NULL");
-    $piStmt->execute([$customer_id]);
+    $piStmt->execute([$customer['customer_id']]);
     $stats['total_proforma'] = $piStmt->fetchColumn() ?: 0;
 } catch (Exception $e) {}
 

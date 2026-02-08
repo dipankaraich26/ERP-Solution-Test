@@ -36,7 +36,7 @@ try {
         WHERE q.customer_id = ?
         ORDER BY q.quote_date DESC, q.id DESC
     ");
-    $quoteStmt->execute([$customer_id]);
+    $quoteStmt->execute([$customer['customer_id']]);
     $quotations = $quoteStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     // Handle error

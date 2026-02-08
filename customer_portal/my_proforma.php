@@ -21,7 +21,7 @@ try {
                (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = q.id) as total_value
         FROM quote_master q WHERE q.customer_id = ? AND q.pi_no IS NOT NULL ORDER BY q.quote_date DESC
     ");
-    $piStmt->execute([$customer_id]);
+    $piStmt->execute([$customer['customer_id']]);
     $proformas = $piStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
