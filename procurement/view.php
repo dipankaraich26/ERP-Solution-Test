@@ -66,15 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'cancel') {
-        if ($planDetails['status'] === 'draft') {
+        if (in_array($planDetails['status'], ['draft', 'approved', 'partiallyordered'])) {
             if (cancelProcurementPlan($pdo, $planId)) {
-                $success = "Plan cancelled";
+                $success = "Plan cancelled successfully. Any blocked stock has been released.";
                 $planDetails = getProcurementPlanDetails($pdo, $planId);
             } else {
                 $error = "Failed to cancel plan";
             }
         } else {
-            $error = "Only draft plans can be cancelled";
+            $error = "Only draft, approved, or partially ordered plans can be cancelled";
         }
     }
 
@@ -174,6 +174,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </div>
     </div>
 
+    <!-- Stock Blocking Info -->
+    <?php
+    if (in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+        try {
+            ensureStockBlocksTable($pdo);
+            $blockedStmt = $pdo->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(blocked_qty), 0) as total FROM stock_blocks WHERE plan_id = ?");
+            $blockedStmt->execute([$planId]);
+            $blockedInfo = $blockedStmt->fetch(PDO::FETCH_ASSOC);
+            if ($blockedInfo && $blockedInfo['cnt'] > 0):
+    ?>
+    <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px;">
+        <span style="font-size: 1.5em;">🔒</span>
+        <div>
+            <strong style="color: #92400e;">Stock Blocked by this Plan</strong><br>
+            <span style="color: #78350f; font-size: 0.9em;">
+                <?= $blockedInfo['cnt'] ?> part(s) with total <?= number_format($blockedInfo['total']) ?> qty blocked.
+                This stock is reserved and won't be available for other procurement plans.
+            </span>
+        </div>
+    </div>
+    <?php
+            endif;
+        } catch (Exception $e) {}
+    }
+    ?>
+
     <!-- Action Buttons -->
     <?php if ($planDetails['status'] === 'draft'): ?>
     <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -215,6 +241,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ↻ Update from BOM
             </button>
         </form>
+        <form method="post" style="display: inline;">
+            <input type="hidden" name="action" value="cancel">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Cancel this plan? This will release all blocked stock.');">
+                ✕ Cancel Plan
+            </button>
+        </form>
         <a href="index.php" class="btn btn-secondary">Back to Plans</a>
     </div>
 
@@ -224,6 +256,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <input type="hidden" name="action" value="refresh_bom">
             <button type="submit" class="btn" style="background: #f59e0b; color: white;" onclick="return confirm('Refresh WO/PO items from latest BOM?');">
                 ↻ Update from BOM
+            </button>
+        </form>
+        <form method="post" style="display: inline;">
+            <input type="hidden" name="action" value="cancel">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Cancel this plan? This will release all blocked stock.');">
+                ✕ Cancel Plan
             </button>
         </form>
         <a href="index.php" class="btn btn-secondary">Back to Plans</a>
@@ -348,14 +386,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         unset($poItem);
     }
 
-    // Refresh real-time stock and shortage for WO items
+    // Refresh real-time stock and shortage for WO items (using available stock)
     foreach ($woItems as &$woItem) {
         try {
-            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-            $stockStmt->execute([$woItem['part_no']]);
-            $realStock = (int)$stockStmt->fetchColumn();
-            $woItem['current_stock'] = $realStock;
-            $woItem['shortage'] = max(0, $woItem['required_qty'] - $realStock);
+            $woItem['current_stock'] = (int)getAvailableStock($pdo, $woItem['part_no']);
+            $woItem['shortage'] = max(0, $woItem['required_qty'] - $woItem['current_stock']);
         } catch (Exception $e) {}
 
         // Also get actual WO status from work_orders table if WO exists
@@ -372,14 +407,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
     unset($woItem);
 
-    // Refresh real-time stock and shortage for PO items
+    // Refresh real-time stock and shortage for PO items (using available stock)
     foreach ($poItems as &$poItem) {
         try {
-            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-            $stockStmt->execute([$poItem['part_no']]);
-            $realStock = (int)$stockStmt->fetchColumn();
-            $poItem['current_stock'] = $realStock;
-            $poItem['shortage'] = max(0, $poItem['required_qty'] - $realStock);
+            $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no']);
+            $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
         } catch (Exception $e) {}
     }
     unset($poItem);
@@ -568,7 +600,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <th>Part Name</th>
                         <th>Part ID</th>
                         <th>SO List</th>
-                        <th>Stock</th>
+                        <th>Available Stock</th>
                         <th>Required</th>
                         <th>Shortage</th>
                         <th>Status</th>
@@ -773,7 +805,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <th>Part Name</th>
                         <th>Part ID</th>
                         <th>SO List</th>
-                        <th>Stock</th>
+                        <th>Available Stock</th>
                         <th>Required</th>
                         <th>Shortage</th>
                         <th>Ordered Qty</th>

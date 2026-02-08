@@ -23,6 +23,7 @@ try {
 // Step 1: Select Sales Orders
 if ($step == 1) {
     // Get all open/pending sales orders (exclude closed, completed, cancelled, and SOs with released invoices)
+    ensureStockBlocksTable($pdo);
     $openSOs = $pdo->query("
         SELECT
             so.so_no,
@@ -32,7 +33,9 @@ if ($step == 1) {
             so.stock_status,
             COALESCE(c.company_name, 'N/A') AS company_name,
             COALESCE(p.part_name, so.part_no) AS part_name,
-            COALESCE(i.qty, 0) AS current_stock
+            COALESCE(i.qty, 0) AS actual_stock,
+            GREATEST(0, COALESCE(i.qty, 0) - COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0)) AS current_stock,
+            COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0) AS blocked_qty
         FROM sales_orders so
         LEFT JOIN customers c ON c.id = so.customer_id
         LEFT JOIN part_master p ON p.part_no = so.part_no
@@ -133,11 +136,8 @@ if ($step == 2) {
     foreach ($subletParts as $sp) {
         $bestSupplier = getBestSupplier($pdo, $sp['part_no']);
 
-        // Get current stock
-        $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-        $stockStmt->execute([$sp['part_no']]);
-        $currentStock = $stockStmt->fetchColumn() ?: 0;
-
+        // Get available stock (actual - blocked by other approved plans)
+        $currentStock = (int)getAvailableStock($pdo, $sp['part_no']);
         $shortage = max(0, $sp['total_required_qty'] - $currentStock);
 
         $subletItems[] = [
@@ -162,11 +162,8 @@ if ($step == 2) {
     // Prepare work order items (these go to Work Order)
     $workOrderItems = [];
     foreach ($workOrderParts as $wp) {
-        // Get current stock
-        $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-        $stockStmt->execute([$wp['part_no']]);
-        $currentStock = $stockStmt->fetchColumn() ?: 0;
-
+        // Get available stock (actual - blocked by other approved plans)
+        $currentStock = (int)getAvailableStock($pdo, $wp['part_no']);
         $shortage = max(0, $wp['total_required_qty'] - $currentStock);
 
         $workOrderItems[] = [
@@ -542,7 +539,9 @@ if ($step == 3 && $planId) {
                                 <th>Part No</th>
                                 <th>Part Name</th>
                                 <th>Qty</th>
-                                <th>Current Stock</th>
+                                <th>Stock</th>
+                                <th>Blocked</th>
+                                <th>Available</th>
                                 <th>Date</th>
                             </tr>
                         </thead>
@@ -557,7 +556,13 @@ if ($step == 3 && $planId) {
                                     <td><?= htmlspecialchars($so['part_no']) ?></td>
                                     <td><?= htmlspecialchars($so['part_name']) ?></td>
                                     <td><?= $so['qty'] ?></td>
-                                    <td><?= $so['current_stock'] ?></td>
+                                    <td><?= $so['actual_stock'] ?></td>
+                                    <td style="color: <?= $so['blocked_qty'] > 0 ? '#dc2626' : '#666' ?>; font-weight: <?= $so['blocked_qty'] > 0 ? '600' : 'normal' ?>;">
+                                        <?= $so['blocked_qty'] > 0 ? $so['blocked_qty'] : '-' ?>
+                                    </td>
+                                    <td style="font-weight: 600; color: <?= $so['current_stock'] > 0 ? '#16a34a' : '#dc2626' ?>;">
+                                        <?= $so['current_stock'] ?>
+                                    </td>
                                     <td><?= date('Y-m-d', strtotime($so['sales_date'])) ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -637,7 +642,7 @@ if ($step == 3 && $planId) {
                             <th>Part No</th>
                             <th>Part Name</th>
                             <th>From SO</th>
-                            <th>Current Stock</th>
+                            <th>Available Stock</th>
                             <th>Demand</th>
                             <th>Min Stock</th>
                             <th>Order Qty</th>
@@ -810,7 +815,7 @@ if ($step == 3 && $planId) {
                             <th>Part ID</th>
                             <th>Source</th>
                             <th>Parent/SO</th>
-                            <th>Stock</th>
+                            <th>Available Stock</th>
                             <th>Required</th>
                             <th>Shortage</th>
                             <th>Status</th>
@@ -1091,7 +1096,7 @@ if ($step == 3 && $planId) {
                                 <th>Part ID</th>
                                 <th>Source</th>
                                 <th>Parent/SO</th>
-                                <th>Stock</th>
+                                <th>Available Stock</th>
                                 <th>Required</th>
                                 <th>Shortage</th>
                                 <th>Status</th>

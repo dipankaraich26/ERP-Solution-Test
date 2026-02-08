@@ -20,6 +20,7 @@ function generateProcurementPlanNo($pdo): string {
  * @return array Array of parts with total demand and SO list
  */
 function getOpenSalesOrdersByPart($pdo): array {
+    ensureStockBlocksTable($pdo);
     $stmt = $pdo->query("
         SELECT
             so.part_no,
@@ -29,7 +30,9 @@ function getOpenSalesOrdersByPart($pdo): array {
             GROUP_CONCAT(DISTINCT so.so_no SEPARATOR ', ') AS so_list,
             GROUP_CONCAT(DISTINCT so.so_no) AS so_nos,
             COUNT(DISTINCT so.so_no) AS num_orders,
-            COALESCE(i.qty, 0) AS current_stock,
+            COALESCE(i.qty, 0) AS actual_stock,
+            GREATEST(0, COALESCE(i.qty, 0) - COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0)) AS current_stock,
+            COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0) AS blocked_qty,
             COALESCE(pms.min_stock_qty, 0) AS min_stock_qty,
             COALESCE(pms.reorder_qty, 0) AS reorder_qty
         FROM sales_orders so
@@ -52,6 +55,7 @@ function getSelectedSalesOrdersByPart($pdo, array $selectedSOs): array {
         return [];
     }
 
+    ensureStockBlocksTable($pdo);
     $placeholders = implode(',', array_fill(0, count($selectedSOs), '?'));
 
     $stmt = $pdo->prepare("
@@ -62,7 +66,9 @@ function getSelectedSalesOrdersByPart($pdo, array $selectedSOs): array {
             SUM(so.qty) AS total_demand_qty,
             GROUP_CONCAT(DISTINCT so.so_no SEPARATOR ', ') AS so_list,
             COUNT(DISTINCT so.so_no) AS num_orders,
-            COALESCE(i.qty, 0) AS current_stock,
+            COALESCE(i.qty, 0) AS actual_stock,
+            GREATEST(0, COALESCE(i.qty, 0) - COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0)) AS current_stock,
+            COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = so.part_no), 0) AS blocked_qty,
             COALESCE(pms.min_stock_qty, 0) AS min_stock_qty,
             COALESCE(pms.reorder_qty, 0) AS reorder_qty
         FROM sales_orders so
@@ -153,11 +159,13 @@ function calculateProcurementRecommendation($pdo, string $partNo, int $demandQty
         return ['error' => 'Part not found'];
     }
 
-    $currentStock = (int)$part['current_stock'];
+    $actualStock = (int)$part['current_stock'];
+    $blockedQty = (int)getBlockedQtyForPart($pdo, $partNo);
+    $currentStock = max(0, $actualStock - $blockedQty);
     $minStock = (int)$part['min_stock_qty'];
     $reorderQty = (int)$part['reorder_qty'];
 
-    // Calculate shortage: demand minus current stock
+    // Calculate shortage: demand minus available stock (actual - blocked)
     $shortage = max(0, $demandQty - $currentStock);
 
     // Recommended order quantity: max of shortage or reorder quantity
@@ -171,6 +179,8 @@ function calculateProcurementRecommendation($pdo, string $partNo, int $demandQty
 
     return [
         'current_stock' => $currentStock,
+        'actual_stock' => $actualStock,
+        'blocked_qty' => $blockedQty,
         'min_stock_qty' => $minStock,
         'reorder_qty' => $reorderQty,
         'demand_qty' => $demandQty,
@@ -461,6 +471,130 @@ function getProcurementPlanItems($pdo, int $planId): array {
 }
 
 /**
+ * Ensure stock_blocks table exists (auto-create)
+ */
+function ensureStockBlocksTable($pdo): void {
+    try {
+        $check = $pdo->query("SHOW TABLES LIKE 'stock_blocks'")->fetch();
+        if (!$check) {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS stock_blocks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    plan_id INT NOT NULL,
+                    part_no VARCHAR(100) NOT NULL,
+                    blocked_qty DECIMAL(12,2) NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_part_no (part_no),
+                    INDEX idx_plan_id (plan_id),
+                    UNIQUE KEY unique_plan_part (plan_id, part_no)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            ");
+        }
+    } catch (Exception $e) {}
+}
+
+/**
+ * Get total blocked quantity for a part across all active plans
+ */
+function getBlockedQtyForPart($pdo, string $partNo): float {
+    try {
+        ensureStockBlocksTable($pdo);
+        $stmt = $pdo->prepare("SELECT COALESCE(SUM(blocked_qty), 0) FROM stock_blocks WHERE part_no = ?");
+        $stmt->execute([$partNo]);
+        return (float)$stmt->fetchColumn();
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
+ * Get available stock (actual - blocked) for a part
+ */
+function getAvailableStock($pdo, string $partNo): float {
+    try {
+        $stmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+        $stmt->execute([$partNo]);
+        $actual = (float)$stmt->fetchColumn();
+        $blocked = getBlockedQtyForPart($pdo, $partNo);
+        return max(0, $actual - $blocked);
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
+ * Block stock for an approved procurement plan
+ * Blocks min(required_qty, available_stock) for each part in WO+PO items
+ */
+function blockStockForPlan($pdo, int $planId): bool {
+    try {
+        ensureStockBlocksTable($pdo);
+
+        // Collect all parts and their required quantities from WO + PO items
+        $woItems = getPlanWorkOrderItems($pdo, $planId);
+        $poItems = getPlanPurchaseOrderItems($pdo, $planId);
+
+        $partRequirements = [];
+        foreach ($woItems as $item) {
+            $key = $item['part_no'];
+            if (!isset($partRequirements[$key])) {
+                $partRequirements[$key] = 0;
+            }
+            $partRequirements[$key] += (float)$item['required_qty'];
+        }
+        foreach ($poItems as $item) {
+            $key = $item['part_no'];
+            if (!isset($partRequirements[$key])) {
+                $partRequirements[$key] = 0;
+            }
+            $partRequirements[$key] += (float)$item['required_qty'];
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO stock_blocks (plan_id, part_no, blocked_qty)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE blocked_qty = VALUES(blocked_qty)
+        ");
+
+        foreach ($partRequirements as $partNo => $requiredQty) {
+            // Get actual stock
+            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stockStmt->execute([$partNo]);
+            $actualStock = (float)$stockStmt->fetchColumn();
+
+            // Get already blocked by OTHER plans
+            $blockedStmt = $pdo->prepare("SELECT COALESCE(SUM(blocked_qty), 0) FROM stock_blocks WHERE part_no = ? AND plan_id != ?");
+            $blockedStmt->execute([$partNo, $planId]);
+            $alreadyBlocked = (float)$blockedStmt->fetchColumn();
+
+            $available = max(0, $actualStock - $alreadyBlocked);
+            $blockQty = min($requiredQty, $available);
+
+            if ($blockQty > 0) {
+                $stmt->execute([$planId, $partNo, $blockQty]);
+            }
+        }
+
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
+ * Unblock stock when a plan is cancelled or completed
+ */
+function unblockStockForPlan($pdo, int $planId): bool {
+    try {
+        ensureStockBlocksTable($pdo);
+        $stmt = $pdo->prepare("DELETE FROM stock_blocks WHERE plan_id = ?");
+        return $stmt->execute([$planId]);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
  * Approve procurement plan
  */
 function approveProcurementPlan($pdo, int $planId, int $userId): bool {
@@ -470,23 +604,38 @@ function approveProcurementPlan($pdo, int $planId, int $userId): bool {
             SET status = 'approved', approved_by = ?, approved_at = NOW()
             WHERE id = ?
         ");
-        return $stmt->execute([$userId, $planId]);
+        $result = $stmt->execute([$userId, $planId]);
+
+        // Block stock for the approved plan
+        if ($result) {
+            blockStockForPlan($pdo, $planId);
+        }
+
+        return $result;
     } catch (Exception $e) {
         return false;
     }
 }
 
 /**
- * Cancel procurement plan
+ * Cancel procurement plan (draft, approved, or partiallyordered)
+ * Unblocks any reserved stock when cancelling
  */
 function cancelProcurementPlan($pdo, int $planId): bool {
     try {
         $stmt = $pdo->prepare("
             UPDATE procurement_plans
             SET status = 'cancelled'
-            WHERE id = ? AND status = 'draft'
+            WHERE id = ? AND status IN ('draft', 'approved', 'partiallyordered')
         ");
-        return $stmt->execute([$planId]);
+        $result = $stmt->execute([$planId]);
+
+        // Unblock any stock that was reserved by this plan
+        if ($result) {
+            unblockStockForPlan($pdo, $planId);
+        }
+
+        return $result;
     } catch (Exception $e) {
         return false;
     }
@@ -1647,6 +1796,9 @@ function autoClosePlanIfAllSOsReleased($pdo, int $planId): bool {
         $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'closed' WHERE plan_id = ?")
              ->execute([$planId]);
 
+        // Unblock stock since plan is now completed
+        unblockStockForPlan($pdo, $planId);
+
         return true;
     } catch (Exception $e) {
         return false;
@@ -1748,12 +1900,10 @@ function refreshPlanFromBOM($pdo, int $planId): array {
         $workOrderParts = $allParts['work_order'] ?? [];
         $purchaseOrderParts = $allParts['purchase_order'] ?? [];
 
-        // Prepare work order items with current stock/shortage
+        // Prepare work order items with available stock (actual - blocked)
         $workOrderItems = [];
         foreach ($workOrderParts as $wp) {
-            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-            $stockStmt->execute([$wp['part_no']]);
-            $currentStock = (int)$stockStmt->fetchColumn();
+            $currentStock = (int)getAvailableStock($pdo, $wp['part_no']);
             $shortage = max(0, $wp['total_required_qty'] - $currentStock);
 
             $workOrderItems[] = [
@@ -1767,12 +1917,10 @@ function refreshPlanFromBOM($pdo, int $planId): array {
             ];
         }
 
-        // Prepare purchase order items with current stock/shortage and best supplier
+        // Prepare purchase order items with available stock and best supplier
         $subletItems = [];
         foreach ($purchaseOrderParts as $sp) {
-            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
-            $stockStmt->execute([$sp['part_no']]);
-            $currentStock = (int)$stockStmt->fetchColumn();
+            $currentStock = (int)getAvailableStock($pdo, $sp['part_no']);
             $shortage = max(0, $sp['total_required_qty'] - $currentStock);
 
             $bestSupplier = getBestSupplier($pdo, $sp['part_no']);
