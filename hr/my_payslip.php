@@ -122,7 +122,7 @@ if (isset($_GET['logout'])) {
 <head>
     <title>My Payslip<?= $monthName ? " - $monthName" : '' ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <meta name="theme-color" content="#667eea">
+    <?php include 'includes/pwa_head.php'; ?>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -672,5 +672,6 @@ if (isset($_GET['logout'])) {
     <?php endif; ?>
 </div>
 
+<?php include 'includes/pwa_sw.php'; ?>
 </body>
 </html>

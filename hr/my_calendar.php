@@ -153,7 +153,7 @@ $todayUrl = "?view=$view";
 <head>
     <title>My Calendar - <?= htmlspecialchars($empName) ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <meta name="theme-color" content="#667eea">
+    <?php include 'includes/pwa_head.php'; ?>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -668,5 +668,6 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<?php include 'includes/pwa_sw.php'; ?>
 </body>
 </html>

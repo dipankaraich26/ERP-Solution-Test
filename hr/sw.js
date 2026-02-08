@@ -1,10 +1,16 @@
-const CACHE_NAME = 'attendance-app-v1';
+const CACHE_NAME = 'employee-portal-v2';
 const urlsToCache = [
     '/hr/attendance_login.php',
     '/hr/attendance_portal.php',
+    '/hr/my_tasks.php',
+    '/hr/my_payslip.php',
+    '/hr/my_calendar.php',
+    '/hr/my_tada.php',
+    '/hr/my_advance.php',
     '/assets/style.css',
-    '/hr/icons/icon-192.png',
-    '/hr/icons/icon-512.png'
+    '/hr/icons/icon.php?size=192',
+    '/hr/icons/icon.php?size=512',
+    '/hr/offline.html'
 ];
 
 // Install service worker
@@ -77,26 +83,32 @@ self.addEventListener('fetch', event => {
     );
 });
 
-// Handle push notifications (for future use)
+// Handle push notifications
 self.addEventListener('push', event => {
+    const data = event.data ? event.data.json() : {};
     const options = {
-        body: event.data ? event.data.text() : 'Time to mark your attendance!',
-        icon: '/hr/icons/icon-192.png',
-        badge: '/hr/icons/icon-72.png',
+        body: data.body || 'You have a new notification from Employee Portal',
+        icon: '/hr/icons/icon.php?size=192',
+        badge: '/hr/icons/icon.php?size=72',
         vibrate: [100, 50, 100],
         data: {
-            url: '/hr/attendance_portal.php'
-        }
+            url: data.url || '/hr/attendance_portal.php'
+        },
+        actions: [
+            { action: 'open', title: 'Open' },
+            { action: 'dismiss', title: 'Dismiss' }
+        ]
     };
 
     event.waitUntil(
-        self.registration.showNotification('Attendance Reminder', options)
+        self.registration.showNotification(data.title || 'Employee Portal', options)
     );
 });
 
 // Handle notification click
 self.addEventListener('notificationclick', event => {
     event.notification.close();
+    if (event.action === 'dismiss') return;
     event.waitUntil(
         clients.openWindow(event.notification.data.url || '/hr/attendance_portal.php')
     );

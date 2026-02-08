@@ -1,7 +1,7 @@
 {
-    "name": "Employee Attendance",
-    "short_name": "Attendance",
-    "description": "Mark your daily attendance with check-in and check-out",
+    "name": "Employee Portal",
+    "short_name": "EMP Portal",
+    "description": "Employee self-service portal - Attendance, Tasks, Payslip, TADA, Advances & more",
     "start_url": "/hr/attendance_login.php",
     "display": "standalone",
     "background_color": "#667eea",
@@ -61,14 +61,28 @@
     "categories": ["business", "productivity"],
     "shortcuts": [
         {
-            "name": "Check In",
-            "url": "/hr/attendance_portal.php?action=checkin",
-            "description": "Quick check-in"
+            "name": "Attendance",
+            "url": "/hr/attendance_portal.php",
+            "description": "Mark attendance - Check In / Check Out",
+            "icons": [{"src": "/hr/icons/icon.php?size=96", "sizes": "96x96"}]
         },
         {
-            "name": "Check Out",
-            "url": "/hr/attendance_portal.php?action=checkout",
-            "description": "Quick check-out"
+            "name": "My Tasks",
+            "url": "/hr/my_tasks.php",
+            "description": "View and manage your tasks",
+            "icons": [{"src": "/hr/icons/icon.php?size=96", "sizes": "96x96"}]
+        },
+        {
+            "name": "My Payslip",
+            "url": "/hr/my_payslip.php",
+            "description": "View monthly payslips",
+            "icons": [{"src": "/hr/icons/icon.php?size=96", "sizes": "96x96"}]
+        },
+        {
+            "name": "My Calendar",
+            "url": "/hr/my_calendar.php",
+            "description": "View calendar and leave schedule",
+            "icons": [{"src": "/hr/icons/icon.php?size=96", "sizes": "96x96"}]
         }
     ]
 }

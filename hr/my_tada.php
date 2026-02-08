@@ -144,7 +144,7 @@ if (isset($_GET['logout'])) {
 <head>
     <title>My TADA Claims - <?= htmlspecialchars($empName) ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <meta name="theme-color" content="#667eea">
+    <?php include 'includes/pwa_head.php'; ?>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f6fa; min-height: 100vh; }
@@ -539,5 +539,6 @@ function esc(s) { if (!s) return ''; var d = document.createElement('div'); d.te
 function formatDate(d) { if (!d) return '-'; var dt = new Date(d); var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return dt.getDate() + ' ' + m[dt.getMonth()] + ' ' + dt.getFullYear(); }
 function formatDateTime(d) { if (!d) return '-'; var dt = new Date(d); var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; var h = dt.getHours(), mn = dt.getMinutes(), ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return dt.getDate() + ' ' + m[dt.getMonth()] + ' ' + dt.getFullYear() + ', ' + h + ':' + (mn < 10 ? '0' : '') + mn + ' ' + ap; }
 </script>
+<?php include 'includes/pwa_sw.php'; ?>
 </body>
 </html>
