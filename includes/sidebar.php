@@ -298,6 +298,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/marketing/catalogs.php" class="<?= $currentDir === 'marketing' && in_array($current, ['catalogs.php', 'catalog_add.php', 'catalog_view.php', 'catalog_edit.php']) ? 'active' : '' ?>">Catalogs</a>
             <a href="/marketing/campaigns.php" class="<?= $currentDir === 'marketing' && in_array($current, ['campaigns.php', 'campaign_add.php', 'campaign_view.php', 'campaign_edit.php']) ? 'active' : '' ?>">Campaigns</a>
             <a href="/marketing/whatsapp.php" class="<?= $currentDir === 'marketing' && $current === 'whatsapp.php' ? 'active' : '' ?>">WhatsApp</a>
+            <a href="/marketing/testimonials.php" class="<?= $currentDir === 'marketing' && in_array($current, ['testimonials.php', 'testimonial_add.php', 'testimonial_view.php', 'testimonial_edit.php']) ? 'active' : '' ?>">Testimonials</a>
             <a href="/marketing/analytics.php" class="<?= $currentDir === 'marketing' && $current === 'analytics.php' ? 'active' : '' ?>">Analytics</a>
         </div>
     </div>
