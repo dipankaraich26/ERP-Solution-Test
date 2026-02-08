@@ -101,7 +101,7 @@ foreach ($quotations as &$q) {
 unset($q);
 
 $company_settings = null;
-try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
+try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -526,5 +526,6 @@ function toggleDetails(header) {
     details.classList.toggle('open');
 }
 </script>
+<?php include 'includes/whatsapp_button.php'; ?>
 </body>
 </html>

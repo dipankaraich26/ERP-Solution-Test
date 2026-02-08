@@ -210,6 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $description = $_POST['description'][$i] ?? '';
                 $hsn_code = $_POST['hsn_code'][$i] ?? '';
                 $qty = floatval($_POST['qty'][$i] ?? 1);
+                if ($qty <= 0) $qty = 1;
                 $unit = $_POST['unit'][$i] ?? '';
                 $rate = floatval($_POST['rate'][$i] ?? 0);
                 $discount = floatval($_POST['discount'][$i] ?? 0);
@@ -613,7 +614,7 @@ showModal();
                             <td><input type="text" name="part_name[]" class="part-name" readonly></td>
                             <td><input type="text" name="description[]" class="description" placeholder="Optional details..."></td>
                             <td><input type="text" name="hsn_code[]" class="hsn-code" readonly></td>
-                            <td><input type="number" name="qty[]" class="qty" step="0.001" min="0" value="1" onchange="calcRow(this)"></td>
+                            <td><input type="number" name="qty[]" class="qty" step="0.001" min="0.001" value="1" onchange="calcRow(this)"></td>
                             <td><input type="text" name="unit[]" class="unit" readonly></td>
                             <td><input type="number" name="rate[]" class="rate" step="0.01" min="0" onchange="calcRow(this)"></td>
                             <td><input type="number" name="discount[]" class="discount" step="0.01" min="0" max="100" value="0" onchange="calcRow(this)"></td>
@@ -733,7 +734,7 @@ showModal();
             <td><input type="text" name="part_name[]" class="part-name" readonly disabled></td>
             <td><input type="text" name="description[]" class="description" placeholder="Optional details..." disabled></td>
             <td><input type="text" name="hsn_code[]" class="hsn-code" readonly disabled></td>
-            <td><input type="number" name="qty[]" class="qty" step="0.001" min="0" value="1" onchange="calcRow(this)" disabled></td>
+            <td><input type="number" name="qty[]" class="qty" step="0.001" min="0.001" value="1" onchange="calcRow(this)" disabled></td>
             <td><input type="text" name="unit[]" class="unit" readonly disabled></td>
             <td><input type="number" name="rate[]" class="rate" step="0.01" min="0" onchange="calcRow(this)" disabled></td>
             <td><input type="number" name="discount[]" class="discount" step="0.01" min="0" max="100" value="0" onchange="calcRow(this)" disabled></td>

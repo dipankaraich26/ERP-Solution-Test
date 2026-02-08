@@ -52,7 +52,7 @@ try {
 
 $company_settings = null;
 try {
-    $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
+    $company_settings = $pdo->query("SELECT logo_path, company_name, phone FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 ?>
 
@@ -274,5 +274,6 @@ try {
     <?php endif; ?>
 </div>
 
+<?php include 'includes/whatsapp_button.php'; ?>
 </body>
 </html>

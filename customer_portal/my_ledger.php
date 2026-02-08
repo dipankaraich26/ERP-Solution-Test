@@ -37,7 +37,7 @@ try {
 } catch (Exception $e) {}
 
 $company_settings = null;
-try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
+try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -139,5 +139,6 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
     </div>
     <div style="margin-top: 20px;"><button onclick="window.print();" style="padding: 10px 20px; background: #11998e; color: white; border: none; border-radius: 6px; cursor: pointer;">Print Statement</button></div>
 </div>
+<?php include 'includes/whatsapp_button.php'; ?>
 </body>
 </html>

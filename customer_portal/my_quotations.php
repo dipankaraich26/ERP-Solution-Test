@@ -26,7 +26,7 @@ try {
 } catch (Exception $e) {}
 
 $company_settings = null;
-try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
+try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -112,5 +112,6 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name FROM compa
         </div></div>
     <?php endif; ?>
 </div>
+<?php include 'includes/whatsapp_button.php'; ?>
 </body>
 </html>
