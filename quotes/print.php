@@ -1408,5 +1408,8 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
     </div>
 </div>
 
+<?php if (isset($_GET['download'])): ?>
+<script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+<?php endif; ?>
 </body>
 </html>

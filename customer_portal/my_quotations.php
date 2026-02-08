@@ -62,7 +62,9 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
         .status-draft { background: #fff3cd; color: #856404; }
         .status-sent { background: #cce5ff; color: #004085; }
         .status-accepted { background: #d4edda; color: #155724; }
-        .btn { padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 0.9em; background: #11998e; color: white; }
+        .btn { padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 0.9em; background: #11998e; color: white; white-space: nowrap; }
+        .btn-download { background: #e67e22; }
+        .btn-download:hover { background: #d35400; }
         .empty-state { text-align: center; padding: 60px 20px; color: #7f8c8d; }
         .empty-state .icon { font-size: 4em; margin-bottom: 15px; }
     </style>
@@ -104,7 +106,10 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
                     <td><?= htmlspecialchars($q['pi_no'] ?: '-') ?></td>
                     <td class="text-right" style="font-weight: bold;"><?= $q['total_value'] ? number_format($q['total_value'], 2) : '-' ?></td>
                     <td><span class="status-badge status-<?= strtolower($q['status'] ?: 'draft') ?>"><?= htmlspecialchars($q['status'] ?: 'Draft') ?></span></td>
-                    <td><a href="/quotes/view.php?id=<?= $q['id'] ?>" class="btn" target="_blank">View</a></td>
+                    <td style="white-space: nowrap;">
+                        <a href="/quotes/print.php?id=<?= $q['id'] ?>" class="btn" target="_blank">View</a>
+                        <a href="/quotes/print.php?id=<?= $q['id'] ?>&download=1" class="btn btn-download" target="_blank">Download</a>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
                 </tbody>
