@@ -157,35 +157,30 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 } elseif ($plan['status'] === 'cancelled') {
                                     $percentage = 0;
                                 } else {
-                                    // Stock-based progress: count parts with available stock or completed WO/PO
-                                    $pWoItems = getPlanWorkOrderItems($pdo, $plan['id']);
-                                    $pPoItems = getPlanPurchaseOrderItems($pdo, $plan['id']);
-                                    $pTotal = count($pWoItems) + count($pPoItems);
-                                    $pDone = 0;
-                                    foreach ($pWoItems as $pw) {
-                                        $pwStock = (int)getAvailableStock($pdo, $pw['part_no'], $plan['id']);
-                                        $pwShortage = max(0, $pw['required_qty'] - $pwStock);
-                                        if (!empty($pw['created_wo_id'])) {
-                                            try {
-                                                $wsStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
-                                                $wsStmt->execute([$pw['created_wo_id']]);
-                                                $ws = $wsStmt->fetchColumn();
-                                                if ($ws && in_array($ws, ['completed', 'closed', 'qc_approval'])) $pDone++;
-                                            } catch (Exception $e) {}
-                                        } elseif ($pwShortage <= 0) {
-                                            $pDone++;
-                                        }
+                                    $totalParts = ($plan['wo_total'] ?? 0) + ($plan['po_total'] ?? 0);
+                                    $doneParts = ($plan['wo_done'] ?? 0) + ($plan['po_done'] ?? 0);
+                                    // Count WO/PO parts that have sufficient stock (in-stock)
+                                    try {
+                                        ensureStockBlocksTable($pdo);
+                                        $inStockStmt = $pdo->prepare("
+                                            SELECT COUNT(*) FROM (
+                                                SELECT part_no, required_qty FROM procurement_plan_wo_items
+                                                WHERE plan_id = ? AND created_wo_id IS NULL AND status NOT IN ('completed', 'closed')
+                                                UNION ALL
+                                                SELECT part_no, required_qty FROM procurement_plan_po_items
+                                                WHERE plan_id = ? AND created_po_id IS NULL AND status NOT IN ('received', 'closed')
+                                            ) AS pending_items
+                                            WHERE COALESCE((SELECT i.qty FROM inventory i WHERE i.part_no = pending_items.part_no), 0)
+                                                - COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = pending_items.part_no AND sb.plan_id != ?), 0)
+                                                >= pending_items.required_qty
+                                        ");
+                                        $inStockStmt->execute([$plan['id'], $plan['id'], $plan['id']]);
+                                        $inStockParts = (int)$inStockStmt->fetchColumn();
+                                    } catch (Exception $e) {
+                                        $inStockParts = 0;
                                     }
-                                    foreach ($pPoItems as $pp) {
-                                        $ppStock = (int)getAvailableStock($pdo, $pp['part_no'], $plan['id']);
-                                        $ppShortage = max(0, $pp['required_qty'] - $ppStock);
-                                        if (!empty($pp['created_po_id']) && in_array($pp['status'] ?? '', ['received', 'closed'])) {
-                                            $pDone++;
-                                        } elseif ($ppShortage <= 0) {
-                                            $pDone++;
-                                        }
-                                    }
-                                    $percentage = $pTotal > 0 ? round(($pDone / $pTotal) * 100) : 0;
+                                    $availableParts = $doneParts + $inStockParts;
+                                    $percentage = $totalParts > 0 ? round(($availableParts / $totalParts) * 100) : 0;
                                 }
                                 $barColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#e5e7eb');
                                 ?>
