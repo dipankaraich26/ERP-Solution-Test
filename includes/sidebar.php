@@ -3,6 +3,15 @@ $current = basename($_SERVER['PHP_SELF']);
 $currentDir = basename(dirname($_SERVER['PHP_SELF']));
 ?>
 
+<!-- PWA Meta Tags -->
+<meta name="theme-color" content="#667eea">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ERP System">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon.php?size=192">
+
 <!-- Top Navigation Bar -->
 <style>
 .topbar {
@@ -491,4 +500,15 @@ function cycleTheme() {
     const btn = document.getElementById('themeToggleBtn');
     if (btn) btn.addEventListener('click', cycleTheme);
 })();
+</script>
+
+<!-- PWA Service Worker Registration -->
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js')
+            .then(function(reg) { console.log('SW registered:', reg.scope); })
+            .catch(function(err) { console.log('SW failed:', err); });
+    });
+}
 </script>

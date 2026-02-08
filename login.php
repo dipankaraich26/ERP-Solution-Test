@@ -53,6 +53,13 @@ $settings = $pdo->query("SELECT company_name, logo_path FROM company_settings WH
 <html>
 <head>
     <title>Login - <?= htmlspecialchars($settings['company_name'] ?? 'ERP System') ?></title>
+    <meta name="theme-color" content="#667eea">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ERP System">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/icon.php?size=192">
     <link rel="stylesheet" href="assets/style.css">
     <style>
         body {
@@ -203,5 +210,14 @@ $settings = $pdo->query("SELECT company_name, logo_path FROM company_settings WH
     </div>
 </div>
 
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js')
+            .then(function(reg) { console.log('SW registered:', reg.scope); })
+            .catch(function(err) { console.log('SW failed:', err); });
+    });
+}
+</script>
 </body>
 </html>
