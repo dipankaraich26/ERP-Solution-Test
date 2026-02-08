@@ -157,9 +157,35 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 } elseif ($plan['status'] === 'cancelled') {
                                     $percentage = 0;
                                 } else {
-                                    $totalTasks = ($plan['wo_total'] ?? 0) + ($plan['po_total'] ?? 0);
-                                    $doneTasks = ($plan['wo_done'] ?? 0) + ($plan['po_done'] ?? 0);
-                                    $percentage = $totalTasks > 0 ? round(($doneTasks / $totalTasks) * 100) : 0;
+                                    // Stock-based progress: count parts with available stock or completed WO/PO
+                                    $pWoItems = getPlanWorkOrderItems($pdo, $plan['id']);
+                                    $pPoItems = getPlanPurchaseOrderItems($pdo, $plan['id']);
+                                    $pTotal = count($pWoItems) + count($pPoItems);
+                                    $pDone = 0;
+                                    foreach ($pWoItems as $pw) {
+                                        $pwStock = (int)getAvailableStock($pdo, $pw['part_no'], $plan['id']);
+                                        $pwShortage = max(0, $pw['required_qty'] - $pwStock);
+                                        if (!empty($pw['created_wo_id'])) {
+                                            try {
+                                                $wsStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                                                $wsStmt->execute([$pw['created_wo_id']]);
+                                                $ws = $wsStmt->fetchColumn();
+                                                if ($ws && in_array($ws, ['completed', 'closed', 'qc_approval'])) $pDone++;
+                                            } catch (Exception $e) {}
+                                        } elseif ($pwShortage <= 0) {
+                                            $pDone++;
+                                        }
+                                    }
+                                    foreach ($pPoItems as $pp) {
+                                        $ppStock = (int)getAvailableStock($pdo, $pp['part_no'], $plan['id']);
+                                        $ppShortage = max(0, $pp['required_qty'] - $ppStock);
+                                        if (!empty($pp['created_po_id']) && in_array($pp['status'] ?? '', ['received', 'closed'])) {
+                                            $pDone++;
+                                        } elseif ($ppShortage <= 0) {
+                                            $pDone++;
+                                        }
+                                    }
+                                    $percentage = $pTotal > 0 ? round(($pDone / $pTotal) * 100) : 0;
                                 }
                                 $barColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#e5e7eb');
                                 ?>

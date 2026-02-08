@@ -94,6 +94,194 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
+// Load WO/PO items with real-time stock (after POST handlers so data is fresh)
+$woItems = [];
+$poItems = [];
+$woItemsBySO = [];
+$poItemsBySO = [];
+$planIsCompleted = false;
+$totalWoPoParts = 0;
+$inStockOrDoneParts = 0;
+
+if ($planDetails) {
+    $woItems = getPlanWorkOrderItems($pdo, $planId);
+    $poItems = getPlanPurchaseOrderItems($pdo, $planId);
+    $planIsCompleted = ($planDetails['status'] === 'completed');
+
+    // Clear stale links if plan is NOT completed
+    if (!$planIsCompleted) {
+        foreach ($woItems as &$woItem) {
+            if (!empty($woItem['created_wo_id'])) {
+                try {
+                    $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                    $chkStmt->execute([$woItem['created_wo_id']]);
+                    $woRealStatus = $chkStmt->fetchColumn();
+                    if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
+                        $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$planId, $woItem['part_no']]);
+                        $woItem['created_wo_id'] = null;
+                        $woItem['created_wo_no'] = null;
+                        $woItem['status'] = 'pending';
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+        unset($woItem);
+
+        foreach ($poItems as &$poItem) {
+            if (!empty($poItem['created_po_id'])) {
+                try {
+                    $chkStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                    $chkStmt->execute([$poItem['created_po_id']]);
+                    $poRealStatus = $chkStmt->fetchColumn();
+                    if ($poRealStatus && $poRealStatus === 'cancelled') {
+                        $pdo->prepare("UPDATE procurement_plan_po_items SET created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$planId, $poItem['part_no']]);
+                        $poItem['created_po_id'] = null;
+                        $poItem['created_po_no'] = null;
+                        $poItem['ordered_qty'] = null;
+                        $poItem['status'] = 'pending';
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+        unset($poItem);
+    }
+
+    // Refresh real-time stock for WO items
+    foreach ($woItems as &$woItem) {
+        try {
+            $woItem['current_stock'] = (int)getAvailableStock($pdo, $woItem['part_no'], $planId);
+            $woItem['shortage'] = max(0, $woItem['required_qty'] - $woItem['current_stock']);
+        } catch (Exception $e) {}
+        if (!empty($woItem['created_wo_id'])) {
+            try {
+                $woStatusStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                $woStatusStmt->execute([$woItem['created_wo_id']]);
+                $actualWoStatus = $woStatusStmt->fetchColumn();
+                if ($actualWoStatus) {
+                    $woItem['actual_wo_status'] = $actualWoStatus;
+                }
+            } catch (Exception $e) {}
+        }
+    }
+    unset($woItem);
+
+    // Refresh real-time stock for PO items
+    foreach ($poItems as &$poItem) {
+        try {
+            $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no'], $planId);
+            $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
+        } catch (Exception $e) {}
+    }
+    unset($poItem);
+
+    // Cascade "In Stock" from parent WO parts to child WO/PO parts
+    if (!$planIsCompleted) {
+        $woPartMap = [];
+        foreach ($woItems as $wi) {
+            $woPartMap[$wi['part_no']] = [
+                'shortage' => $wi['shortage'],
+                'has_wo' => !empty($wi['created_wo_id']),
+            ];
+        }
+        $poPartIndex = [];
+        foreach ($poItems as $idx => $pi) {
+            $poPartIndex[$pi['part_no']] = $idx;
+        }
+        $woPartIndex = [];
+        foreach ($woItems as $idx => $wi) {
+            $woPartIndex[$wi['part_no']] = $idx;
+        }
+        $inStockWoParts = [];
+        foreach ($woPartMap as $partNo => $info) {
+            if (!$info['has_wo'] && $info['shortage'] <= 0) {
+                $inStockWoParts[] = $partNo;
+            }
+        }
+        $processed = [];
+        while (!empty($inStockWoParts)) {
+            $nextInStock = [];
+            foreach ($inStockWoParts as $parentPartNo) {
+                if (isset($processed[$parentPartNo])) continue;
+                $processed[$parentPartNo] = true;
+                try {
+                    $childParts = getBomChildParts($pdo, $parentPartNo);
+                    foreach ($childParts as $child) {
+                        $childPartNo = $child['part_no'];
+                        if (isset($woPartIndex[$childPartNo])) {
+                            $idx = $woPartIndex[$childPartNo];
+                            if (empty($woItems[$idx]['created_wo_id']) && $woItems[$idx]['shortage'] > 0) {
+                                $woItems[$idx]['shortage'] = 0;
+                                $nextInStock[] = $childPartNo;
+                            }
+                        }
+                        if (isset($poPartIndex[$childPartNo])) {
+                            $idx = $poPartIndex[$childPartNo];
+                            if (empty($poItems[$idx]['created_po_id']) && $poItems[$idx]['shortage'] > 0) {
+                                $poItems[$idx]['shortage'] = 0;
+                            }
+                        }
+                    }
+                } catch (Exception $e) {}
+            }
+            $inStockWoParts = $nextInStock;
+        }
+    }
+
+    // Calculate stock-based progress: parts "in stock" or with completed WO/PO
+    $totalWoPoParts = count($woItems) + count($poItems);
+    $inStockOrDoneParts = 0;
+    foreach ($woItems as $wi) {
+        if ($planIsCompleted) {
+            $inStockOrDoneParts++;
+        } elseif (!empty($wi['created_wo_id'])) {
+            $woSt = $wi['actual_wo_status'] ?? '';
+            if (in_array($woSt, ['completed', 'closed', 'qc_approval'])) {
+                $inStockOrDoneParts++;
+            }
+        } elseif ($wi['shortage'] <= 0) {
+            $inStockOrDoneParts++;
+        }
+    }
+    foreach ($poItems as $pi) {
+        if ($planIsCompleted) {
+            $inStockOrDoneParts++;
+        } elseif (!empty($pi['created_po_id'])) {
+            $poSt = $pi['status'] ?? '';
+            if (in_array($poSt, ['received', 'closed'])) {
+                $inStockOrDoneParts++;
+            }
+        } elseif ($pi['shortage'] <= 0) {
+            $inStockOrDoneParts++;
+        }
+    }
+
+    // Group WO items by SO
+    foreach ($woItems as $item) {
+        $soList = $item['so_list'] ?? 'Unknown';
+        $soNumbers = array_map('trim', explode(',', $soList));
+        foreach ($soNumbers as $soNo) {
+            if (!isset($woItemsBySO[$soNo])) {
+                $woItemsBySO[$soNo] = [];
+            }
+            $woItemsBySO[$soNo][] = $item;
+        }
+    }
+
+    // Group PO items by SO
+    foreach ($poItems as $item) {
+        $soList = $item['so_list'] ?? 'Unknown';
+        $soNumbers = array_map('trim', explode(',', $soList));
+        foreach ($soNumbers as $soNo) {
+            if (!isset($poItemsBySO[$soNo])) {
+                $poItemsBySO[$soNo] = [];
+            }
+            $poItemsBySO[$soNo][] = $item;
+        }
+    }
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -169,26 +357,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } elseif ($planDetails['status'] === 'cancelled') {
                 $percentage = 0;
             } else {
-                $woTotal = (int)($planDetails['wo_total'] ?? 0);
-                $woDone = (int)($planDetails['wo_done'] ?? 0);
-                $woInProg = (int)($planDetails['wo_in_progress'] ?? 0);
-                $poTotal = (int)($planDetails['po_total'] ?? 0);
-                $poDone = (int)($planDetails['po_done'] ?? 0);
-                $poInProg = (int)($planDetails['po_in_progress'] ?? 0);
-                $totalTasks = $woTotal + $poTotal;
-                $doneTasks = $woDone + $poDone;
-                if ($totalTasks > 0) {
-                    $percentage = round(($doneTasks / $totalTasks) * 100);
-                } else {
-                    $percentage = 0;
-                }
+                $percentage = $totalWoPoParts > 0 ? round(($inStockOrDoneParts / $totalWoPoParts) * 100) : 0;
             }
             $pColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#6b7280');
             ?>
             <div style="font-size: 1.8em; font-weight: bold; color: <?= $pColor ?>;"><?= $percentage ?>%</div>
-            <?php if (isset($totalTasks) && $totalTasks > 0): ?>
+            <?php if ($totalWoPoParts > 0): ?>
             <div style="font-size: 0.75em; color: #666; margin-top: 2px;">
-                <?= $doneTasks ?>/<?= $totalTasks ?> WO+PO done
+                <?= $inStockOrDoneParts ?>/<?= $totalWoPoParts ?> parts available
             </div>
             <?php endif; ?>
         </div>
@@ -358,177 +534,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </div>
 
     <?php
-    // Load WO and PO items for this plan
-    $woItems = getPlanWorkOrderItems($pdo, $planId);
-    $poItems = getPlanPurchaseOrderItems($pdo, $planId);
-    $planIsCompleted = ($planDetails['status'] === 'completed');
-
-    // Only clear stale links if plan is NOT completed
-    // Completed plans keep all items as closed
-    if (!$planIsCompleted) {
-        // Clear stale links to closed/cancelled WOs (from old released SOs)
-        foreach ($woItems as &$woItem) {
-            if (!empty($woItem['created_wo_id'])) {
-                try {
-                    $chkStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
-                    $chkStmt->execute([$woItem['created_wo_id']]);
-                    $woRealStatus = $chkStmt->fetchColumn();
-                    if ($woRealStatus && in_array($woRealStatus, ['closed', 'cancelled'])) {
-                        $pdo->prepare("UPDATE procurement_plan_wo_items SET created_wo_id = NULL, created_wo_no = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
-                             ->execute([$planId, $woItem['part_no']]);
-                        $woItem['created_wo_id'] = null;
-                        $woItem['created_wo_no'] = null;
-                        $woItem['status'] = 'pending';
-                    }
-                } catch (Exception $e) {}
-            }
-        }
-        unset($woItem);
-
-        // Clear stale links to cancelled POs so they show as "Pending" again
-        foreach ($poItems as &$poItem) {
-            if (!empty($poItem['created_po_id'])) {
-                try {
-                    $chkStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
-                    $chkStmt->execute([$poItem['created_po_id']]);
-                    $poRealStatus = $chkStmt->fetchColumn();
-                    if ($poRealStatus && $poRealStatus === 'cancelled') {
-                        $pdo->prepare("UPDATE procurement_plan_po_items SET created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
-                             ->execute([$planId, $poItem['part_no']]);
-                        $poItem['created_po_id'] = null;
-                        $poItem['created_po_no'] = null;
-                        $poItem['ordered_qty'] = null;
-                        $poItem['status'] = 'pending';
-                    }
-                } catch (Exception $e) {}
-            }
-        }
-        unset($poItem);
-    }
-
-    // Refresh real-time stock and shortage for WO items (using available stock)
-    foreach ($woItems as &$woItem) {
-        try {
-            $woItem['current_stock'] = (int)getAvailableStock($pdo, $woItem['part_no'], $planId);
-            $woItem['shortage'] = max(0, $woItem['required_qty'] - $woItem['current_stock']);
-        } catch (Exception $e) {}
-
-        // Also get actual WO status from work_orders table if WO exists
-        if (!empty($woItem['created_wo_id'])) {
-            try {
-                $woStatusStmt = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
-                $woStatusStmt->execute([$woItem['created_wo_id']]);
-                $actualWoStatus = $woStatusStmt->fetchColumn();
-                if ($actualWoStatus) {
-                    $woItem['actual_wo_status'] = $actualWoStatus;
-                }
-            } catch (Exception $e) {}
-        }
-    }
-    unset($woItem);
-
-    // Refresh real-time stock and shortage for PO items (using available stock)
-    foreach ($poItems as &$poItem) {
-        try {
-            $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no'], $planId);
-            $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
-        } catch (Exception $e) {}
-    }
-    unset($poItem);
-
-    // Cascade "In Stock" from parent WO parts to child WO/PO parts
-    // If a WO parent is in stock (no WO + shortage <= 0), its BOM children don't need production/procurement
-    if (!$planIsCompleted) {
-        // Build map of WO part_no => shortage and check which are truly "in stock"
-        $woPartMap = [];
-        foreach ($woItems as $wi) {
-            $woPartMap[$wi['part_no']] = [
-                'shortage' => $wi['shortage'],
-                'has_wo' => !empty($wi['created_wo_id']),
-            ];
-        }
-
-        // Build map of PO part_no => index for quick lookup
-        $poPartIndex = [];
-        foreach ($poItems as $idx => $pi) {
-            $poPartIndex[$pi['part_no']] = $idx;
-        }
-
-        // Build map of WO part_no => index for quick lookup
-        $woPartIndex = [];
-        foreach ($woItems as $idx => $wi) {
-            $woPartIndex[$wi['part_no']] = $idx;
-        }
-
-        // Find WO parts that are "In Stock" (no active WO and sufficient inventory)
-        $inStockWoParts = [];
-        foreach ($woPartMap as $partNo => $info) {
-            if (!$info['has_wo'] && $info['shortage'] <= 0) {
-                $inStockWoParts[] = $partNo;
-            }
-        }
-
-        // Cascade: for each in-stock WO parent, mark its BOM children as in-stock too
-        $processed = [];
-        while (!empty($inStockWoParts)) {
-            $nextInStock = [];
-            foreach ($inStockWoParts as $parentPartNo) {
-                if (isset($processed[$parentPartNo])) continue;
-                $processed[$parentPartNo] = true;
-
-                try {
-                    $childParts = getBomChildParts($pdo, $parentPartNo);
-                    foreach ($childParts as $child) {
-                        $childPartNo = $child['part_no'];
-
-                        // If child is a WO item, mark it in-stock and cascade further
-                        if (isset($woPartIndex[$childPartNo])) {
-                            $idx = $woPartIndex[$childPartNo];
-                            if (empty($woItems[$idx]['created_wo_id']) && $woItems[$idx]['shortage'] > 0) {
-                                $woItems[$idx]['shortage'] = 0;
-                                $nextInStock[] = $childPartNo;
-                            }
-                        }
-
-                        // If child is a PO item, mark it in-stock
-                        if (isset($poPartIndex[$childPartNo])) {
-                            $idx = $poPartIndex[$childPartNo];
-                            if (empty($poItems[$idx]['created_po_id']) && $poItems[$idx]['shortage'] > 0) {
-                                $poItems[$idx]['shortage'] = 0;
-                            }
-                        }
-                    }
-                } catch (Exception $e) {}
-            }
-            $inStockWoParts = $nextInStock;
-        }
-    }
-
-    // Group WO items by SO
-    $woItemsBySO = [];
-    foreach ($woItems as $item) {
-        $soList = $item['so_list'] ?? 'Unknown';
-        $soNumbers = array_map('trim', explode(',', $soList));
-        foreach ($soNumbers as $soNo) {
-            if (!isset($woItemsBySO[$soNo])) {
-                $woItemsBySO[$soNo] = [];
-            }
-            $woItemsBySO[$soNo][] = $item;
-        }
-    }
-
-    // Group PO items by SO
-    $poItemsBySO = [];
-    foreach ($poItems as $item) {
-        $soList = $item['so_list'] ?? 'Unknown';
-        $soNumbers = array_map('trim', explode(',', $soList));
-        foreach ($soNumbers as $soNo) {
-            if (!isset($poItemsBySO[$soNo])) {
-                $poItemsBySO[$soNo] = [];
-            }
-            $poItemsBySO[$soNo][] = $item;
-        }
-    }
+    // WO/PO items already loaded and processed at the top of the file
     ?>
 
     <?php if (!empty($woItems)): ?>
@@ -979,11 +985,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </div>
             <?php endif; ?>
             <div>
-                <label style="color: #666; font-size: 0.9em;">WO/PO Progress</label>
+                <label style="color: #666; font-size: 0.9em;">Stock Progress</label>
                 <p style="margin: 5px 0;">
-                    <span style="font-weight: bold; color: #059669;"><?= ($planDetails['wo_done'] ?? 0) + ($planDetails['po_done'] ?? 0) ?></span> Done,
-                    <span style="font-weight: bold; color: #3b82f6;"><?= ($planDetails['wo_in_progress'] ?? 0) + ($planDetails['po_in_progress'] ?? 0) ?></span> In Progress,
-                    <span style="font-weight: bold; color: #f59e0b;"><?= ($planDetails['wo_total'] ?? 0) + ($planDetails['po_total'] ?? 0) - ($planDetails['wo_done'] ?? 0) - ($planDetails['po_done'] ?? 0) - ($planDetails['wo_in_progress'] ?? 0) - ($planDetails['po_in_progress'] ?? 0) ?></span> Pending
+                    <span style="font-weight: bold; color: #059669;"><?= $inStockOrDoneParts ?></span> Available,
+                    <span style="font-weight: bold; color: #f59e0b;"><?= $totalWoPoParts - $inStockOrDoneParts ?></span> Pending
+                    <span style="color: #666;">(of <?= $totalWoPoParts ?> total parts)</span>
                 </p>
             </div>
         </div>
