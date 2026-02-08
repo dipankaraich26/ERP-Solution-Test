@@ -593,6 +593,21 @@ function blockStockForPlan($pdo, int $planId): bool {
 }
 
 /**
+ * Re-sync stock blocks for all active (approved/partiallyordered) plans.
+ * Call this once on page load to fix any plans that were approved before the fix.
+ */
+function syncStockBlocksForActivePlans($pdo): void {
+    try {
+        ensureStockBlocksTable($pdo);
+        $stmt = $pdo->query("SELECT id FROM procurement_plans WHERE status IN ('approved', 'partiallyordered')");
+        $activePlans = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($activePlans as $planId) {
+            blockStockForPlan($pdo, (int)$planId);
+        }
+    } catch (Exception $e) {}
+}
+
+/**
  * Unblock stock when a plan is cancelled or completed
  */
 function unblockStockForPlan($pdo, int $planId): bool {

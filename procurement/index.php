@@ -16,6 +16,9 @@ try {
     }
 } catch (Exception $e) {}
 
+// Sync stock blocks for all active approved/partiallyordered plans
+syncStockBlocksForActivePlans($pdo);
+
 // Get total count
 $total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans")->fetchColumn();
 $total_pages = ceil($total_count / $per_page);
