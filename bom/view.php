@@ -277,6 +277,7 @@ if (toggle) {
             <a href="duplicate.php?id=<?= $id ?>" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 5px;" onclick="return confirm('Create a duplicate of this BOM?');">📋 Duplicate</a>
             <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
             <button onclick="exportToExcel()" class="btn btn-success">📊 Export</button>
+            <button onclick="openAllLevelsBom()" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">🔍 All Level BOM</button>
         </div>
     </div>
 
@@ -478,6 +479,206 @@ function exportToExcel() {
 
     // Save file
     XLSX.writeFile(wb, filename);
+}
+</script>
+
+<!-- All Level BOM Modal -->
+<div id="allLevelBomModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9999; background:rgba(0,0,0,0.6);">
+    <div style="position:absolute; top:20px; left:50%; transform:translateX(-50%); width:95%; max-width:1200px; max-height:calc(100vh - 40px); background:var(--card, #fff); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.3); display:flex; flex-direction:column;">
+        <!-- Header -->
+        <div style="padding:15px 20px; border-bottom:1px solid var(--border, #e2e8f0); display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+            <div>
+                <h2 style="margin:0; font-size:1.3em;">All Level BOM - <?= htmlspecialchars($bom['bom_no']) ?></h2>
+                <p style="margin:4px 0 0; color:#7f8c8d; font-size:0.9em;"><?= htmlspecialchars($bom['part_name']) ?> (<?= htmlspecialchars($bom['parent_part_no']) ?>)</p>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button onclick="expandAllLevels()" class="btn btn-sm" style="padding:6px 12px; font-size:0.85em; background:#28a745; color:#fff; border:none; border-radius:6px; cursor:pointer;">Expand All</button>
+                <button onclick="collapseAllLevels()" class="btn btn-sm" style="padding:6px 12px; font-size:0.85em; background:#6c757d; color:#fff; border:none; border-radius:6px; cursor:pointer;">Collapse All</button>
+                <button onclick="closeAllLevelsBom()" style="background:none; border:none; font-size:1.5em; cursor:pointer; color:#999; padding:0 5px;">&times;</button>
+            </div>
+        </div>
+        <!-- Cost Summary -->
+        <div style="padding:10px 20px; background:linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%); color:white; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+            <span>Total BOM Cost (All Levels)</span>
+            <span style="font-size:1.3em; font-weight:bold;">₹ <?= number_format($totalBomCost, 2) ?></span>
+        </div>
+        <!-- Level Legend -->
+        <div style="padding:8px 20px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--border, #e2e8f0); flex-shrink:0; font-size:0.85em;">
+            <span style="color:#666;">Levels:</span>
+            <span style="background:#3498db; color:#fff; padding:2px 8px; border-radius:4px;">L0 - Parent</span>
+            <span style="background:#27ae60; color:#fff; padding:2px 8px; border-radius:4px;">L1</span>
+            <span style="background:#e67e22; color:#fff; padding:2px 8px; border-radius:4px;">L2</span>
+            <span style="background:#e74c3c; color:#fff; padding:2px 8px; border-radius:4px;">L3</span>
+            <span style="background:#9b59b6; color:#fff; padding:2px 8px; border-radius:4px;">L4+</span>
+        </div>
+        <!-- Table Content -->
+        <div style="overflow:auto; flex:1; padding:0;">
+            <table id="allLevelTable" style="width:100%; border-collapse:collapse;">
+                <thead style="position:sticky; top:0; z-index:1;">
+                    <tr style="background:var(--card, #f8f9fa);">
+                        <th style="padding:10px 12px; text-align:left; border-bottom:2px solid var(--border, #dee2e6); min-width:60px;">Level</th>
+                        <th style="padding:10px 12px; text-align:left; border-bottom:2px solid var(--border, #dee2e6); min-width:140px;">Part Number</th>
+                        <th style="padding:10px 12px; text-align:left; border-bottom:2px solid var(--border, #dee2e6); min-width:200px;">Component</th>
+                        <th style="padding:10px 12px; text-align:left; border-bottom:2px solid var(--border, #dee2e6);">Category</th>
+                        <th style="padding:10px 12px; text-align:center; border-bottom:2px solid var(--border, #dee2e6);">Qty</th>
+                        <th style="padding:10px 12px; text-align:right; border-bottom:2px solid var(--border, #dee2e6);">Rate</th>
+                        <th style="padding:10px 12px; text-align:right; border-bottom:2px solid var(--border, #dee2e6);">Cost</th>
+                        <th style="padding:10px 12px; text-align:center; border-bottom:2px solid var(--border, #dee2e6);">Stock</th>
+                    </tr>
+                </thead>
+                <tbody id="allLevelBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .alb-row { transition: background 0.15s; }
+    .alb-row:hover { background: rgba(52,152,219,0.08) !important; }
+    .alb-toggle { cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:4px; font-size:0.8em; font-weight:bold; margin-right:4px; transition:all 0.2s; border:1px solid #ccc; background:#f0f0f0; }
+    .alb-toggle:hover { background:#ddd; }
+    .alb-toggle.open { transform:rotate(90deg); }
+    .alb-level-0 { background:#ebf5fb; }
+    .alb-level-1 { background:#eafaf1; }
+    .alb-level-2 { background:#fef5e7; }
+    .alb-level-3 { background:#fdedec; }
+    .alb-level-4 { background:#f4ecf7; }
+    .alb-badge { display:inline-block; padding:2px 8px; border-radius:4px; color:#fff; font-size:0.75em; font-weight:600; }
+    .alb-badge-0 { background:#3498db; }
+    .alb-badge-1 { background:#27ae60; }
+    .alb-badge-2 { background:#e67e22; }
+    .alb-badge-3 { background:#e74c3c; }
+    .alb-badge-4 { background:#9b59b6; }
+    .alb-sub-badge { background:#007bff; color:white; padding:1px 6px; border-radius:3px; font-size:0.75em; margin-left:5px; }
+    .alb-hidden { display:none; }
+</style>
+
+<script>
+const allLevelData = <?= json_encode($itemsData) ?>;
+const bomNo = <?= json_encode($bom['bom_no']) ?>;
+
+function openAllLevelsBom() {
+    document.getElementById('allLevelBomModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    renderAllLevelBom();
+}
+
+function closeAllLevelsBom() {
+    document.getElementById('allLevelBomModal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+// Close on outside click
+document.getElementById('allLevelBomModal').addEventListener('click', function(e) {
+    if (e.target === this) closeAllLevelsBom();
+});
+
+// Close on Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeAllLevelsBom();
+});
+
+function renderAllLevelBom() {
+    const tbody = document.getElementById('allLevelBody');
+    tbody.innerHTML = '';
+    let rowId = 0;
+
+    function addRows(items, level, parentId, parentQty) {
+        items.forEach(item => {
+            const id = rowId++;
+            const hasChildren = item.sub_bom && item.sub_bom.items && item.sub_bom.items.length > 0;
+            const levelClass = level > 4 ? 4 : level;
+            const indent = level * 24;
+            const effectiveRate = parseFloat(item.effective_rate) || parseFloat(item.rate) || 0;
+            const effectiveCost = parseFloat(item.effective_cost) || (parseFloat(item.qty) * effectiveRate);
+
+            const tr = document.createElement('tr');
+            tr.className = 'alb-row alb-level-' + levelClass;
+            tr.dataset.id = id;
+            tr.dataset.level = level;
+            tr.dataset.parent = parentId;
+            if (parentId !== -1 && level > 0) tr.classList.add('alb-hidden');
+
+            tr.innerHTML = `
+                <td style="padding:8px 12px;">
+                    <span class="alb-badge alb-badge-${levelClass}">L${level}</span>
+                </td>
+                <td style="padding:8px 12px;">${escHtml(item.part_no)}</td>
+                <td style="padding:8px 12px 8px ${12 + indent}px;">
+                    ${hasChildren ? '<span class="alb-toggle" data-id="' + id + '" onclick="toggleLevel(this)">▶</span>' : '<span style="display:inline-block;width:26px;"></span>'}
+                    ${escHtml(item.part_name)}
+                    ${hasChildren ? '<span class="alb-sub-badge">Sub-BOM: ' + escHtml(item.sub_bom.bom_no) + '</span>' : ''}
+                </td>
+                <td style="padding:8px 12px;">${escHtml(item.category || '')}</td>
+                <td style="padding:8px 12px; text-align:center;">${parseFloat(item.qty)} ${escHtml(item.uom || '')}</td>
+                <td style="padding:8px 12px; text-align:right;">₹ ${effectiveRate.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="padding:8px 12px; text-align:right; font-weight:600;">₹ ${effectiveCost.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                <td style="padding:8px 12px; text-align:center;">${item.current_stock}</td>
+            `;
+            tbody.appendChild(tr);
+
+            if (hasChildren) {
+                addRows(item.sub_bom.items, level + 1, id, parseFloat(item.qty));
+            }
+        });
+    }
+
+    addRows(allLevelData, 0, -1, 1);
+}
+
+function toggleLevel(toggleEl) {
+    const parentId = toggleEl.dataset.id;
+    const isOpen = toggleEl.classList.contains('open');
+    toggleEl.classList.toggle('open');
+
+    const rows = document.querySelectorAll('#allLevelBody tr');
+    if (isOpen) {
+        // Collapse: hide all descendants
+        hideDescendants(parentId, rows);
+    } else {
+        // Expand: show direct children only
+        rows.forEach(row => {
+            if (row.dataset.parent === parentId) {
+                row.classList.remove('alb-hidden');
+            }
+        });
+    }
+}
+
+function hideDescendants(parentId, rows) {
+    rows.forEach(row => {
+        if (row.dataset.parent === parentId) {
+            row.classList.add('alb-hidden');
+            // Also collapse toggle if it's open
+            const toggle = row.querySelector('.alb-toggle');
+            if (toggle) toggle.classList.remove('open');
+            // Recursively hide children
+            hideDescendants(row.dataset.id, rows);
+        }
+    });
+}
+
+function expandAllLevels() {
+    const rows = document.querySelectorAll('#allLevelBody tr');
+    rows.forEach(row => row.classList.remove('alb-hidden'));
+    document.querySelectorAll('.alb-toggle').forEach(t => t.classList.add('open'));
+}
+
+function collapseAllLevels() {
+    const rows = document.querySelectorAll('#allLevelBody tr');
+    rows.forEach(row => {
+        if (parseInt(row.dataset.level) > 0) {
+            row.classList.add('alb-hidden');
+        }
+    });
+    document.querySelectorAll('.alb-toggle').forEach(t => t.classList.remove('open'));
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 </script>
 
