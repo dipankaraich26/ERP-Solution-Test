@@ -530,11 +530,21 @@ function blockStockForPlan($pdo, int $planId): bool {
     try {
         ensureStockBlocksTable($pdo);
 
-        // Collect all parts and their required quantities from WO + PO items
+        // Collect all parts and their required quantities from main items + WO + PO items
+        $mainItems = getProcurementPlanItems($pdo, $planId);
         $woItems = getPlanWorkOrderItems($pdo, $planId);
         $poItems = getPlanPurchaseOrderItems($pdo, $planId);
 
         $partRequirements = [];
+        // Parent SO parts (main plan items) - block SO demand qty from stock
+        foreach ($mainItems as $item) {
+            $key = $item['part_no'];
+            if (!isset($partRequirements[$key])) {
+                $partRequirements[$key] = 0;
+            }
+            $partRequirements[$key] += (float)$item['required_qty'];
+        }
+        // WO child parts (BOM explosion - internal production)
         foreach ($woItems as $item) {
             $key = $item['part_no'];
             if (!isset($partRequirements[$key])) {
@@ -542,6 +552,7 @@ function blockStockForPlan($pdo, int $planId): bool {
             }
             $partRequirements[$key] += (float)$item['required_qty'];
         }
+        // PO child parts (BOM explosion - external procurement)
         foreach ($poItems as $item) {
             $key = $item['part_no'];
             if (!isset($partRequirements[$key])) {
