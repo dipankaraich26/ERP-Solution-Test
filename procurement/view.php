@@ -979,11 +979,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </div>
             <?php endif; ?>
             <div>
-                <label style="color: #666; font-size: 0.9em;">Items</label>
+                <label style="color: #666; font-size: 0.9em;">WO/PO Progress</label>
                 <p style="margin: 5px 0;">
-                    <span style="font-weight: bold; color: #dc2626;"><?= $pending ?></span> Pending,
-                    <span style="font-weight: bold; color: #3b82f6;"><?= $ordered ?></span> Ordered,
-                    <span style="font-weight: bold; color: #16a34a;"><?= $received ?></span> Received
+                    <span style="font-weight: bold; color: #059669;"><?= ($planDetails['wo_done'] ?? 0) + ($planDetails['po_done'] ?? 0) ?></span> Done,
+                    <span style="font-weight: bold; color: #3b82f6;"><?= ($planDetails['wo_in_progress'] ?? 0) + ($planDetails['po_in_progress'] ?? 0) ?></span> In Progress,
+                    <span style="font-weight: bold; color: #f59e0b;"><?= ($planDetails['wo_total'] ?? 0) + ($planDetails['po_total'] ?? 0) - ($planDetails['wo_done'] ?? 0) - ($planDetails['po_done'] ?? 0) - ($planDetails['wo_in_progress'] ?? 0) - ($planDetails['po_in_progress'] ?? 0) ?></span> Pending
                 </p>
             </div>
         </div>
