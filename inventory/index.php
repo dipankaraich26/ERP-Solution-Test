@@ -85,6 +85,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 }
 
 ob_end_flush();
+?>
+<link rel="stylesheet" href="/assets/style.css">
+<?php
 include "../includes/sidebar.php";
 
 // Pagination setup
