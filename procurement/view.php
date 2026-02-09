@@ -337,6 +337,9 @@ if ($planDetails) {
             }
         }
         unset($poItem);
+
+        // Auto-link pending PO items to existing active POs created separately
+        autoLinkExistingPOs($pdo, $planId, $poItems);
     }
 
     // Calculate stock-based progress: parts "in stock" or with completed WO/PO

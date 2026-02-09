@@ -1353,6 +1353,67 @@ function getExistingPoForPlanItem($pdo, int $planId, string $partNo): ?array {
 }
 
 /**
+ * Find an existing active PO (created separately, not through PP) for a given part number.
+ * Returns the PO details if found so that PP can auto-link to it.
+ * @param PDO $pdo Database connection
+ * @param string $partNo Part number to look for
+ * @param int|null $excludePlanId Optional plan ID to exclude POs already linked to this plan
+ * @return array|null PO details (id, po_no, qty, supplier_id, status) or null
+ */
+function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null): ?array {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id, po_no, part_no, qty, rate, supplier_id, status
+            FROM purchase_orders
+            WHERE part_no = ? AND status NOT IN ('cancelled', 'closed')
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$partNo]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ?: null;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+/**
+ * Auto-link pending PO items in a plan to existing active POs.
+ * For each pending PO item with shortage > 0, checks if an active PO already exists
+ * for that part and links it to the plan.
+ * @param PDO $pdo Database connection
+ * @param int $planId Plan ID
+ * @param array &$poItems PO items array (passed by reference, updated in place)
+ */
+function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
+    foreach ($poItems as &$poItem) {
+        // Only process pending items that have shortage and no linked PO
+        if (!empty($poItem['created_po_id'])) continue;
+        if (($poItem['status'] ?? '') === 'po_cancelled') continue;
+        if (($poItem['shortage'] ?? 0) <= 0) continue;
+
+        $existingPo = findExistingActivePo($pdo, $poItem['part_no'], $planId);
+        if ($existingPo) {
+            // Link this PO to the plan item
+            updatePlanPoItemStatus(
+                $pdo,
+                $planId,
+                $poItem['part_no'],
+                (int)$existingPo['id'],
+                $existingPo['po_no'],
+                (float)$existingPo['qty']
+            );
+            // Update in-memory data
+            $poItem['status'] = 'ordered';
+            $poItem['created_po_id'] = $existingPo['id'];
+            $poItem['created_po_no'] = $existingPo['po_no'];
+            $poItem['ordered_qty'] = $existingPo['qty'];
+        }
+    }
+    unset($poItem);
+}
+
+/**
  * Get or create a procurement plan for selected sales orders
  * Returns existing plan if one exists for the same SO combination, otherwise creates new
  * @param PDO $pdo Database connection

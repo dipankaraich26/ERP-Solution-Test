@@ -352,6 +352,24 @@ if ($step == 2) {
                 }
             }
             unset($ps);
+
+            // Auto-link pending PO items to existing active POs created separately
+            foreach ($poItemStatus as $partNo => &$ps) {
+                if (!empty($ps['created_po_id'])) continue;
+                if (($ps['status'] ?? '') === 'po_cancelled') continue;
+                $shortage = $subletShortageMap[$partNo] ?? 0;
+                if ($shortage <= 0) continue;
+
+                $existingPo = findExistingActivePo($pdo, $partNo, $currentPlanId);
+                if ($existingPo) {
+                    updatePlanPoItemStatus($pdo, $currentPlanId, $partNo, (int)$existingPo['id'], $existingPo['po_no'], (float)$existingPo['qty']);
+                    $ps['status'] = 'ordered';
+                    $ps['created_po_id'] = $existingPo['id'];
+                    $ps['created_po_no'] = $existingPo['po_no'];
+                    $ps['ordered_qty'] = $existingPo['qty'];
+                }
+            }
+            unset($ps);
         }
     }
 
