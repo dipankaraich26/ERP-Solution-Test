@@ -1,83 +1,3 @@
-<html><head>
-<link rel="stylesheet" href="/assets/style.css">
-<style>
-    /* Dynamic Search Styles */
-    .search-container {
-        position: relative;
-        display: inline-block;
-    }
-    .search-dropdown {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        background: white;
-        border: 1px solid #ccc;
-        border-top: none;
-        border-radius: 0 0 4px 4px;
-        max-height: 400px;
-        overflow-y: auto;
-        z-index: 1000;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        display: none;
-    }
-    .search-dropdown.active {
-        display: block;
-    }
-    .search-result-item {
-        padding: 10px 12px;
-        cursor: pointer;
-        border-bottom: 1px solid #eee;
-        transition: background 0.15s;
-    }
-    .search-result-item:hover,
-    .search-result-item.highlighted {
-        background: #f0f7ff;
-    }
-    .search-result-item:last-child {
-        border-bottom: none;
-    }
-    .result-part-no {
-        font-weight: bold;
-        color: #333;
-    }
-    .result-part-name {
-        color: #666;
-        font-size: 0.9em;
-    }
-    .result-qty {
-        color: #16a34a;
-        font-size: 0.85em;
-        margin-top: 2px;
-    }
-    .result-qty.zero {
-        color: #dc2626;
-    }
-    .search-loading {
-        padding: 15px;
-        text-align: center;
-        color: #666;
-    }
-    .search-no-results {
-        padding: 15px;
-        text-align: center;
-        color: #888;
-    }
-    .search-total {
-        padding: 8px 12px;
-        background: #f5f5f5;
-        font-size: 0.85em;
-        color: #666;
-        border-top: 1px solid #ddd;
-    }
-    .highlight-match {
-        background: #fff3cd;
-        font-weight: bold;
-    }
-</style>
-</head></html>
-
-
 <?php
 include "../db.php";
 
@@ -105,8 +25,8 @@ if ($qty_filter !== null) {
 
 $where_clause = count($where_conditions) > 0 ? implode(' AND ', $where_conditions) : '1=1';
 
-// Handle CSV Export
-if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+// Handle Excel Export
+if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     $export_sql = "
         SELECT p.part_no, p.part_name, COALESCE(i.qty, 0) as qty,
                COALESCE((
@@ -135,15 +55,30 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     }
     $export_stmt->execute();
 
-    $filename = 'inventory_' . date('Y-m-d_His') . '.csv';
-    header('Content-Type: text/csv; charset=utf-8');
+    $filename = 'inventory_' . date('Y-m-d_His') . '.xls';
+    header('Content-Type: application/vnd.ms-excel');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
-    $output = fopen('php://output', 'w');
-    fputcsv($output, ['Part No', 'Part Name', 'Stock', 'On Order', 'In WO', 'On SO']);
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+    echo '<head><meta charset="utf-8"></head><body>';
+    echo '<table border="1">';
+    echo '<tr style="background:#4472C4; color:white; font-weight:bold;">';
+    echo '<th>Part No</th><th>Part Name</th><th>Stock</th><th>On Order</th><th>In WO</th><th>On SO</th>';
+    echo '</tr>';
     while ($row = $export_stmt->fetch(PDO::FETCH_ASSOC)) {
-        fputcsv($output, [$row['part_no'], $row['part_name'], $row['qty'], $row['on_order'], $row['in_wo'], $row['on_so']]);
+        $stockColor = $row['qty'] > 0 ? '#16a34a' : '#dc2626';
+        echo '<tr>';
+        echo '<td>' . htmlspecialchars($row['part_no']) . '</td>';
+        echo '<td>' . htmlspecialchars($row['part_name']) . '</td>';
+        echo '<td style="text-align:center; color:' . $stockColor . '; font-weight:bold;">' . $row['qty'] . '</td>';
+        echo '<td style="text-align:center;">' . ($row['on_order'] > 0 ? $row['on_order'] : '-') . '</td>';
+        echo '<td style="text-align:center;">' . ($row['in_wo'] > 0 ? $row['in_wo'] : '-') . '</td>';
+        echo '<td style="text-align:center;">' . ($row['on_so'] > 0 ? $row['on_so'] : '-') . '</td>';
+        echo '</tr>';
     }
-    fclose($output);
+    echo '</table></body></html>';
     exit;
 }
 
@@ -200,6 +135,31 @@ $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $inv = $stmt;
 ?>
+
+<style>
+    .search-container { position: relative; display: inline-block; }
+    .search-dropdown {
+        position: absolute; top: 100%; left: 0; right: 0;
+        background: white; border: 1px solid #ccc; border-top: none;
+        border-radius: 0 0 4px 4px; max-height: 400px; overflow-y: auto;
+        z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none;
+    }
+    .search-dropdown.active { display: block; }
+    .search-result-item {
+        padding: 10px 12px; cursor: pointer;
+        border-bottom: 1px solid #eee; transition: background 0.15s;
+    }
+    .search-result-item:hover, .search-result-item.highlighted { background: #f0f7ff; }
+    .search-result-item:last-child { border-bottom: none; }
+    .result-part-no { font-weight: bold; color: #333; }
+    .result-part-name { color: #666; font-size: 0.9em; }
+    .result-qty { color: #16a34a; font-size: 0.85em; margin-top: 2px; }
+    .result-qty.zero { color: #dc2626; }
+    .search-loading { padding: 15px; text-align: center; color: #666; }
+    .search-no-results { padding: 15px; text-align: center; color: #888; }
+    .search-total { padding: 8px 12px; background: #f5f5f5; font-size: 0.85em; color: #666; border-top: 1px solid #ddd; }
+    .highlight-match { background: #fff3cd; font-weight: bold; }
+</style>
 
 <script>
 const toggle = document.getElementById("themeToggle");
@@ -278,13 +238,13 @@ if (toggle) {
     <!-- Export -->
     <div style="margin-left: auto;">
         <?php
-        $export_params = ['export=csv'];
+        $export_params = ['export=excel'];
         if ($view !== 'normal') $export_params[] = 'view=' . urlencode($view);
         if ($qty_filter !== null) $export_params[] = 'qty=' . urlencode($qty_filter);
         if ($search !== '') $export_params[] = 'search=' . urlencode($search);
         $export_url = 'index.php?' . implode('&', $export_params);
         ?>
-        <a href="<?= $export_url ?>" class="btn btn-success" title="Export filtered items to CSV">Export CSV (<?= $total_count ?> items)</a>
+        <a href="<?= $export_url ?>" class="btn btn-success" title="Export filtered items to Excel">Export Excel (<?= $total_count ?> items)</a>
     </div>
 </div>
 
