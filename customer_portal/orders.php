@@ -1,6 +1,7 @@
 <?php
 include "../db.php";
 include "../includes/auth.php";
+include "../includes/procurement_helper.php";
 requireLogin();
 
 $customer_id = isset($_GET['customer_id']) ? (int)$_GET['customer_id'] : 0;
@@ -48,6 +49,42 @@ try {
 } catch (Exception $e) {
     // Handle error
 }
+
+// Look up production progress for each SO via linked procurement plans
+try {
+    $ppStmt = $pdo->query("
+        SELECT id, plan_no, status, so_list
+        FROM procurement_plans
+        WHERE status NOT IN ('cancelled')
+        ORDER BY id DESC
+    ");
+    $allPlans = $ppStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $allPlans = [];
+}
+
+foreach ($orders as &$o) {
+    $o['pp_progress'] = null;
+    $o['pp_id'] = null;
+    $o['pp_no'] = null;
+    $o['pp_status'] = null;
+    foreach ($allPlans as $pp) {
+        $soList = array_map('trim', explode(',', $pp['so_list'] ?? ''));
+        if (in_array($o['so_no'], $soList)) {
+            $o['pp_id'] = $pp['id'];
+            $o['pp_no'] = $pp['plan_no'];
+            $o['pp_status'] = $pp['status'];
+            try {
+                $progress = calculatePlanProgress($pdo, (int)$pp['id'], $pp['status']);
+                $o['pp_progress'] = $progress['percentage'];
+            } catch (Exception $e) {
+                $o['pp_progress'] = 0;
+            }
+            break;
+        }
+    }
+}
+unset($o);
 
 include "../includes/sidebar.php";
 ?>
@@ -176,12 +213,17 @@ include "../includes/sidebar.php";
     $total_orders = count($orders);
     $total_value = array_sum(array_column($orders, 'total_value'));
     $completed_count = count(array_filter($orders, fn($o) => in_array(strtolower($o['status'] ?? ''), ['delivered', 'completed'])));
+    $in_production = count(array_filter($orders, fn($o) => $o['pp_id'] && $o['pp_progress'] !== null && $o['pp_progress'] < 100));
     ?>
 
     <div class="summary-bar">
         <div class="summary-item">
             <div class="value"><?= $total_orders ?></div>
             <div class="label">Total Orders</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" style="color: #f39c12;"><?= $in_production ?></div>
+            <div class="label">In Production</div>
         </div>
         <div class="summary-item">
             <div class="value" style="color: #27ae60;"><?= $completed_count ?></div>
@@ -212,6 +254,7 @@ include "../includes/sidebar.php";
                         <th class="text-right">Value</th>
                         <th class="text-center">Invoice</th>
                         <th class="text-center">Status</th>
+                        <th class="text-center">Production Progress</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -256,6 +299,30 @@ include "../includes/sidebar.php";
                             <span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>">
                                 <?= htmlspecialchars($o['status'] ?: 'Pending') ?>
                             </span>
+                        </td>
+                        <td class="text-center">
+                            <?php if ($o['pp_id']): ?>
+                                <?php
+                                $pct = (int)$o['pp_progress'];
+                                $barColor = $pct >= 100 ? '#27ae60' : ($pct >= 50 ? '#f39c12' : '#3498db');
+                                ?>
+                                <div style="min-width: 120px;">
+                                    <div style="display: flex; align-items: center; gap: 6px; justify-content: center;">
+                                        <div style="background: #e9ecef; border-radius: 10px; width: 70px; height: 10px; overflow: hidden;">
+                                            <div style="background: <?= $barColor ?>; height: 100%; width: <?= $pct ?>%; border-radius: 10px; transition: width 0.3s;"></div>
+                                        </div>
+                                        <span style="font-weight: bold; font-size: 0.85em; color: <?= $barColor ?>;"><?= $pct ?>%</span>
+                                    </div>
+                                    <div style="font-size: 0.75em; color: #999; margin-top: 2px;">
+                                        <?= htmlspecialchars($o['pp_no']) ?>
+                                        <?php if ($o['pp_status'] === 'completed'): ?>
+                                            <span style="color: #27ae60;">&#10003;</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <span style="color: #ccc; font-size: 0.85em;">No plan</span>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <a href="/sales_orders/view.php?so_no=<?= urlencode($o['so_no']) ?>" class="btn btn-sm" target="_blank">View</a>
