@@ -1,4 +1,5 @@
 <?php
+ob_start();
 include "../db.php";
 
 $view = $_GET['view'] ?? 'normal';
@@ -55,6 +56,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     }
     $export_stmt->execute();
 
+    ob_end_clean();
     $filename = 'inventory_' . date('Y-m-d_His') . '.xls';
     header('Content-Type: application/vnd.ms-excel');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -82,6 +84,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     exit;
 }
 
+ob_end_flush();
 include "../includes/sidebar.php";
 
 // Pagination setup
