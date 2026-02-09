@@ -2026,6 +2026,118 @@ function refreshPlanFromBOM($pdo, int $planId): array {
 }
 
 /**
+ * Calculate procurement plan progress consistently.
+ * Uses real-time WO status, available stock, and cascade logic.
+ * Returns ['percentage' => int, 'done' => int, 'total' => int]
+ */
+function calculatePlanProgress($pdo, int $planId, string $planStatus): array {
+    if ($planStatus === 'completed') return ['percentage' => 100, 'done' => 0, 'total' => 0];
+    if ($planStatus === 'cancelled') return ['percentage' => 0, 'done' => 0, 'total' => 0];
+
+    $woItems = getPlanWorkOrderItems($pdo, $planId);
+    $poItems = getPlanPurchaseOrderItems($pdo, $planId);
+
+    $totalParts = count($woItems) + count($poItems);
+    if ($totalParts === 0) return ['percentage' => 0, 'done' => 0, 'total' => 0];
+
+    // Refresh real-time stock and actual WO statuses
+    foreach ($woItems as &$wi) {
+        try {
+            $wi['current_stock'] = (int)getAvailableStock($pdo, $wi['part_no'], $planId);
+            $wi['shortage'] = max(0, $wi['required_qty'] - $wi['current_stock']);
+        } catch (Exception $e) {}
+        $wi['actual_wo_status'] = '';
+        if (!empty($wi['created_wo_id'])) {
+            try {
+                $ws = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
+                $ws->execute([$wi['created_wo_id']]);
+                $wi['actual_wo_status'] = $ws->fetchColumn() ?: '';
+            } catch (Exception $e) {}
+        }
+    }
+    unset($wi);
+
+    foreach ($poItems as &$pi) {
+        try {
+            $pi['current_stock'] = (int)getAvailableStock($pdo, $pi['part_no'], $planId);
+            $pi['shortage'] = max(0, $pi['required_qty'] - $pi['current_stock']);
+        } catch (Exception $e) {}
+    }
+    unset($pi);
+
+    // Cascade in-stock: if parent WO part has stock, children don't need production
+    $woPartMap = [];
+    foreach ($woItems as $wi) {
+        $woPartMap[$wi['part_no']] = ['shortage' => $wi['shortage'], 'has_wo' => !empty($wi['created_wo_id'])];
+    }
+    $poPartIndex = [];
+    foreach ($poItems as $idx => $pi) { $poPartIndex[$pi['part_no']] = $idx; }
+    $woPartIndex = [];
+    foreach ($woItems as $idx => $wi) { $woPartIndex[$wi['part_no']] = $idx; }
+
+    $inStockWoParts = [];
+    foreach ($woPartMap as $partNo => $info) {
+        if (!$info['has_wo'] && $info['shortage'] <= 0) {
+            $inStockWoParts[] = $partNo;
+        }
+    }
+    $processed = [];
+    while (!empty($inStockWoParts)) {
+        $nextInStock = [];
+        foreach ($inStockWoParts as $parentPartNo) {
+            if (isset($processed[$parentPartNo])) continue;
+            $processed[$parentPartNo] = true;
+            try {
+                $childParts = getBomChildParts($pdo, $parentPartNo);
+                foreach ($childParts as $child) {
+                    $childPartNo = $child['part_no'];
+                    if (isset($woPartIndex[$childPartNo])) {
+                        $idx = $woPartIndex[$childPartNo];
+                        if (empty($woItems[$idx]['created_wo_id']) && $woItems[$idx]['shortage'] > 0) {
+                            $woItems[$idx]['shortage'] = 0;
+                            $nextInStock[] = $childPartNo;
+                        }
+                    }
+                    if (isset($poPartIndex[$childPartNo])) {
+                        $idx = $poPartIndex[$childPartNo];
+                        if (empty($poItems[$idx]['created_po_id']) && $poItems[$idx]['shortage'] > 0) {
+                            $poItems[$idx]['shortage'] = 0;
+                        }
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+        $inStockWoParts = $nextInStock;
+    }
+
+    // Count done parts (same logic as view.php)
+    $doneParts = 0;
+    foreach ($woItems as $wi) {
+        if (!empty($wi['created_wo_id'])) {
+            $woSt = $wi['actual_wo_status'] ?? '';
+            if (in_array($woSt, ['completed', 'closed', 'qc_approval'])) {
+                $doneParts++;
+            }
+        } elseif ($wi['shortage'] <= 0) {
+            $doneParts++;
+        }
+    }
+    foreach ($poItems as $pi) {
+        if (!empty($pi['created_po_id'])) {
+            $poSt = $pi['status'] ?? '';
+            if (in_array($poSt, ['received', 'closed'])) {
+                $doneParts++;
+            }
+        } elseif ($pi['shortage'] <= 0) {
+            $doneParts++;
+        }
+    }
+
+    $pct = round(($doneParts / $totalParts) * 100);
+    return ['percentage' => $pct, 'done' => $doneParts, 'total' => $totalParts];
+}
+
+/**
  * Adjust PO items when their parent WO parts are "In Stock".
  * If a WO part has sufficient stock (shortage <= 0), it doesn't need production,
  * so its BOM child PO parts don't need procurement either.

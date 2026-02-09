@@ -152,36 +152,8 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <td>₹ <?= number_format($plan['total_estimated_cost'] ?? 0, 2) ?></td>
                             <td>
                                 <?php
-                                if ($plan['status'] === 'completed') {
-                                    $percentage = 100;
-                                } elseif ($plan['status'] === 'cancelled') {
-                                    $percentage = 0;
-                                } else {
-                                    $totalParts = ($plan['wo_total'] ?? 0) + ($plan['po_total'] ?? 0);
-                                    $doneParts = ($plan['wo_done'] ?? 0) + ($plan['po_done'] ?? 0);
-                                    // Count WO/PO parts that have sufficient stock (in-stock)
-                                    try {
-                                        ensureStockBlocksTable($pdo);
-                                        $inStockStmt = $pdo->prepare("
-                                            SELECT COUNT(*) FROM (
-                                                SELECT part_no, required_qty FROM procurement_plan_wo_items
-                                                WHERE plan_id = ? AND created_wo_id IS NULL AND status NOT IN ('completed', 'closed')
-                                                UNION ALL
-                                                SELECT part_no, required_qty FROM procurement_plan_po_items
-                                                WHERE plan_id = ? AND created_po_id IS NULL AND status NOT IN ('received', 'closed')
-                                            ) AS pending_items
-                                            WHERE COALESCE((SELECT i.qty FROM inventory i WHERE i.part_no = pending_items.part_no), 0)
-                                                - COALESCE((SELECT SUM(sb.blocked_qty) FROM stock_blocks sb WHERE sb.part_no = pending_items.part_no AND sb.plan_id != ?), 0)
-                                                >= pending_items.required_qty
-                                        ");
-                                        $inStockStmt->execute([$plan['id'], $plan['id'], $plan['id']]);
-                                        $inStockParts = (int)$inStockStmt->fetchColumn();
-                                    } catch (Exception $e) {
-                                        $inStockParts = 0;
-                                    }
-                                    $availableParts = $doneParts + $inStockParts;
-                                    $percentage = $totalParts > 0 ? round(($availableParts / $totalParts) * 100) : 0;
-                                }
+                                $progress = calculatePlanProgress($pdo, $plan['id'], $plan['status']);
+                                $percentage = $progress['percentage'];
                                 $barColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#e5e7eb');
                                 ?>
                                 <div style="display: flex; align-items: center; gap: 8px;">
