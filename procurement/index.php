@@ -30,6 +30,7 @@ $stmt = $pdo->prepare("
         pp.plan_no,
         pp.plan_date,
         pp.status,
+        pp.so_list,
         pp.total_parts,
         pp.total_items_to_order,
         pp.total_estimated_cost,
@@ -40,7 +41,7 @@ $stmt = $pdo->prepare("
         (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id AND status IN ('received', 'closed')) AS po_done
     FROM procurement_plans pp
     LEFT JOIN procurement_plan_items ppi ON pp.id = ppi.plan_id
-    GROUP BY pp.id, pp.plan_no, pp.plan_date, pp.status, pp.total_parts,
+    GROUP BY pp.id, pp.plan_no, pp.plan_date, pp.status, pp.so_list, pp.total_parts,
              pp.total_items_to_order, pp.total_estimated_cost
     ORDER BY pp.plan_date DESC, pp.id DESC
     LIMIT :limit OFFSET :offset
@@ -49,6 +50,34 @@ $stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Collect all unique SO numbers from plans to fetch details in one query
+$allSoNos = [];
+foreach ($plans as $plan) {
+    if (!empty($plan['so_list'])) {
+        foreach (array_map('trim', explode(',', $plan['so_list'])) as $soNo) {
+            if ($soNo !== '') $allSoNos[] = $soNo;
+        }
+    }
+}
+$allSoNos = array_unique($allSoNos);
+
+$soDetails = [];
+if (!empty($allSoNos)) {
+    $placeholders = implode(',', array_fill(0, count($allSoNos), '?'));
+    $soStmt = $pdo->prepare("
+        SELECT so.so_no, so.part_no, p.part_name, c.company_name AS customer_name
+        FROM sales_orders so
+        LEFT JOIN part_master p ON so.part_no = p.part_no
+        LEFT JOIN customers c ON so.customer_id = c.id
+        WHERE so.so_no IN ($placeholders)
+        GROUP BY so.so_no
+    ");
+    $soStmt->execute(array_values($allSoNos));
+    foreach ($soStmt->fetchAll(PDO::FETCH_ASSOC) as $so) {
+        $soDetails[$so['so_no']] = $so;
+    }
+}
 
 ?>
 
@@ -111,6 +140,8 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <tr>
                     <th>Plan No</th>
                     <th>Date</th>
+                    <th>Sales Orders</th>
+                    <th>Product</th>
                     <th>Status</th>
                     <th>Items</th>
                     <th>Order Qty</th>
@@ -122,7 +153,7 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <tbody>
                 <?php if (empty($plans)): ?>
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 20px; color: #666;">
+                        <td colspan="10" style="text-align: center; padding: 20px; color: #666;">
                             No procurement plans yet.
                             <a href="create.php" style="color: #0284c7;">Create one now</a>
                         </td>
@@ -132,6 +163,55 @@ $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <tr>
                             <td><strong><?= htmlspecialchars($plan['plan_no']) ?></strong></td>
                             <td><?= date('Y-m-d', strtotime($plan['plan_date'])) ?></td>
+                            <td>
+                                <?php
+                                $planSoNos = !empty($plan['so_list']) ? array_map('trim', explode(',', $plan['so_list'])) : [];
+                                if (!empty($planSoNos)):
+                                    foreach ($planSoNos as $soNo):
+                                        if ($soNo === '') continue;
+                                        $soDet = $soDetails[$soNo] ?? null;
+                                ?>
+                                    <div style="margin-bottom: 2px;">
+                                        <a href="/sales_orders/view.php?so_no=<?= urlencode($soNo) ?>" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 0.9em;" title="<?= $soDet ? htmlspecialchars($soDet['customer_name'] ?? '') : '' ?>">
+                                            <?= htmlspecialchars($soNo) ?>
+                                        </a>
+                                        <?php if ($soDet && !empty($soDet['customer_name'])): ?>
+                                            <div style="font-size: 0.75em; color: #888;"><?= htmlspecialchars($soDet['customer_name']) ?></div>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php
+                                    endforeach;
+                                else:
+                                ?>
+                                    <span style="color: #ccc;">-</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php
+                                if (!empty($planSoNos)):
+                                    $products = [];
+                                    foreach ($planSoNos as $soNo) {
+                                        $soDet = $soDetails[trim($soNo)] ?? null;
+                                        if ($soDet && !empty($soDet['part_name']) && !in_array($soDet['part_name'], $products)) {
+                                            $products[] = $soDet['part_name'];
+                                        }
+                                    }
+                                    if (!empty($products)):
+                                        foreach ($products as $pName):
+                                ?>
+                                    <div style="font-size: 0.9em; margin-bottom: 2px;"><?= htmlspecialchars($pName) ?></div>
+                                <?php
+                                        endforeach;
+                                    else:
+                                ?>
+                                    <span style="color: #ccc;">-</span>
+                                <?php
+                                    endif;
+                                else:
+                                ?>
+                                    <span style="color: #ccc;">-</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php
                                 $statusColors = [
