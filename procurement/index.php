@@ -114,18 +114,23 @@ if (!empty($planIds)) {
     $allSoNos = array_unique($allSoNos);
 
     $soCustomers = [];
+    $soProducts = []; // so_no => [part_name, part_name, ...]
     if (!empty($allSoNos)) {
         $phSo = implode(',', array_fill(0, count($allSoNos), '?'));
         $custStmt = $pdo->prepare("
-            SELECT so.so_no, MAX(c.company_name) AS customer_name
+            SELECT so.so_no, p.part_name, MAX(c.company_name) AS customer_name
             FROM sales_orders so
+            LEFT JOIN part_master p ON so.part_no = p.part_no
             LEFT JOIN customers c ON so.customer_id = c.id
             WHERE so.so_no IN ($phSo)
-            GROUP BY so.so_no
+            GROUP BY so.so_no, p.part_name
         ");
         $custStmt->execute(array_values($allSoNos));
         foreach ($custStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $soCustomers[$row['so_no']] = $row['customer_name'];
+            if (!empty($row['part_name'])) {
+                $soProducts[$row['so_no']][] = $row['part_name'];
+            }
         }
     }
 }
@@ -235,8 +240,17 @@ if (!empty($planIds)) {
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php if ($psd && !empty($psd['products'])):
-                                    foreach ($psd['products'] as $pName): ?>
+                                <?php
+                                $yidProducts = [];
+                                if ($psd && !empty($psd['so_numbers'])) {
+                                    foreach ($psd['so_numbers'] as $soNo) {
+                                        foreach ($soProducts[$soNo] ?? [] as $pn) {
+                                            if (!in_array($pn, $yidProducts)) $yidProducts[] = $pn;
+                                        }
+                                    }
+                                }
+                                if (!empty($yidProducts)):
+                                    foreach ($yidProducts as $pName): ?>
                                     <div style="font-size: 0.9em; margin-bottom: 2px;"><?= htmlspecialchars($pName) ?></div>
                                 <?php endforeach;
                                 else: ?>
