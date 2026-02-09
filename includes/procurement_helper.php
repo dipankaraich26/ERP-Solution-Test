@@ -50,13 +50,21 @@ function getOpenSalesOrdersByPart($pdo): array {
  * Get selected sales orders (for filtered plan generation)
  * @param array $selectedSOs List of SO numbers to include
  */
-function getSelectedSalesOrdersByPart($pdo, array $selectedSOs): array {
+function getSelectedSalesOrdersByPart($pdo, array $selectedSOs, array $selectedPartNos = []): array {
     if (empty($selectedSOs)) {
         return [];
     }
 
     ensureStockBlocksTable($pdo);
     $placeholders = implode(',', array_fill(0, count($selectedSOs), '?'));
+    $params = $selectedSOs;
+
+    $partFilter = '';
+    if (!empty($selectedPartNos)) {
+        $partPlaceholders = implode(',', array_fill(0, count($selectedPartNos), '?'));
+        $partFilter = " AND so.part_no IN ($partPlaceholders)";
+        $params = array_merge($params, $selectedPartNos);
+    }
 
     $stmt = $pdo->prepare("
         SELECT
@@ -77,11 +85,12 @@ function getSelectedSalesOrdersByPart($pdo, array $selectedSOs): array {
         LEFT JOIN part_min_stock pms ON so.part_no = pms.part_no
         WHERE so.so_no IN ($placeholders)
         AND so.status NOT IN ('cancelled', 'closed', 'completed')
+        $partFilter
         GROUP BY so.part_no, p.part_name, p.uom, i.qty, pms.min_stock_qty, pms.reorder_qty
         ORDER BY so.part_no
     ");
 
-    $stmt->execute($selectedSOs);
+    $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -868,12 +877,20 @@ function explodeBomRecursive($pdo, string $parentPartNo, float $parentQty, strin
  * @param array $selectedSOs Selected sales order numbers
  * @return array ['work_order' => [...], 'purchase_order' => [...]]
  */
-function getAllPartsForSalesOrders($pdo, array $selectedSOs): array {
+function getAllPartsForSalesOrders($pdo, array $selectedSOs, array $selectedPartNos = []): array {
     if (empty($selectedSOs)) {
         return ['work_order' => [], 'purchase_order' => []];
     }
 
     $placeholders_so = implode(',', array_fill(0, count($selectedSOs), '?'));
+    $params = $selectedSOs;
+
+    $partFilter = '';
+    if (!empty($selectedPartNos)) {
+        $partPlaceholders = implode(',', array_fill(0, count($selectedPartNos), '?'));
+        $partFilter = " AND so.part_no IN ($partPlaceholders)";
+        $params = array_merge($params, $selectedPartNos);
+    }
 
     // Get all sales order parts (direct parts)
     $stmt = $pdo->prepare("
@@ -890,8 +907,9 @@ function getAllPartsForSalesOrders($pdo, array $selectedSOs): array {
         JOIN part_master p ON so.part_no = p.part_no
         WHERE so.so_no IN ($placeholders_so)
         AND so.status NOT IN ('cancelled', 'closed', 'completed')
+        $partFilter
     ");
-    $stmt->execute($selectedSOs);
+    $stmt->execute($params);
     $soParts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $workOrderParts = [];
@@ -969,8 +987,8 @@ function getAllPartsForSalesOrders($pdo, array $selectedSOs): array {
  * @param array $selectedSOs Selected sales order numbers
  * @return array List of parts for Purchase Order
  */
-function getSubletPartsForSalesOrders($pdo, array $selectedSOs): array {
-    $allParts = getAllPartsForSalesOrders($pdo, $selectedSOs);
+function getSubletPartsForSalesOrders($pdo, array $selectedSOs, array $selectedPartNos = []): array {
+    $allParts = getAllPartsForSalesOrders($pdo, $selectedSOs, $selectedPartNos);
     return $allParts['purchase_order'];
 }
 
@@ -982,8 +1000,8 @@ function getSubletPartsForSalesOrders($pdo, array $selectedSOs): array {
  * @param array $selectedSOs Selected sales order numbers
  * @return array List of parts for Work Order
  */
-function getWorkOrderPartsForSalesOrders($pdo, array $selectedSOs): array {
-    $allParts = getAllPartsForSalesOrders($pdo, $selectedSOs);
+function getWorkOrderPartsForSalesOrders($pdo, array $selectedSOs, array $selectedPartNos = []): array {
+    $allParts = getAllPartsForSalesOrders($pdo, $selectedSOs, $selectedPartNos);
     return $allParts['work_order'];
 }
 

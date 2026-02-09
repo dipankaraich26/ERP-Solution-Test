@@ -48,13 +48,36 @@ if ($step == 1) {
 
     // Handle form submission
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'select_so') {
-        $selectedSOs = $_POST['selected_so'] ?? [];
+        $rawSelections = $_POST['selected_so'] ?? [];
 
-        if (empty($selectedSOs)) {
-            $error = "Please select at least one sales order";
+        if (empty($rawSelections)) {
+            $error = "Please select at least one sales order / product";
         } else {
+            // Parse so_no::part_no format
+            $uniqueSOs = [];
+            $selectedPartNos = [];
+            foreach ($rawSelections as $val) {
+                if (strpos($val, '::') !== false) {
+                    list($soNo, $partNo) = explode('::', $val, 2);
+                    $soNo = trim($soNo);
+                    $partNo = trim($partNo);
+                    if (!in_array($soNo, $uniqueSOs)) {
+                        $uniqueSOs[] = $soNo;
+                    }
+                    $selectedPartNos[] = $partNo;
+                } else {
+                    // Backward compatibility: plain so_no
+                    $soNo = trim($val);
+                    if (!in_array($soNo, $uniqueSOs)) {
+                        $uniqueSOs[] = $soNo;
+                    }
+                }
+            }
+            $selectedPartNos = array_values(array_unique($selectedPartNos));
+
             // Store selection in session and proceed to step 2
-            $_SESSION['selected_sos'] = $selectedSOs;
+            $_SESSION['selected_sos'] = $uniqueSOs;
+            $_SESSION['selected_part_nos'] = $selectedPartNos;
             header("Location: create.php?step=2");
             exit;
         }
@@ -64,6 +87,7 @@ if ($step == 1) {
 // Step 2: Generate Plan & Show Recommendations
 if ($step == 2) {
     $selectedSOs = $_SESSION['selected_sos'] ?? [];
+    $selectedPartNos = $_SESSION['selected_part_nos'] ?? [];
 
     if (empty($selectedSOs)) {
         header("Location: create.php?step=1");
@@ -87,8 +111,8 @@ if ($step == 2) {
         $planIsCompleted = ($currentPlanStatus === 'completed');
     }
 
-    // Get selected sales orders by part
-    $sosByPart = getSelectedSalesOrdersByPart($pdo, $selectedSOs);
+    // Get selected sales orders by part (filtered to selected products)
+    $sosByPart = getSelectedSalesOrdersByPart($pdo, $selectedSOs, $selectedPartNos);
 
     if (empty($sosByPart)) {
         $error = "No matching sales orders found";
@@ -126,10 +150,10 @@ if ($step == 2) {
     }
 
     // Get sublet parts (child parts that go to PO - NOT in Work Order list)
-    $subletParts = getSubletPartsForSalesOrders($pdo, $selectedSOs);
+    $subletParts = getSubletPartsForSalesOrders($pdo, $selectedSOs, $selectedPartNos);
 
     // Get work order parts (child parts that go to Work Order - IDs: 99, 42, 44, 46, 83, 91)
-    $workOrderParts = getWorkOrderPartsForSalesOrders($pdo, $selectedSOs);
+    $workOrderParts = getWorkOrderPartsForSalesOrders($pdo, $selectedSOs, $selectedPartNos);
 
     // Prepare sublet items with supplier info (these go to Purchase Order)
     $subletItems = [];
@@ -480,8 +504,29 @@ if ($step == 3 && $planId) {
     <link rel="stylesheet" href="/assets/style.css">
     <script>
         function selectAll(checkbox) {
-            const checkboxes = document.querySelectorAll('input[name="selected_so[]"]');
-            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+            // Check/uncheck all product checkboxes AND group toggles
+            document.querySelectorAll('input[name="selected_so[]"]').forEach(cb => cb.checked = checkbox.checked);
+            document.querySelectorAll('.so-group-toggle').forEach(cb => cb.checked = checkbox.checked);
+        }
+
+        function toggleSoGroup(groupCheckbox, soId) {
+            // Toggle all product checkboxes in this SO group
+            document.querySelectorAll('.so-group-' + soId).forEach(cb => cb.checked = groupCheckbox.checked);
+        }
+
+        function updateGroupToggle(soId) {
+            // Update group header checkbox based on child checkboxes
+            var children = document.querySelectorAll('.so-group-' + soId);
+            var toggle = document.querySelector('.so-group-toggle[data-so="' + soId + '"]');
+            if (!toggle) return;
+            var allChecked = true;
+            var anyChecked = false;
+            children.forEach(cb => {
+                if (cb.checked) anyChecked = true;
+                else allChecked = false;
+            });
+            toggle.checked = allChecked;
+            toggle.indeterminate = anyChecked && !allChecked;
         }
 
         function updateSupplier(partNo, select) {
@@ -508,9 +553,9 @@ if ($step == 3 && $planId) {
     <?php if ($step == 1): ?>
 
     <div class="form-section">
-        <h3>Step 1: Select Open Sales Orders</h3>
+        <h3>Step 1: Select Open Sales Orders & Products</h3>
         <p style="color: #666; margin-bottom: 15px;">
-            Choose which sales orders to include in this procurement plan. All open/pending orders are shown below.
+            Choose which sales orders and products to include in this procurement plan. For SOs with multiple products, you can select specific products.
         </p>
 
         <form method="post">
@@ -522,6 +567,13 @@ if ($step == 3 && $planId) {
                     <a href="/sales_orders/index.php" class="btn btn-primary" style="margin-top: 10px;">Go to Sales Orders</a>
                 </div>
             <?php else: ?>
+                <?php
+                // Group SOs by so_no
+                $soGroups = [];
+                foreach ($openSOs as $so) {
+                    $soGroups[$so['so_no']][] = $so;
+                }
+                ?>
                 <div style="margin-bottom: 15px;">
                     <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;">
                         <input type="checkbox" onchange="selectAll(this)" title="Select/Deselect all">
@@ -546,25 +598,75 @@ if ($step == 3 && $planId) {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($openSOs as $so): ?>
-                                <tr>
-                                    <td>
-                                        <input type="checkbox" name="selected_so[]" value="<?= htmlspecialchars($so['so_no']) ?>">
-                                    </td>
-                                    <td><strong><?= htmlspecialchars($so['so_no']) ?></strong></td>
-                                    <td><?= htmlspecialchars($so['company_name']) ?></td>
-                                    <td><?= htmlspecialchars($so['part_no']) ?></td>
-                                    <td><?= htmlspecialchars($so['part_name']) ?></td>
-                                    <td><?= $so['qty'] ?></td>
-                                    <td><?= $so['actual_stock'] ?></td>
-                                    <td style="color: <?= $so['blocked_qty'] > 0 ? '#dc2626' : '#666' ?>; font-weight: <?= $so['blocked_qty'] > 0 ? '600' : 'normal' ?>;">
-                                        <?= $so['blocked_qty'] > 0 ? $so['blocked_qty'] : '-' ?>
-                                    </td>
-                                    <td style="font-weight: 600; color: <?= $so['current_stock'] > 0 ? '#16a34a' : '#dc2626' ?>;">
-                                        <?= $so['current_stock'] ?>
-                                    </td>
-                                    <td><?= date('Y-m-d', strtotime($so['sales_date'])) ?></td>
-                                </tr>
+                            <?php foreach ($soGroups as $soNo => $soItems):
+                                $isMultiProduct = count($soItems) > 1;
+                                $soId = preg_replace('/[^a-zA-Z0-9]/', '_', $soNo);
+                            ?>
+                                <?php if ($isMultiProduct): ?>
+                                    <!-- SO Group Header for multi-product SO -->
+                                    <tr style="background: #eef2ff; border-top: 2px solid #6366f1;">
+                                        <td>
+                                            <input type="checkbox" class="so-group-toggle" data-so="<?= htmlspecialchars($soId) ?>"
+                                                   onchange="toggleSoGroup(this, '<?= htmlspecialchars($soId) ?>')">
+                                        </td>
+                                        <td colspan="2">
+                                            <strong style="color: #4f46e5; font-size: 1.05em;"><?= htmlspecialchars($soNo) ?></strong>
+                                            <span style="color: #6366f1; font-size: 0.85em; margin-left: 8px;"><?= htmlspecialchars($soItems[0]['company_name']) ?></span>
+                                            <span style="display: inline-block; padding: 2px 8px; background: #6366f120; color: #6366f1; border-radius: 10px; font-size: 0.8em; margin-left: 8px;">
+                                                <?= count($soItems) ?> products
+                                            </span>
+                                        </td>
+                                        <td colspan="7" style="color: #6366f1; font-size: 0.85em;">
+                                            Select all or choose specific products below
+                                        </td>
+                                    </tr>
+                                    <?php foreach ($soItems as $so): ?>
+                                    <tr style="background: #f8f9ff;">
+                                        <td style="padding-left: 25px;">
+                                            <input type="checkbox" name="selected_so[]"
+                                                   value="<?= htmlspecialchars($so['so_no']) ?>::<?= htmlspecialchars($so['part_no']) ?>"
+                                                   class="so-product-cb so-group-<?= htmlspecialchars($soId) ?>"
+                                                   onchange="updateGroupToggle('<?= htmlspecialchars($soId) ?>')">
+                                        </td>
+                                        <td style="padding-left: 25px; color: #888; font-size: 0.9em;"><?= htmlspecialchars($so['so_no']) ?></td>
+                                        <td style="color: #888; font-size: 0.9em;"><?= htmlspecialchars($so['company_name']) ?></td>
+                                        <td><strong><?= htmlspecialchars($so['part_no']) ?></strong></td>
+                                        <td><?= htmlspecialchars($so['part_name']) ?></td>
+                                        <td><?= $so['qty'] ?></td>
+                                        <td><?= $so['actual_stock'] ?></td>
+                                        <td style="color: <?= $so['blocked_qty'] > 0 ? '#dc2626' : '#666' ?>; font-weight: <?= $so['blocked_qty'] > 0 ? '600' : 'normal' ?>;">
+                                            <?= $so['blocked_qty'] > 0 ? $so['blocked_qty'] : '-' ?>
+                                        </td>
+                                        <td style="font-weight: 600; color: <?= $so['current_stock'] > 0 ? '#16a34a' : '#dc2626' ?>;">
+                                            <?= $so['current_stock'] ?>
+                                        </td>
+                                        <td><?= date('Y-m-d', strtotime($so['sales_date'])) ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <!-- Single product SO -->
+                                    <?php $so = $soItems[0]; ?>
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" name="selected_so[]"
+                                                   value="<?= htmlspecialchars($so['so_no']) ?>::<?= htmlspecialchars($so['part_no']) ?>"
+                                                   class="so-product-cb">
+                                        </td>
+                                        <td><strong><?= htmlspecialchars($so['so_no']) ?></strong></td>
+                                        <td><?= htmlspecialchars($so['company_name']) ?></td>
+                                        <td><?= htmlspecialchars($so['part_no']) ?></td>
+                                        <td><?= htmlspecialchars($so['part_name']) ?></td>
+                                        <td><?= $so['qty'] ?></td>
+                                        <td><?= $so['actual_stock'] ?></td>
+                                        <td style="color: <?= $so['blocked_qty'] > 0 ? '#dc2626' : '#666' ?>; font-weight: <?= $so['blocked_qty'] > 0 ? '600' : 'normal' ?>;">
+                                            <?= $so['blocked_qty'] > 0 ? $so['blocked_qty'] : '-' ?>
+                                        </td>
+                                        <td style="font-weight: 600; color: <?= $so['current_stock'] > 0 ? '#16a34a' : '#dc2626' ?>;">
+                                            <?= $so['current_stock'] ?>
+                                        </td>
+                                        <td><?= date('Y-m-d', strtotime($so['sales_date'])) ?></td>
+                                    </tr>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
@@ -613,6 +715,9 @@ if ($step == 3 && $planId) {
                 </div>
                 <div style="font-size: 0.9em;">
                     SOs: <?= htmlspecialchars(implode(', ', $selectedSOs)) ?>
+                    <?php if (!empty($selectedPartNos)): ?>
+                        <br><span style="opacity: 0.8; font-size: 0.9em;">Products: <?= htmlspecialchars(implode(', ', $selectedPartNos)) ?></span>
+                    <?php endif; ?>
                 </div>
             </div>
             <div style="margin-top: 10px; font-size: 0.85em; opacity: 0.9;">
