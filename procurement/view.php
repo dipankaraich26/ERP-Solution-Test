@@ -387,6 +387,67 @@ if ($planDetails) {
         </div>
     </div>
 
+    <!-- SO Details & Products -->
+    <?php
+    $viewSoNos = [];
+    if (!empty($planDetails['so_list'])) {
+        $viewSoNos = array_filter(array_map('trim', explode(',', $planDetails['so_list'])));
+    }
+    // Also gather from WO/PO items
+    foreach (['procurement_plan_wo_items', 'procurement_plan_po_items'] as $tbl) {
+        try {
+            $soStmt = $pdo->prepare("SELECT DISTINCT so_list FROM $tbl WHERE plan_id = ? AND so_list IS NOT NULL AND so_list != ''");
+            $soStmt->execute([$planId]);
+            foreach ($soStmt->fetchAll(PDO::FETCH_COLUMN) as $sl) {
+                foreach (array_map('trim', explode(',', $sl)) as $s) {
+                    if ($s !== '' && !in_array($s, $viewSoNos)) $viewSoNos[] = $s;
+                }
+            }
+        } catch (Exception $e) {}
+    }
+
+    $viewSoDetails = [];
+    if (!empty($viewSoNos)) {
+        $ph = implode(',', array_fill(0, count($viewSoNos), '?'));
+        $sdStmt = $pdo->prepare("
+            SELECT so.so_no, so.qty, so.status AS so_status, p.part_no, p.part_name, c.company_name AS customer_name
+            FROM sales_orders so
+            LEFT JOIN part_master p ON so.part_no = p.part_no
+            LEFT JOIN customers c ON so.customer_id = c.id
+            WHERE so.so_no IN ($ph)
+            ORDER BY so.so_no
+        ");
+        $sdStmt->execute($viewSoNos);
+        $viewSoDetails = $sdStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    ?>
+    <?php if (!empty($viewSoDetails)): ?>
+    <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px;">
+        <h4 style="margin: 0 0 12px 0; color: #0369a1; font-size: 0.95em;">Sales Orders & Products</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+            <?php foreach ($viewSoDetails as $sd): ?>
+            <div style="background: white; border: 1px solid #e0f2fe; border-radius: 6px; padding: 10px 14px; min-width: 220px; flex: 1; max-width: 350px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <a href="/sales_orders/view.php?so_no=<?= urlencode($sd['so_no']) ?>" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.95em;">
+                        <?= htmlspecialchars($sd['so_no']) ?>
+                    </a>
+                    <span style="font-size: 0.75em; padding: 2px 8px; border-radius: 10px; background: <?= $sd['so_status'] === 'released' ? '#dcfce7' : '#fef3c7' ?>; color: <?= $sd['so_status'] === 'released' ? '#16a34a' : '#d97706' ?>;">
+                        <?= ucfirst($sd['so_status']) ?>
+                    </span>
+                </div>
+                <?php if (!empty($sd['customer_name'])): ?>
+                <div style="font-size: 0.8em; color: #666; margin-bottom: 4px;"><?= htmlspecialchars($sd['customer_name']) ?></div>
+                <?php endif; ?>
+                <div style="font-size: 0.85em; color: #1e40af; font-weight: 500;">
+                    <?= htmlspecialchars($sd['part_no']) ?> — <?= htmlspecialchars($sd['part_name'] ?? '') ?>
+                </div>
+                <div style="font-size: 0.8em; color: #888; margin-top: 2px;">Qty: <?= $sd['qty'] ?></div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Summary Cards -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 30px;">
         <div style="padding: 15px; background: #f3f4f6; border-radius: 8px;">
