@@ -1342,6 +1342,7 @@ function getExistingPoForPlanItem($pdo, int $planId, string $partNo): ?array {
         $stmt = $pdo->prepare("
             SELECT * FROM procurement_plan_po_items
             WHERE plan_id = ? AND part_no = ? AND created_po_id IS NOT NULL
+            AND status != 'po_cancelled'
         ");
         $stmt->execute([$planId, $partNo]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);

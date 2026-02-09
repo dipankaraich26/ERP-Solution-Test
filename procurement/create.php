@@ -314,7 +314,7 @@ if ($step == 2) {
             $poItemStatus[$pt['part_no']] = $pt;
         }
 
-        // Clear stale links to cancelled POs so they show as "Pending" again
+        // Detect cancelled POs and mark them accordingly
         if (!$planIsCompleted) {
             foreach ($poItemStatus as $partNo => &$ps) {
                 if (!empty($ps['created_po_id'])) {
@@ -323,12 +323,11 @@ if ($step == 2) {
                         $chkStmt->execute([$ps['created_po_id']]);
                         $poRealStatus = $chkStmt->fetchColumn();
                         if ($poRealStatus && $poRealStatus === 'cancelled') {
-                            $pdo->prepare("UPDATE procurement_plan_po_items SET created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL, status = 'pending' WHERE plan_id = ? AND part_no = ?")
+                            // Mark as cancelled but keep old PO ref for display
+                            $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'po_cancelled' WHERE plan_id = ? AND part_no = ?")
                                  ->execute([$currentPlanId, $partNo]);
-                            $ps['created_po_id'] = null;
-                            $ps['created_po_no'] = null;
-                            $ps['ordered_qty'] = null;
-                            $ps['status'] = 'pending';
+                            $ps['status'] = 'po_cancelled';
+                            $ps['cancelled_po_no'] = $ps['created_po_no'];
                         }
                     } catch (Exception $e) {}
                 }
@@ -1122,12 +1121,15 @@ if ($step == 3 && $planId) {
                 $poOrderedCount = 0;
                 $poPendingCount = 0;
                 $poInStockCount = 0;
+                $poCancelledCount = 0;
                 if ($planIsCompleted) {
                     $poOrderedCount = count($subletItems);
                 } else {
                     foreach ($subletItems as $si) {
-                        $poStatus = $poItemStatus[$si['part_no']] ?? null;
-                        if ($poStatus && $poStatus['created_po_id']) {
+                        $poSt = $poItemStatus[$si['part_no']] ?? null;
+                        if ($poSt && ($poSt['status'] ?? '') === 'po_cancelled') {
+                            $poCancelledCount++;
+                        } elseif ($poSt && $poSt['created_po_id'] && ($poSt['status'] ?? '') !== 'po_cancelled') {
                             $poOrderedCount++;
                         } elseif ($si['shortage'] <= 0) {
                             $poInStockCount++;
@@ -1143,6 +1145,9 @@ if ($step == 3 && $planId) {
                     <?php else: ?>
                         <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
                         <span style="color: #10b981;"><?= $poInStockCount ?> In Stock</span> |
+                        <?php if ($poCancelledCount): ?>
+                            <span style="color: #dc2626;"><?= $poCancelledCount ?> PO Cancelled</span> |
+                        <?php endif; ?>
                         <span style="color: #f59e0b;"><?= $poPendingCount ?> Pending</span>
                     <?php endif; ?>
                 </span>
@@ -1160,6 +1165,11 @@ if ($step == 3 && $planId) {
                 <?php if ($poOrderedCount): ?>
                 <button type="button" class="filter-btn" data-filter="ordered" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #16a34a; cursor: pointer; font-size: 0.85em;">
                     Ordered (<?= $poOrderedCount ?>)
+                </button>
+                <?php endif; ?>
+                <?php if ($poCancelledCount): ?>
+                <button type="button" class="filter-btn" data-filter="cancelled" data-target="po" style="padding: 4px 12px; border-radius: 15px; border: 1px solid #d1d5db; background: white; color: #dc2626; cursor: pointer; font-size: 0.85em;">
+                    Cancelled (<?= $poCancelledCount ?>)
                 </button>
                 <?php endif; ?>
                 <?php if ($poInStockCount): ?>
@@ -1212,10 +1222,16 @@ if ($step == 3 && $planId) {
                         <tbody>
                             <?php foreach ($subletItems as $idx => $item):
                                 $poStatus = $poItemStatus[$item['part_no']] ?? null;
-                                $hasPO = $poStatus && $poStatus['created_po_id'];
-                                $poRowBg = $planIsCompleted ? '#f3f4f6' : ($hasPO ? '#dcfce7' : ($idx % 2 ? '#fffbeb' : '#fef9e7'));
+                                $isPoCancelled = $poStatus && ($poStatus['status'] ?? '') === 'po_cancelled';
+                                $hasPO = $poStatus && $poStatus['created_po_id'] && !$isPoCancelled;
+                                $cancelledPoNo = $poStatus['cancelled_po_no'] ?? ($poStatus['created_po_no'] ?? '');
+                                if ($planIsCompleted) { $poRowBg = '#f3f4f6'; }
+                                elseif ($isPoCancelled) { $poRowBg = '#fef2f2'; }
+                                elseif ($hasPO) { $poRowBg = '#dcfce7'; }
+                                else { $poRowBg = $idx % 2 ? '#fffbeb' : '#fef9e7'; }
                                 // Determine row filter status
                                 if ($planIsCompleted) { $poRowFilter = 'closed'; }
+                                elseif ($isPoCancelled) { $poRowFilter = 'cancelled'; }
                                 elseif ($hasPO) { $poRowFilter = 'ordered'; }
                                 elseif ($item['shortage'] <= 0) { $poRowFilter = 'in_stock'; }
                                 else { $poRowFilter = 'pending'; }
@@ -1223,7 +1239,7 @@ if ($step == 3 && $planId) {
                                 <tr style="background: <?= $poRowBg ?>;" data-status="<?= $poRowFilter ?>">
                                     <td>
                                         <?= htmlspecialchars($item['part_no']) ?>
-                                        <?php if (!$hasPO): ?>
+                                        <?php if (!$hasPO || $isPoCancelled): ?>
                                         <input type="hidden" name="sublet_part_no[]" value="<?= htmlspecialchars($item['part_no']) ?>">
                                         <?php endif; ?>
                                     </td>
@@ -1261,6 +1277,13 @@ if ($step == 3 && $planId) {
                                             <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
                                                 Closed
                                             </span>
+                                        <?php elseif ($isPoCancelled): ?>
+                                            <span style="display: inline-block; padding: 4px 10px; background: #dc2626; color: white; border-radius: 15px; font-size: 0.8em;">
+                                                PO Cancelled
+                                            </span>
+                                            <?php if ($cancelledPoNo): ?>
+                                                <br><small style="color: #dc2626; text-decoration: line-through;"><?= htmlspecialchars($cancelledPoNo) ?></small>
+                                            <?php endif; ?>
                                         <?php elseif ($hasPO): ?>
                                             <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
                                                 Ordered
@@ -1284,6 +1307,10 @@ if ($step == 3 && $planId) {
                                             <span style="color: #16a34a;">✓ Done</span>
                                         <?php elseif ($hasPO): ?>
                                             <span style="color: #16a34a; font-weight: bold;"><?= $poStatus['ordered_qty'] ?></span>
+                                        <?php elseif ($isPoCancelled): ?>
+                                            <input type="number" name="sublet_qty[]"
+                                                   value="<?= $item['shortage'] > 0 ? $item['shortage'] : $item['demand_qty'] ?>"
+                                                   min="0" style="width: 80px; padding: 4px; border-color: #dc2626;">
                                         <?php else: ?>
                                             <input type="number" name="sublet_qty[]"
                                                    value="<?= $item['shortage'] > 0 ? $item['shortage'] : 0 ?>"
@@ -1514,7 +1541,7 @@ if ($step == 3 && $planId) {
 document.addEventListener('DOMContentLoaded', function() {
     var colorMap = {
         wo: { all: '#059669', closed: '#6b7280', completed: '#16a34a', in_progress: '#3b82f6', in_stock: '#10b981', pending: '#f59e0b' },
-        po: { all: '#d97706', ordered: '#16a34a', in_stock: '#10b981', pending: '#f59e0b' }
+        po: { all: '#d97706', ordered: '#16a34a', cancelled: '#dc2626', in_stock: '#10b981', pending: '#f59e0b' }
     };
 
     document.querySelectorAll('.filter-btn').forEach(function(btn) {
