@@ -51,86 +51,65 @@ $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Get SO numbers and product names per plan from WO items + PO items
-$planSoData = []; // plan_id => ['so_numbers' => [...], 'products' => [...]]
+// Collect SO numbers per plan from ALL sources
+$planSoNos = []; // plan_id => [so_no, ...]
 $planIds = array_column($plans, 'id');
+
+// Source 1: pp.so_list (set at plan creation)
+foreach ($plans as $plan) {
+    $pid = $plan['id'];
+    $planSoNos[$pid] = [];
+    if (!empty($plan['so_list'])) {
+        foreach (array_map('trim', explode(',', $plan['so_list'])) as $soNo) {
+            if ($soNo !== '' && !in_array($soNo, $planSoNos[$pid])) {
+                $planSoNos[$pid][] = $soNo;
+            }
+        }
+    }
+}
+
+// Source 2: WO/PO items so_list (for plans where pp.so_list might be empty)
 if (!empty($planIds)) {
     $phIds = implode(',', array_fill(0, count($planIds), '?'));
-
-    // Get from WO items (has so_list and part_name per item)
-    $woStmt = $pdo->prepare("SELECT plan_id, part_name, so_list FROM procurement_plan_wo_items WHERE plan_id IN ($phIds)");
-    $woStmt->execute($planIds);
-    foreach ($woStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $pid = $row['plan_id'];
-        if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
-        if (!empty($row['part_name']) && !in_array($row['part_name'], $planSoData[$pid]['products'])) {
-            $planSoData[$pid]['products'][] = $row['part_name'];
-        }
-        if (!empty($row['so_list'])) {
-            foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
-                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
-                    $planSoData[$pid]['so_numbers'][] = $soNo;
+    foreach (['procurement_plan_wo_items', 'procurement_plan_po_items'] as $tbl) {
+        try {
+            $tblStmt = $pdo->prepare("SELECT plan_id, so_list FROM $tbl WHERE plan_id IN ($phIds) AND so_list IS NOT NULL AND so_list != ''");
+            $tblStmt->execute($planIds);
+            foreach ($tblStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $pid = $row['plan_id'];
+                foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
+                    if ($soNo !== '' && !in_array($soNo, $planSoNos[$pid])) {
+                        $planSoNos[$pid][] = $soNo;
+                    }
                 }
             }
-        }
+        } catch (Exception $e) {}
     }
+}
 
-    // Also get from PO items (in case some parts only have PO, not WO)
-    $poStmt = $pdo->prepare("SELECT plan_id, part_name, so_list FROM procurement_plan_po_items WHERE plan_id IN ($phIds)");
-    $poStmt->execute($planIds);
-    foreach ($poStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $pid = $row['plan_id'];
-        if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
-        if (!empty($row['part_name']) && !in_array($row['part_name'], $planSoData[$pid]['products'])) {
-            $planSoData[$pid]['products'][] = $row['part_name'];
-        }
-        if (!empty($row['so_list'])) {
-            foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
-                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
-                    $planSoData[$pid]['so_numbers'][] = $soNo;
-                }
-            }
-        }
-    }
+// Collect all unique SO numbers and fetch details from sales_orders
+$allSoNos = [];
+foreach ($planSoNos as $soList) {
+    $allSoNos = array_merge($allSoNos, $soList);
+}
+$allSoNos = array_values(array_unique($allSoNos));
 
-    // Fallback: also check pp.so_list if WO/PO items didn't have data
-    foreach ($plans as $plan) {
-        $pid = $plan['id'];
-        if ((!isset($planSoData[$pid]) || empty($planSoData[$pid]['so_numbers'])) && !empty($plan['so_list'])) {
-            if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
-            foreach (array_map('trim', explode(',', $plan['so_list'])) as $soNo) {
-                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
-                    $planSoData[$pid]['so_numbers'][] = $soNo;
-                }
-            }
-        }
-    }
-
-    // Get customer names for all SO numbers
-    $allSoNos = [];
-    foreach ($planSoData as $data) {
-        $allSoNos = array_merge($allSoNos, $data['so_numbers']);
-    }
-    $allSoNos = array_unique($allSoNos);
-
-    $soCustomers = [];
-    $soProducts = []; // so_no => [part_name, part_name, ...]
-    if (!empty($allSoNos)) {
-        $phSo = implode(',', array_fill(0, count($allSoNos), '?'));
-        $custStmt = $pdo->prepare("
-            SELECT so.so_no, p.part_name, MAX(c.company_name) AS customer_name
-            FROM sales_orders so
-            LEFT JOIN part_master p ON so.part_no = p.part_no
-            LEFT JOIN customers c ON so.customer_id = c.id
-            WHERE so.so_no IN ($phSo)
-            GROUP BY so.so_no, p.part_name
-        ");
-        $custStmt->execute(array_values($allSoNos));
-        foreach ($custStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $soCustomers[$row['so_no']] = $row['customer_name'];
-            if (!empty($row['part_name'])) {
-                $soProducts[$row['so_no']][] = $row['part_name'];
-            }
+$soCustomers = [];
+$soProducts = []; // so_no => [part_name, ...]
+if (!empty($allSoNos)) {
+    $phSo = implode(',', array_fill(0, count($allSoNos), '?'));
+    $soStmt = $pdo->prepare("
+        SELECT so.so_no, p.part_name, c.company_name AS customer_name
+        FROM sales_orders so
+        LEFT JOIN part_master p ON so.part_no = p.part_no
+        LEFT JOIN customers c ON so.customer_id = c.id
+        WHERE so.so_no IN ($phSo)
+    ");
+    $soStmt->execute($allSoNos);
+    foreach ($soStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $soCustomers[$row['so_no']] = $row['customer_name'];
+        if (!empty($row['part_name']) && !in_array($row['part_name'], $soProducts[$row['so_no']] ?? [])) {
+            $soProducts[$row['so_no']][] = $row['part_name'];
         }
     }
 }
@@ -221,9 +200,9 @@ if (!empty($planIds)) {
                             <td><?= date('Y-m-d', strtotime($plan['plan_date'])) ?></td>
                             <td>
                                 <?php
-                                $psd = $planSoData[$plan['id']] ?? null;
-                                if ($psd && !empty($psd['so_numbers'])):
-                                    foreach ($psd['so_numbers'] as $soNo):
+                                $soNos = $planSoNos[$plan['id']] ?? [];
+                                if (!empty($soNos)):
+                                    foreach ($soNos as $soNo):
                                         $custName = $soCustomers[$soNo] ?? '';
                                 ?>
                                     <div style="margin-bottom: 3px;">
@@ -242,11 +221,9 @@ if (!empty($planIds)) {
                             <td>
                                 <?php
                                 $yidProducts = [];
-                                if ($psd && !empty($psd['so_numbers'])) {
-                                    foreach ($psd['so_numbers'] as $soNo) {
-                                        foreach ($soProducts[$soNo] ?? [] as $pn) {
-                                            if (!in_array($pn, $yidProducts)) $yidProducts[] = $pn;
-                                        }
+                                foreach ($soNos as $soNo) {
+                                    foreach ($soProducts[$soNo] ?? [] as $pn) {
+                                        if (!in_array($pn, $yidProducts)) $yidProducts[] = $pn;
                                     }
                                 }
                                 if (!empty($yidProducts)):
