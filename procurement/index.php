@@ -66,7 +66,9 @@ $soDetails = [];
 if (!empty($allSoNos)) {
     $placeholders = implode(',', array_fill(0, count($allSoNos), '?'));
     $soStmt = $pdo->prepare("
-        SELECT so.so_no, so.part_no, p.part_name, c.company_name AS customer_name
+        SELECT so.so_no,
+               GROUP_CONCAT(DISTINCT p.part_name SEPARATOR '|||') AS part_names,
+               MAX(c.company_name) AS customer_name
         FROM sales_orders so
         LEFT JOIN part_master p ON so.part_no = p.part_no
         LEFT JOIN customers c ON so.customer_id = c.id
@@ -188,27 +190,26 @@ if (!empty($allSoNos)) {
                             </td>
                             <td>
                                 <?php
+                                $products = [];
                                 if (!empty($planSoNos)):
-                                    $products = [];
                                     foreach ($planSoNos as $soNo) {
                                         $soDet = $soDetails[trim($soNo)] ?? null;
-                                        if ($soDet && !empty($soDet['part_name']) && !in_array($soDet['part_name'], $products)) {
-                                            $products[] = $soDet['part_name'];
+                                        if ($soDet && !empty($soDet['part_names'])) {
+                                            foreach (explode('|||', $soDet['part_names']) as $pn) {
+                                                $pn = trim($pn);
+                                                if ($pn !== '' && !in_array($pn, $products)) {
+                                                    $products[] = $pn;
+                                                }
+                                            }
                                         }
                                     }
-                                    if (!empty($products)):
-                                        foreach ($products as $pName):
+                                endif;
+                                if (!empty($products)):
+                                    foreach ($products as $pName):
                                 ?>
                                     <div style="font-size: 0.9em; margin-bottom: 2px;"><?= htmlspecialchars($pName) ?></div>
-                                <?php
-                                        endforeach;
-                                    else:
-                                ?>
-                                    <span style="color: #ccc;">-</span>
-                                <?php
-                                    endif;
-                                else:
-                                ?>
+                                <?php endforeach;
+                                else: ?>
                                     <span style="color: #ccc;">-</span>
                                 <?php endif; ?>
                             </td>
