@@ -492,6 +492,7 @@ function exportToExcel() {
                 <p style="margin:4px 0 0; color:#7f8c8d; font-size:0.9em;"><?= htmlspecialchars($bom['part_name']) ?> (<?= htmlspecialchars($bom['parent_part_no']) ?>)</p>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
+                <button onclick="exportAllLevelBom()" class="btn btn-sm" style="padding:6px 12px; font-size:0.85em; background:#d97706; color:#fff; border:none; border-radius:6px; cursor:pointer;">Export Excel</button>
                 <button onclick="expandAllLevels()" class="btn btn-sm" style="padding:6px 12px; font-size:0.85em; background:#28a745; color:#fff; border:none; border-radius:6px; cursor:pointer;">Expand All</button>
                 <button onclick="collapseAllLevels()" class="btn btn-sm" style="padding:6px 12px; font-size:0.85em; background:#6c757d; color:#fff; border:none; border-radius:6px; cursor:pointer;">Collapse All</button>
                 <button onclick="closeAllLevelsBom()" style="background:none; border:none; font-size:1.5em; cursor:pointer; color:#999; padding:0 5px;">&times;</button>
@@ -672,6 +673,83 @@ function collapseAllLevels() {
         }
     });
     document.querySelectorAll('.alb-toggle').forEach(t => t.classList.remove('open'));
+}
+
+function exportAllLevelBom() {
+    const parentPart = <?= json_encode($bom['part_name'] . ' (' . $bom['parent_part_no'] . ')') ?>;
+    const status = <?= json_encode($bom['status']) ?>;
+    const description = <?= json_encode($bom['description']) ?>;
+    const totalCost = <?= json_encode($totalBomCost) ?>;
+
+    const wb = XLSX.utils.book_new();
+
+    // Header rows
+    const wsData = [
+        ['All Level BOM - ' + bomNo],
+        ['Parent Part', parentPart],
+        ['Status', status],
+        ['Description', description],
+        ['Total BOM Cost', parseFloat(totalCost)],
+        [],
+        ['Level', 'Part Number', 'Component', 'Category', 'Qty', 'UOM', 'Rate', 'Cost', 'Stock', 'Sub-BOM']
+    ];
+
+    // Recursive flatten
+    function flattenItems(items, level) {
+        items.forEach(function(item) {
+            var effectiveRate = parseFloat(item.effective_rate) || parseFloat(item.rate) || 0;
+            var effectiveCost = parseFloat(item.effective_cost) || (parseFloat(item.qty) * effectiveRate);
+            var indent = '';
+            for (var i = 0; i < level; i++) indent += '  ';
+
+            wsData.push([
+                'L' + level,
+                item.part_no,
+                indent + item.part_name,
+                item.category || '',
+                parseFloat(item.qty) || 0,
+                item.uom || '',
+                effectiveRate,
+                effectiveCost,
+                parseInt(item.current_stock) || 0,
+                (item.sub_bom && item.sub_bom.bom_no) ? item.sub_bom.bom_no : ''
+            ]);
+
+            if (item.sub_bom && item.sub_bom.items && item.sub_bom.items.length > 0) {
+                flattenItems(item.sub_bom.items, level + 1);
+            }
+        });
+    }
+
+    flattenItems(allLevelData, 0);
+
+    var ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Column widths
+    ws['!cols'] = [
+        { wch: 8 },
+        { wch: 18 },
+        { wch: 40 },
+        { wch: 14 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 16 }
+    ];
+
+    // Format cost column as number
+    var headerRows = 7;
+    for (var r = headerRows; r < wsData.length; r++) {
+        var rateCell = XLSX.utils.encode_cell({r: r, c: 6});
+        var costCell = XLSX.utils.encode_cell({r: r, c: 7});
+        if (ws[rateCell]) ws[rateCell].t = 'n';
+        if (ws[costCell]) ws[costCell].t = 'n';
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, 'All Level BOM');
+    XLSX.writeFile(wb, 'BOM_AllLevel_' + bomNo + '.xlsx');
 }
 
 function escHtml(str) {
