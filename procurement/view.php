@@ -284,6 +284,24 @@ if ($planDetails) {
         }
     }
 
+    // Clear po_cancelled status for items that now have sufficient stock
+    if (!$planIsCompleted) {
+        foreach ($poItems as &$poItem) {
+            if (($poItem['status'] ?? '') === 'po_cancelled' && $poItem['shortage'] <= 0) {
+                try {
+                    $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ?")
+                         ->execute([$planId, $poItem['part_no']]);
+                    $poItem['status'] = 'pending';
+                    $poItem['created_po_id'] = null;
+                    $poItem['created_po_no'] = null;
+                    $poItem['ordered_qty'] = null;
+                    unset($poItem['cancelled_po_no']);
+                } catch (Exception $e) {}
+            }
+        }
+        unset($poItem);
+    }
+
     // Calculate stock-based progress: parts "in stock" or with completed WO/PO
     $totalWoPoParts = count($woItems) + count($poItems);
     $inStockOrDoneParts = 0;

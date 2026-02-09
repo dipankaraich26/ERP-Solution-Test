@@ -333,6 +333,25 @@ if ($step == 2) {
                 }
             }
             unset($ps);
+
+            // Clear po_cancelled for items that now have sufficient stock
+            $subletShortageMap = [];
+            foreach ($subletItems as $si) {
+                $subletShortageMap[$si['part_no']] = $si['shortage'];
+            }
+            foreach ($poItemStatus as $partNo => &$ps) {
+                if (($ps['status'] ?? '') === 'po_cancelled' && isset($subletShortageMap[$partNo]) && $subletShortageMap[$partNo] <= 0) {
+                    try {
+                        $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ?")
+                             ->execute([$currentPlanId, $partNo]);
+                        $ps['status'] = 'pending';
+                        $ps['created_po_id'] = null;
+                        $ps['created_po_no'] = null;
+                        unset($ps['cancelled_po_no']);
+                    } catch (Exception $e) {}
+                }
+            }
+            unset($ps);
         }
     }
 
