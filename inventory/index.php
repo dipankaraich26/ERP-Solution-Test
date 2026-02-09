@@ -80,17 +80,10 @@
 
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
 
 $view = $_GET['view'] ?? 'normal';
 $qty_filter = isset($_GET['qty']) && $_GET['qty'] !== '' ? (int)$_GET['qty'] : null;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-
-// Pagination setup
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$page = max(1, $page);
-$per_page = 10;
-$offset = ($page - 1) * $per_page;
 
 // Build WHERE clause based on filters
 $where_conditions = [];
@@ -105,14 +98,62 @@ if ($qty_filter !== null) {
     $where_conditions[] = "COALESCE(i.qty, 0) = :qty_filter";
     $bind_params[':qty_filter'] = $qty_filter;
 } elseif ($view === 'zero') {
-    // Show parts with zero stock OR no inventory record
     $where_conditions[] = "(i.qty IS NULL OR i.qty = 0)";
 } elseif ($search === '') {
-    // Show only parts with stock > 0
     $where_conditions[] = "i.qty > 0";
 }
 
 $where_clause = count($where_conditions) > 0 ? implode(' AND ', $where_conditions) : '1=1';
+
+// Handle CSV Export
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    $export_sql = "
+        SELECT p.part_no, p.part_name, COALESCE(i.qty, 0) as qty,
+               COALESCE((
+                   SELECT SUM(po.qty) - COALESCE(SUM((SELECT COALESCE(SUM(se.received_qty),0) FROM stock_entries se WHERE se.po_id = po.id AND se.status='posted')),0)
+                   FROM purchase_orders po
+                   WHERE po.part_no = p.part_no AND po.status NOT IN ('closed', 'cancelled')
+               ), 0) as on_order,
+               COALESCE((
+                   SELECT SUM(wo.qty)
+                   FROM work_orders wo
+                   WHERE wo.part_no = p.part_no AND wo.status NOT IN ('completed', 'cancelled', 'closed')
+               ), 0) as in_wo,
+               COALESCE((
+                   SELECT SUM(so.qty)
+                   FROM sales_orders so
+                   WHERE so.part_no = p.part_no AND so.status NOT IN ('completed', 'cancelled')
+               ), 0) as on_so
+        FROM part_master p
+        LEFT JOIN inventory i ON p.part_no = i.part_no
+        WHERE p.status = 'active' AND " . $where_clause . "
+        ORDER BY p.part_name
+    ";
+    $export_stmt = $pdo->prepare($export_sql);
+    foreach ($bind_params as $key => $value) {
+        $export_stmt->bindValue($key, $value);
+    }
+    $export_stmt->execute();
+
+    $filename = 'inventory_' . date('Y-m-d_His') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $output = fopen('php://output', 'w');
+    fputcsv($output, ['Part No', 'Part Name', 'Stock', 'On Order', 'In WO', 'On SO']);
+    while ($row = $export_stmt->fetch(PDO::FETCH_ASSOC)) {
+        fputcsv($output, [$row['part_no'], $row['part_name'], $row['qty'], $row['on_order'], $row['in_wo'], $row['on_so']]);
+    }
+    fclose($output);
+    exit;
+}
+
+include "../includes/sidebar.php";
+
+// Pagination setup
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max(1, $page);
+$per_page = 10;
+$offset = ($page - 1) * $per_page;
 
 // Get total count - use LEFT JOIN from part_master to include parts not in inventory
 $count_sql = "SELECT COUNT(*) FROM part_master p LEFT JOIN inventory i ON p.part_no = i.part_no WHERE p.status = 'active' AND " . $where_clause;
@@ -232,6 +273,18 @@ if (toggle) {
         <?php else: ?>
             <a href="index.php?view=zero<?= $search !== '' ? '&search=' . urlencode($search) : '' ?>" class="btn">Show Zero Stock</a>
         <?php endif; ?>
+    </div>
+
+    <!-- Export -->
+    <div style="margin-left: auto;">
+        <?php
+        $export_params = ['export=csv'];
+        if ($view !== 'normal') $export_params[] = 'view=' . urlencode($view);
+        if ($qty_filter !== null) $export_params[] = 'qty=' . urlencode($qty_filter);
+        if ($search !== '') $export_params[] = 'search=' . urlencode($search);
+        $export_url = 'index.php?' . implode('&', $export_params);
+        ?>
+        <a href="<?= $export_url ?>" class="btn btn-success" title="Export filtered items to CSV">Export CSV (<?= $total_count ?> items)</a>
     </div>
 </div>
 
