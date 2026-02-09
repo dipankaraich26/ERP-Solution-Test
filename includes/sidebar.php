@@ -238,6 +238,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/suppliers/index.php" class="<?= $currentDir === 'suppliers' ? 'active' : '' ?>">Suppliers</a>
             <a href="/purchase/supplier_pricing.php" class="<?= $currentDir === 'purchase' && $current === 'supplier_pricing.php' ? 'active' : '' ?>">Supplier Pricing</a>
             <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' ? 'active' : '' ?>">Purchase Orders</a>
+            <a href="/purchase/matrix.php" class="<?= $currentDir === 'purchase' && $current === 'matrix.php' ? 'active' : '' ?>">LT vs Value Matrix</a>
             <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">Procurement Planning</a>
         </div>
     </div>
