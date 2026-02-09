@@ -51,33 +51,82 @@ $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Collect all unique SO numbers from plans to fetch details in one query
-$allSoNos = [];
-foreach ($plans as $plan) {
-    if (!empty($plan['so_list'])) {
-        foreach (array_map('trim', explode(',', $plan['so_list'])) as $soNo) {
-            if ($soNo !== '') $allSoNos[] = $soNo;
+// Get SO numbers and product names per plan from WO items + PO items
+$planSoData = []; // plan_id => ['so_numbers' => [...], 'products' => [...]]
+$planIds = array_column($plans, 'id');
+if (!empty($planIds)) {
+    $phIds = implode(',', array_fill(0, count($planIds), '?'));
+
+    // Get from WO items (has so_list and part_name per item)
+    $woStmt = $pdo->prepare("SELECT plan_id, part_name, so_list FROM procurement_plan_wo_items WHERE plan_id IN ($phIds)");
+    $woStmt->execute($planIds);
+    foreach ($woStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $pid = $row['plan_id'];
+        if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
+        if (!empty($row['part_name']) && !in_array($row['part_name'], $planSoData[$pid]['products'])) {
+            $planSoData[$pid]['products'][] = $row['part_name'];
+        }
+        if (!empty($row['so_list'])) {
+            foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
+                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
+                    $planSoData[$pid]['so_numbers'][] = $soNo;
+                }
+            }
         }
     }
-}
-$allSoNos = array_unique($allSoNos);
 
-$soDetails = [];
-if (!empty($allSoNos)) {
-    $placeholders = implode(',', array_fill(0, count($allSoNos), '?'));
-    $soStmt = $pdo->prepare("
-        SELECT so.so_no,
-               GROUP_CONCAT(DISTINCT p.part_name SEPARATOR '|||') AS part_names,
-               MAX(c.company_name) AS customer_name
-        FROM sales_orders so
-        LEFT JOIN part_master p ON so.part_no = p.part_no
-        LEFT JOIN customers c ON so.customer_id = c.id
-        WHERE so.so_no IN ($placeholders)
-        GROUP BY so.so_no
-    ");
-    $soStmt->execute(array_values($allSoNos));
-    foreach ($soStmt->fetchAll(PDO::FETCH_ASSOC) as $so) {
-        $soDetails[$so['so_no']] = $so;
+    // Also get from PO items (in case some parts only have PO, not WO)
+    $poStmt = $pdo->prepare("SELECT plan_id, part_name, so_list FROM procurement_plan_po_items WHERE plan_id IN ($phIds)");
+    $poStmt->execute($planIds);
+    foreach ($poStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $pid = $row['plan_id'];
+        if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
+        if (!empty($row['part_name']) && !in_array($row['part_name'], $planSoData[$pid]['products'])) {
+            $planSoData[$pid]['products'][] = $row['part_name'];
+        }
+        if (!empty($row['so_list'])) {
+            foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
+                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
+                    $planSoData[$pid]['so_numbers'][] = $soNo;
+                }
+            }
+        }
+    }
+
+    // Fallback: also check pp.so_list if WO/PO items didn't have data
+    foreach ($plans as $plan) {
+        $pid = $plan['id'];
+        if ((!isset($planSoData[$pid]) || empty($planSoData[$pid]['so_numbers'])) && !empty($plan['so_list'])) {
+            if (!isset($planSoData[$pid])) $planSoData[$pid] = ['so_numbers' => [], 'products' => []];
+            foreach (array_map('trim', explode(',', $plan['so_list'])) as $soNo) {
+                if ($soNo !== '' && !in_array($soNo, $planSoData[$pid]['so_numbers'])) {
+                    $planSoData[$pid]['so_numbers'][] = $soNo;
+                }
+            }
+        }
+    }
+
+    // Get customer names for all SO numbers
+    $allSoNos = [];
+    foreach ($planSoData as $data) {
+        $allSoNos = array_merge($allSoNos, $data['so_numbers']);
+    }
+    $allSoNos = array_unique($allSoNos);
+
+    $soCustomers = [];
+    if (!empty($allSoNos)) {
+        $phSo = implode(',', array_fill(0, count($allSoNos), '?'));
+        $custStmt = $pdo->prepare("
+            SELECT so.so_no, MAX(c.company_name) AS customer_name
+            FROM sales_orders so
+            LEFT JOIN customers c ON so.customer_id = c.id
+            WHERE so.so_no IN ($phSo)
+            GROUP BY so.so_no
+        ");
+        $custStmt->execute(array_values($allSoNos));
+        foreach ($custStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $soCustomers[$row['so_no']] = $row['customer_name'];
+        }
     }
 }
 
@@ -167,46 +216,27 @@ if (!empty($allSoNos)) {
                             <td><?= date('Y-m-d', strtotime($plan['plan_date'])) ?></td>
                             <td>
                                 <?php
-                                $planSoNos = !empty($plan['so_list']) ? array_map('trim', explode(',', $plan['so_list'])) : [];
-                                if (!empty($planSoNos)):
-                                    foreach ($planSoNos as $soNo):
-                                        if ($soNo === '') continue;
-                                        $soDet = $soDetails[$soNo] ?? null;
+                                $psd = $planSoData[$plan['id']] ?? null;
+                                if ($psd && !empty($psd['so_numbers'])):
+                                    foreach ($psd['so_numbers'] as $soNo):
+                                        $custName = $soCustomers[$soNo] ?? '';
                                 ?>
-                                    <div style="margin-bottom: 2px;">
-                                        <a href="/sales_orders/view.php?so_no=<?= urlencode($soNo) ?>" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 0.9em;" title="<?= $soDet ? htmlspecialchars($soDet['customer_name'] ?? '') : '' ?>">
+                                    <div style="margin-bottom: 3px;">
+                                        <a href="/sales_orders/view.php?so_no=<?= urlencode($soNo) ?>" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 0.9em;" title="<?= htmlspecialchars($custName) ?>">
                                             <?= htmlspecialchars($soNo) ?>
                                         </a>
-                                        <?php if ($soDet && !empty($soDet['customer_name'])): ?>
-                                            <div style="font-size: 0.75em; color: #888;"><?= htmlspecialchars($soDet['customer_name']) ?></div>
+                                        <?php if ($custName): ?>
+                                            <div style="font-size: 0.75em; color: #888;"><?= htmlspecialchars($custName) ?></div>
                                         <?php endif; ?>
                                     </div>
-                                <?php
-                                    endforeach;
-                                else:
-                                ?>
+                                <?php endforeach;
+                                else: ?>
                                     <span style="color: #ccc;">-</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php
-                                $products = [];
-                                if (!empty($planSoNos)):
-                                    foreach ($planSoNos as $soNo) {
-                                        $soDet = $soDetails[trim($soNo)] ?? null;
-                                        if ($soDet && !empty($soDet['part_names'])) {
-                                            foreach (explode('|||', $soDet['part_names']) as $pn) {
-                                                $pn = trim($pn);
-                                                if ($pn !== '' && !in_array($pn, $products)) {
-                                                    $products[] = $pn;
-                                                }
-                                            }
-                                        }
-                                    }
-                                endif;
-                                if (!empty($products)):
-                                    foreach ($products as $pName):
-                                ?>
+                                <?php if ($psd && !empty($psd['products'])):
+                                    foreach ($psd['products'] as $pName): ?>
                                     <div style="font-size: 0.9em; margin-bottom: 2px;"><?= htmlspecialchars($pName) ?></div>
                                 <?php endforeach;
                                 else: ?>
