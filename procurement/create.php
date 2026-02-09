@@ -353,11 +353,31 @@ if ($step == 2) {
             }
             unset($ps);
 
-            // Auto-link pending PO items to existing active POs created separately
+            // Auto-link / unlink PO items based on stock and existing POs
             foreach ($poItemStatus as $partNo => &$ps) {
+                $shortage = $subletShortageMap[$partNo] ?? 0;
+
+                // Unlink auto-linked POs when stock is now sufficient
+                if (!empty($ps['created_po_id']) && ($ps['status'] ?? '') === 'ordered' && $shortage <= 0) {
+                    try {
+                        $chk = $pdo->prepare("SELECT plan_id FROM purchase_orders WHERE id = ?");
+                        $chk->execute([$ps['created_po_id']]);
+                        $poRow = $chk->fetch(PDO::FETCH_ASSOC);
+                        if ($poRow && ((int)($poRow['plan_id'] ?? 0) !== $currentPlanId)) {
+                            $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ?")
+                                 ->execute([$currentPlanId, $partNo]);
+                            $ps['status'] = 'pending';
+                            $ps['created_po_id'] = null;
+                            $ps['created_po_no'] = null;
+                            $ps['ordered_qty'] = null;
+                        }
+                    } catch (Exception $e) {}
+                    continue;
+                }
+
+                // Auto-link pending items with shortage to existing active POs
                 if (!empty($ps['created_po_id'])) continue;
                 if (($ps['status'] ?? '') === 'po_cancelled') continue;
-                $shortage = $subletShortageMap[$partNo] ?? 0;
                 if ($shortage <= 0) continue;
 
                 $existingPo = findExistingActivePo($pdo, $partNo, $currentPlanId);

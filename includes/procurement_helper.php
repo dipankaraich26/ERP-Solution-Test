@@ -1381,13 +1381,34 @@ function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null):
  * Auto-link pending PO items in a plan to existing active POs.
  * For each pending PO item with shortage > 0, checks if an active PO already exists
  * for that part and links it to the plan.
+ * Also unlinks auto-linked POs (not created by PP) when stock is now sufficient.
  * @param PDO $pdo Database connection
  * @param int $planId Plan ID
  * @param array &$poItems PO items array (passed by reference, updated in place)
  */
 function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
     foreach ($poItems as &$poItem) {
-        // Only process pending items that have shortage and no linked PO
+        // Case 1: Item already has linked PO but now has sufficient stock - unlink if it was auto-linked (not PP-created)
+        if (!empty($poItem['created_po_id']) && ($poItem['status'] ?? '') === 'ordered' && ($poItem['shortage'] ?? 0) <= 0) {
+            try {
+                // Check if the PO was created by this plan (plan_id matches) or externally
+                $chk = $pdo->prepare("SELECT plan_id FROM purchase_orders WHERE id = ?");
+                $chk->execute([$poItem['created_po_id']]);
+                $poRow = $chk->fetch(PDO::FETCH_ASSOC);
+                if ($poRow && ((int)($poRow['plan_id'] ?? 0) !== $planId)) {
+                    // This PO was NOT created by this plan - it was auto-linked. Unlink it.
+                    $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ?")
+                         ->execute([$planId, $poItem['part_no']]);
+                    $poItem['status'] = 'pending';
+                    $poItem['created_po_id'] = null;
+                    $poItem['created_po_no'] = null;
+                    $poItem['ordered_qty'] = null;
+                }
+            } catch (Exception $e) {}
+            continue;
+        }
+
+        // Case 2: Pending item with shortage - try to auto-link an existing active PO
         if (!empty($poItem['created_po_id'])) continue;
         if (($poItem['status'] ?? '') === 'po_cancelled') continue;
         if (($poItem['shortage'] ?? 0) <= 0) continue;
