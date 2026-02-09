@@ -93,6 +93,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    // Handle cancel linked PO from procurement plan
+    if ($action === 'cancel_linked_po') {
+        $cancelPoNo = $_POST['cancel_po_no'] ?? '';
+
+        if ($cancelPoNo && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            try {
+                // Check PO exists and is not already cancelled
+                $poCheck = $pdo->prepare("SELECT id, status FROM purchase_orders WHERE po_no = ? AND status NOT IN ('cancelled', 'closed') LIMIT 1");
+                $poCheck->execute([$cancelPoNo]);
+                $poRow = $poCheck->fetch(PDO::FETCH_ASSOC);
+
+                if ($poRow) {
+                    // Cancel the entire PO
+                    $pdo->prepare("UPDATE purchase_orders SET status = 'cancelled' WHERE po_no = ?")->execute([$cancelPoNo]);
+
+                    // Mark ALL procurement plan PO items linked to this PO as po_cancelled
+                    $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'po_cancelled' WHERE plan_id = ? AND created_po_no = ?")
+                         ->execute([$planId, $cancelPoNo]);
+
+                    // Count how many parts were affected
+                    $affectedStmt = $pdo->prepare("SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ? AND created_po_no = ?");
+                    $affectedStmt->execute([$planId, $cancelPoNo]);
+                    $affectedCount = $affectedStmt->fetchColumn();
+
+                    $success = "PO " . $cancelPoNo . " cancelled. " . $affectedCount . " part(s) affected. Parts with sufficient stock will show as 'In Stock', others will need new PO.";
+                    $planDetails = getProcurementPlanDetails($pdo, $planId);
+                } else {
+                    $error = "PO " . $cancelPoNo . " not found or already cancelled/closed";
+                }
+            } catch (Exception $e) {
+                $error = "Error cancelling PO: " . $e->getMessage();
+            }
+        } else {
+            $error = "Plan must be approved or partially ordered to cancel PO";
+        }
+    }
+
     // Handle regenerate PO for cancelled PO items
     if ($action === 'regenerate_po') {
         $regenPartNo = $_POST['regen_part_no'] ?? '';
@@ -1077,10 +1114,20 @@ if ($planDetails) {
                                         </button>
                                     </form>
                                 <?php elseif ($hasPO): ?>
-                                    <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
-                                       class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
-                                        View PO
-                                    </a>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                        <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
+                                           class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
+                                            View PO
+                                        </a>
+                                        <form method="post" style="display: inline;">
+                                            <input type="hidden" name="action" value="cancel_linked_po">
+                                            <input type="hidden" name="cancel_po_no" value="<?= htmlspecialchars($item['created_po_no']) ?>">
+                                            <button type="submit" class="btn btn-sm" style="background: #dc2626; color: white; padding: 4px 10px; font-size: 0.85em;"
+                                                    onclick="return confirm('Cancel PO <?= htmlspecialchars($item['created_po_no']) ?>?\n\nThis will cancel the ENTIRE PO including all parts in it.\nParts with sufficient stock will show as In Stock.\nOther parts will need a new PO.');">
+                                                Cancel PO
+                                            </button>
+                                        </form>
+                                    </div>
                                 <?php elseif ($item['shortage'] > 0): ?>
                                     <span style="color: #f59e0b;">Needs PO</span>
                                 <?php else: ?>
