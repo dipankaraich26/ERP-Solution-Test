@@ -183,7 +183,28 @@ $stmt = $pdo->prepare("
         GROUP_CONCAT(CONCAT(po.id, '::', po.part_no, '::', p.part_name, '::', po.qty, '::', po.rate) ORDER BY po.id SEPARATOR '|||') AS items,
         GROUP_CONCAT(DISTINCT po.status) AS status_list,
         MAX(po.id) AS max_id,
-        SUM(po.qty * po.rate) AS po_value
+        SUM(po.qty * po.rate) AS po_value,
+        (SELECT GROUP_CONCAT(DISTINCT se.invoice_no SEPARATOR ', ')
+         FROM stock_entries se
+         JOIN purchase_orders po2 ON se.po_id = po2.id
+         WHERE po2.po_no = po.po_no AND se.invoice_no IS NOT NULL AND se.invoice_no != ''
+        ) AS invoice_nos,
+        (SELECT MAX(se.received_date)
+         FROM stock_entries se
+         JOIN purchase_orders po2 ON se.po_id = po2.id
+         WHERE po2.po_no = po.po_no
+        ) AS last_received_date,
+        (SELECT GROUP_CONCAT(DISTINCT se.remarks SEPARATOR ', ')
+         FROM stock_entries se
+         JOIN purchase_orders po2 ON se.po_id = po2.id
+         WHERE po2.po_no = po.po_no AND se.remarks IS NOT NULL AND se.remarks != ''
+        ) AS remarks,
+        (SELECT SUM(se.received_qty)
+         FROM stock_entries se
+         JOIN purchase_orders po2 ON se.po_id = po2.id
+         WHERE po2.po_no = po.po_no AND se.status = 'posted'
+        ) AS total_received_qty,
+        SUM(po.qty) AS total_ordered_qty
     FROM purchase_orders po
     JOIN part_master p ON p.part_no = po.part_no
     JOIN suppliers s ON s.id = po.supplier_id
@@ -576,6 +597,7 @@ showModal();
         <th>Date</th>
         <th>PO Value</th>
         <th>Status</th>
+        <th>Receipt Details</th>
         <th>Actions</th>
     </tr>
 
@@ -601,11 +623,53 @@ showModal();
         <td><?= htmlspecialchars($o['supplier_name']) ?></td>
         <td><?= $o['purchase_date'] ?></td>
         <td style="font-weight: bold; color: #27ae60;">₹<?= number_format($o['po_value'], 2) ?></td>
-        <td><?= htmlspecialchars(implode(', ', explode(',', $o['status_list']))) ?></td>
+        <td>
+            <?php
+            $statuses = array_unique(array_map('trim', explode(',', $o['status_list'])));
+            $allClosed = count($statuses) === 1 && $statuses[0] === 'closed';
+            $allCancelled = count($statuses) === 1 && $statuses[0] === 'cancelled';
+            $hasPartial = in_array('partial', $statuses);
+            $hasOpen = in_array('open', $statuses);
+
+            if ($allClosed): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #10b981; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Closed</span>
+                <?php if ($o['total_received_qty']): ?>
+                    <br><small style="color: #059669;">Received: <?= (int)$o['total_received_qty'] ?>/<?= (int)$o['total_ordered_qty'] ?></small>
+                <?php endif; ?>
+            <?php elseif ($allCancelled): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #dc2626; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Cancelled</span>
+            <?php elseif ($hasPartial): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #f59e0b; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Partial</span>
+                <?php if ($o['total_received_qty']): ?>
+                    <br><small style="color: #d97706;">Received: <?= (int)$o['total_received_qty'] ?>/<?= (int)$o['total_ordered_qty'] ?></small>
+                <?php endif; ?>
+            <?php elseif ($hasOpen): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #3b82f6; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Open</span>
+            <?php else: ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #6b7280; color: white; border-radius: 12px; font-size: 0.85em;"><?= htmlspecialchars(implode(', ', $statuses)) ?></span>
+            <?php endif; ?>
+        </td>
+        <td style="font-size: 0.9em;">
+            <?php if ($o['invoice_nos']): ?>
+                <div><strong>Invoice:</strong> <?= htmlspecialchars($o['invoice_nos']) ?></div>
+            <?php endif; ?>
+            <?php if ($o['last_received_date']): ?>
+                <div><strong>Received:</strong> <?= date('d M Y', strtotime($o['last_received_date'])) ?></div>
+            <?php endif; ?>
+            <?php if ($o['remarks']): ?>
+                <div style="color: #666;"><strong>Remarks:</strong> <?= htmlspecialchars($o['remarks']) ?></div>
+            <?php endif; ?>
+            <?php if (!$o['invoice_nos'] && !$o['last_received_date'] && !$o['remarks']): ?>
+                <span style="color: #adb5bd;">-</span>
+            <?php endif; ?>
+        </td>
         <td style="white-space: nowrap;">
             <a class="btn btn-primary" href="view.php?po_no=<?= urlencode($o['po_no']) ?>">View</a>
-            <?php if (strpos($o['status_list'], 'open') !== false): ?>
-                <a class="btn btn-danger" href="cancel.php?po_no=<?= urlencode($o['po_no']) ?>" onclick="return confirm('Cancel this PO?')">Cancel PO</a>
+            <?php if ($hasOpen || $hasPartial): ?>
+                <a class="btn btn-success" href="../stock_entry/receive_all.php?po_no=<?= urlencode($o['po_no']) ?>" style="font-size: 0.85em;">Receive</a>
+            <?php endif; ?>
+            <?php if ($hasOpen && !$allClosed && !$allCancelled): ?>
+                <a class="btn btn-danger" href="cancel.php?po_no=<?= urlencode($o['po_no']) ?>" onclick="return confirm('Cancel this PO?')">Cancel</a>
             <?php endif; ?>
         </td>
     </tr>
