@@ -421,11 +421,14 @@ showModal();
 ========================= -->
 <h2>Purchase Order List</h2>
 
-<div style="margin-bottom: 15px;">
+<div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
     <button type="button" class="btn btn-success" onclick="exportSelectedPOs()" id="exportBtn" disabled>
         Export Selected to Excel
     </button>
-    <span id="selectedPOCount" style="margin-left: 15px; color: #666; font-weight: bold;"></span>
+    <button type="button" class="btn btn-secondary" onclick="uncheckAllPOs()" id="uncheckAllBtn" style="display: none;">
+        Uncheck All
+    </button>
+    <span id="selectedPOCount" style="color: #666; font-weight: bold;"></span>
 </div>
 
 <div style="overflow-x: auto;">
@@ -446,7 +449,7 @@ showModal();
     <?php foreach ($orders as $o): ?>
     <tr>
         <td style="text-align: center;">
-            <input type="checkbox" class="po-checkbox" value="<?= htmlspecialchars($o['po_no']) ?>" onchange="updateExportButton()" style="transform: scale(1.3);">
+            <input type="checkbox" class="po-checkbox" value="<?= htmlspecialchars($o['po_no']) ?>" onchange="onPOCheckboxChange(this)" style="transform: scale(1.3);">
         </td>
         <td><?= htmlspecialchars($o['po_no']) ?></td>
         <td>
@@ -508,6 +511,9 @@ let currentSuppliers = [];
  * Initialize supplier search functionality
  */
 document.addEventListener('DOMContentLoaded', function() {
+    // Restore PO checkbox selections from sessionStorage
+    restoreCheckboxState();
+
     const searchInput = document.getElementById('supplierSearchInput');
     const dropdown = document.getElementById('supplierDropdown');
 
@@ -920,49 +926,103 @@ function htmlEscape(str) {
 }
 
 /**
- * Toggle select all PO checkboxes
+ * Get selected POs from sessionStorage
+ */
+function getStoredPOs() {
+    try {
+        return JSON.parse(sessionStorage.getItem('selectedPOs') || '[]');
+    } catch (e) { return []; }
+}
+
+/**
+ * Save selected POs to sessionStorage
+ */
+function storeSelectedPOs(poList) {
+    sessionStorage.setItem('selectedPOs', JSON.stringify(poList));
+}
+
+/**
+ * Sync checkbox with sessionStorage on change
+ */
+function onPOCheckboxChange(cb) {
+    const stored = getStoredPOs();
+    if (cb.checked) {
+        if (!stored.includes(cb.value)) stored.push(cb.value);
+    } else {
+        const idx = stored.indexOf(cb.value);
+        if (idx > -1) stored.splice(idx, 1);
+    }
+    storeSelectedPOs(stored);
+    updateExportButton();
+}
+
+/**
+ * Toggle select all PO checkboxes (current page only)
  */
 function toggleSelectAllPOs(checked) {
     const checkboxes = document.querySelectorAll('.po-checkbox');
     checkboxes.forEach(cb => {
         cb.checked = checked;
+        onPOCheckboxChange(cb);
     });
+}
+
+/**
+ * Uncheck all POs across all pages
+ */
+function uncheckAllPOs() {
+    storeSelectedPOs([]);
+    document.querySelectorAll('.po-checkbox').forEach(cb => { cb.checked = false; });
+    document.getElementById('selectAllPOs').checked = false;
+    document.getElementById('selectAllPOs').indeterminate = false;
     updateExportButton();
 }
 
 /**
- * Update export button state based on selected POs
+ * Update export button state based on total selected POs (all pages)
  */
 function updateExportButton() {
-    const checkboxes = document.querySelectorAll('.po-checkbox:checked');
-    const count = checkboxes.length;
+    const stored = getStoredPOs();
+    const totalCount = stored.length;
     const exportBtn = document.getElementById('exportBtn');
     const countSpan = document.getElementById('selectedPOCount');
+    const uncheckBtn = document.getElementById('uncheckAllBtn');
     const selectAllCheckbox = document.getElementById('selectAllPOs');
 
-    if (count > 0) {
+    if (totalCount > 0) {
         exportBtn.disabled = false;
-        countSpan.textContent = count + ' PO(s) selected';
+        const pageChecked = document.querySelectorAll('.po-checkbox:checked').length;
+        countSpan.textContent = totalCount + ' PO(s) selected' + (totalCount !== pageChecked ? ' (across pages)' : '');
+        uncheckBtn.style.display = 'inline-block';
     } else {
         exportBtn.disabled = true;
         countSpan.textContent = '';
+        uncheckBtn.style.display = 'none';
     }
 
-    // Update select all checkbox state
+    // Update select all checkbox state for current page
     const allCheckboxes = document.querySelectorAll('.po-checkbox');
-    const checkedCount = checkboxes.length;
+    const checkedCount = document.querySelectorAll('.po-checkbox:checked').length;
     selectAllCheckbox.checked = checkedCount === allCheckboxes.length && allCheckboxes.length > 0;
     selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+}
+
+/**
+ * Restore checkbox state from sessionStorage on page load
+ */
+function restoreCheckboxState() {
+    const stored = getStoredPOs();
+    document.querySelectorAll('.po-checkbox').forEach(cb => {
+        cb.checked = stored.includes(cb.value);
+    });
+    updateExportButton();
 }
 
 /**
  * Export selected POs to Excel (CSV format)
  */
 function exportSelectedPOs() {
-    const selectedPOs = [];
-    document.querySelectorAll('.po-checkbox:checked').forEach(cb => {
-        selectedPOs.push(cb.value);
-    });
+    const selectedPOs = getStoredPOs();
 
     if (selectedPOs.length === 0) {
         alert('Please select at least one PO to export');
