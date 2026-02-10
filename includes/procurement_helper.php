@@ -1393,55 +1393,68 @@ function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null):
  * @param array &$poItems PO items array (passed by reference, updated in place)
  */
 function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
+
+    // Pre-load: Build a map of part_no => PO details for all POs associated with this plan.
+    // This handles POs created before the tracking fix (plan_id missing, po_items not updated).
+    $planPoMap = []; // part_no => ['id', 'po_no', 'qty', 'status']
+
+    // Source 1: POs linked via old procurement_plan_items table (always populated by convertPlanToPurchaseOrders)
+    try {
+        $oldPosStmt = $pdo->prepare("
+            SELECT po.id, po.po_no, po.part_no, po.qty, po.status
+            FROM purchase_orders po
+            WHERE po.po_no IN (
+                SELECT DISTINCT po2.po_no
+                FROM procurement_plan_items ppi
+                JOIN purchase_orders po2 ON po2.id = ppi.created_po_id
+                WHERE ppi.plan_id = ? AND ppi.created_po_id IS NOT NULL
+            )
+            AND po.status != 'cancelled'
+        ");
+        $oldPosStmt->execute([$planId]);
+        foreach ($oldPosStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $planPoMap[$row['part_no']] = $row;
+        }
+    } catch (Exception $e) {}
+
+    // Source 2: POs with plan_id set directly (newer POs created after the fix)
+    try {
+        $directPosStmt = $pdo->prepare("
+            SELECT id, po_no, part_no, qty, status
+            FROM purchase_orders
+            WHERE plan_id = ? AND status != 'cancelled'
+        ");
+        $directPosStmt->execute([$planId]);
+        foreach ($directPosStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!isset($planPoMap[$row['part_no']])) {
+                $planPoMap[$row['part_no']] = $row;
+            }
+        }
+    } catch (Exception $e) {}
+
     foreach ($poItems as &$poItem) {
 
-        // Case 0 (Retroactive): Item has no PO link - check old procurement_plan_items table
-        // and purchase_orders.plan_id for POs created before the tracking fix
+        // Case 0 (Retroactive): Item has no PO link but a PO exists for this plan+part
         if (empty($poItem['created_po_id']) && ($poItem['status'] ?? '') === 'pending') {
-            try {
-                $linkedPo = null;
+            if (isset($planPoMap[$poItem['part_no']])) {
+                $linkedPo = $planPoMap[$poItem['part_no']];
+                updatePlanPoItemStatus(
+                    $pdo, $planId, $poItem['part_no'],
+                    (int)$linkedPo['id'], $linkedPo['po_no'], (float)$linkedPo['qty']
+                );
+                $poItem['status'] = 'ordered';
+                $poItem['created_po_id'] = $linkedPo['id'];
+                $poItem['created_po_no'] = $linkedPo['po_no'];
+                $poItem['ordered_qty'] = $linkedPo['qty'];
+                $poItem['actual_po_status'] = $linkedPo['status'];
 
-                // Method 1: Check old procurement_plan_items table for PO reference
-                $oldRef = $pdo->prepare("
-                    SELECT ppi.created_po_id, po.po_no, po.qty, po.status as po_status
-                    FROM procurement_plan_items ppi
-                    JOIN purchase_orders po ON po.id = ppi.created_po_id
-                    WHERE ppi.plan_id = ? AND ppi.part_no = ? AND ppi.created_po_id IS NOT NULL
-                    LIMIT 1
-                ");
-                $oldRef->execute([$planId, $poItem['part_no']]);
-                $linkedPo = $oldRef->fetch(PDO::FETCH_ASSOC);
-
-                // Method 2: Check purchase_orders.plan_id directly
-                if (!$linkedPo) {
-                    $directRef = $pdo->prepare("
-                        SELECT id as created_po_id, po_no, qty, status as po_status
-                        FROM purchase_orders
-                        WHERE plan_id = ? AND part_no = ? AND status != 'cancelled'
-                        ORDER BY id DESC LIMIT 1
-                    ");
-                    $directRef->execute([$planId, $poItem['part_no']]);
-                    $linkedPo = $directRef->fetch(PDO::FETCH_ASSOC);
-                }
-
-                if ($linkedPo) {
-                    // Link the PO to the new tracking table
-                    updatePlanPoItemStatus(
-                        $pdo, $planId, $poItem['part_no'],
-                        (int)$linkedPo['created_po_id'], $linkedPo['po_no'], (float)$linkedPo['qty']
-                    );
-                    $poItem['status'] = 'ordered';
-                    $poItem['created_po_id'] = $linkedPo['created_po_id'];
-                    $poItem['created_po_no'] = $linkedPo['po_no'];
-                    $poItem['ordered_qty'] = $linkedPo['qty'];
-                    $poItem['actual_po_status'] = $linkedPo['po_status'];
-
-                    // Also fix purchase_orders.plan_id if it was missing
+                // Fix purchase_orders.plan_id if missing
+                try {
                     $pdo->prepare("UPDATE purchase_orders SET plan_id = ? WHERE id = ? AND (plan_id IS NULL OR plan_id = 0)")
-                         ->execute([$planId, $linkedPo['created_po_id']]);
-                    continue;
-                }
-            } catch (Exception $e) {}
+                         ->execute([$planId, $linkedPo['id']]);
+                } catch (Exception $e) {}
+                continue;
+            }
         }
 
         // Case 1: Item already has linked PO but now has sufficient stock - unlink if it was auto-linked (not PP-created)
