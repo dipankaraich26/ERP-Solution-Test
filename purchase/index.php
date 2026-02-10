@@ -97,19 +97,79 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
 /* =========================
-   PAGINATION SETUP
+   FILTER & PAGINATION SETUP
 ========================= */
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page = max(1, $page); // Ensure page is at least 1
 $per_page = 10;
 $offset = ($page - 1) * $per_page;
 
-// Get total count of grouped purchase orders
-$total_count = $pdo->query("
-    SELECT COUNT(DISTINCT po_no) FROM purchase_orders
-")->fetchColumn();
+// Collect filter values
+$filter_po = isset($_GET['filter_po']) ? trim($_GET['filter_po']) : '';
+$filter_supplier = isset($_GET['filter_supplier']) ? (int)$_GET['filter_supplier'] : 0;
+$filter_date_from = isset($_GET['filter_date_from']) ? trim($_GET['filter_date_from']) : '';
+$filter_date_to = isset($_GET['filter_date_to']) ? trim($_GET['filter_date_to']) : '';
+$filter_status = isset($_GET['filter_status']) ? trim($_GET['filter_status']) : '';
+$filter_part = isset($_GET['filter_part']) ? trim($_GET['filter_part']) : '';
+
+// Build WHERE clauses
+$where = [];
+$params = [];
+
+if ($filter_po !== '') {
+    $where[] = "po.po_no LIKE :filter_po";
+    $params[':filter_po'] = '%' . $filter_po . '%';
+}
+if ($filter_supplier > 0) {
+    $where[] = "po.supplier_id = :filter_supplier";
+    $params[':filter_supplier'] = $filter_supplier;
+}
+if ($filter_date_from !== '') {
+    $where[] = "po.purchase_date >= :filter_date_from";
+    $params[':filter_date_from'] = $filter_date_from;
+}
+if ($filter_date_to !== '') {
+    $where[] = "po.purchase_date <= :filter_date_to";
+    $params[':filter_date_to'] = $filter_date_to;
+}
+if ($filter_status !== '') {
+    $where[] = "po.status = :filter_status";
+    $params[':filter_status'] = $filter_status;
+}
+if ($filter_part !== '') {
+    $where[] = "(po.part_no LIKE :filter_part OR p.part_name LIKE :filter_part2)";
+    $params[':filter_part'] = '%' . $filter_part . '%';
+    $params[':filter_part2'] = '%' . $filter_part . '%';
+}
+
+$whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+// Get suppliers for dropdown
+$allSuppliers = $pdo->query("SELECT id, supplier_code, supplier_name FROM suppliers ORDER BY supplier_name")->fetchAll(PDO::FETCH_ASSOC);
+
+// Get distinct statuses for dropdown
+$allStatuses = $pdo->query("SELECT DISTINCT status FROM purchase_orders ORDER BY status")->fetchAll(PDO::FETCH_COLUMN);
+
+// Get total count of grouped purchase orders (with filters)
+$countSQL = "SELECT COUNT(DISTINCT po.po_no) FROM purchase_orders po JOIN part_master p ON p.part_no = po.part_no $whereSQL";
+$countStmt = $pdo->prepare($countSQL);
+foreach ($params as $k => $v) {
+    $countStmt->bindValue($k, $v);
+}
+$countStmt->execute();
+$total_count = $countStmt->fetchColumn();
 
 $total_pages = ceil($total_count / $per_page);
+
+// Build filter query string for pagination links
+$filterQuery = http_build_query(array_filter([
+    'filter_po' => $filter_po,
+    'filter_supplier' => $filter_supplier ?: '',
+    'filter_date_from' => $filter_date_from,
+    'filter_date_to' => $filter_date_to,
+    'filter_status' => $filter_status,
+    'filter_part' => $filter_part,
+]));
 
 /* =========================
    FETCH PURCHASE ORDERS (grouped by PO number)
@@ -127,10 +187,14 @@ $stmt = $pdo->prepare("
     FROM purchase_orders po
     JOIN part_master p ON p.part_no = po.part_no
     JOIN suppliers s ON s.id = po.supplier_id
+    $whereSQL
     GROUP BY po.po_no, po.purchase_date, s.supplier_name
     ORDER BY po.purchase_date DESC, max_id DESC
     LIMIT :limit OFFSET :offset
 ");
+foreach ($params as $k => $v) {
+    $stmt->bindValue($k, $v);
+}
 $stmt->bindValue(':limit', $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
@@ -421,6 +485,75 @@ showModal();
 ========================= -->
 <h2>Purchase Order List</h2>
 
+<!-- Filter Section -->
+<div style="background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+    <form method="get" id="filterForm" style="margin: 0;">
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+            <div style="min-width: 120px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">PO Number</label>
+                <input type="text" name="filter_po" value="<?= htmlspecialchars($filter_po) ?>" placeholder="e.g. PO-12" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div style="min-width: 180px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Supplier</label>
+                <select name="filter_supplier" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+                    <option value="">All Suppliers</option>
+                    <?php foreach ($allSuppliers as $sup): ?>
+                        <option value="<?= $sup['id'] ?>" <?= $filter_supplier == $sup['id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($sup['supplier_code'] . ' - ' . $sup['supplier_name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="min-width: 140px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Date From</label>
+                <input type="date" name="filter_date_from" value="<?= htmlspecialchars($filter_date_from) ?>" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div style="min-width: 140px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Date To</label>
+                <input type="date" name="filter_date_to" value="<?= htmlspecialchars($filter_date_to) ?>" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div style="min-width: 130px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Status</label>
+                <select name="filter_status" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+                    <option value="">All Statuses</option>
+                    <?php foreach ($allStatuses as $st): ?>
+                        <option value="<?= htmlspecialchars($st) ?>" <?= $filter_status === $st ? 'selected' : '' ?>>
+                            <?= htmlspecialchars(ucfirst($st)) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="min-width: 150px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Part No / Name</label>
+                <input type="text" name="filter_part" value="<?= htmlspecialchars($filter_part) ?>" placeholder="Search parts..." style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button type="submit" class="btn btn-primary" style="padding: 7px 18px;">Filter</button>
+                <a href="index.php" class="btn btn-secondary" style="padding: 7px 18px; text-decoration: none;">Clear</a>
+            </div>
+        </div>
+        <?php if ($filter_po || $filter_supplier || $filter_date_from || $filter_date_to || $filter_status || $filter_part): ?>
+        <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
+            Showing <?= $total_count ?> result(s)
+            <?php
+            $activeFilters = [];
+            if ($filter_po) $activeFilters[] = 'PO: ' . htmlspecialchars($filter_po);
+            if ($filter_supplier) {
+                foreach ($allSuppliers as $sup) {
+                    if ($sup['id'] == $filter_supplier) { $activeFilters[] = 'Supplier: ' . htmlspecialchars($sup['supplier_name']); break; }
+                }
+            }
+            if ($filter_date_from) $activeFilters[] = 'From: ' . htmlspecialchars($filter_date_from);
+            if ($filter_date_to) $activeFilters[] = 'To: ' . htmlspecialchars($filter_date_to);
+            if ($filter_status) $activeFilters[] = 'Status: ' . htmlspecialchars(ucfirst($filter_status));
+            if ($filter_part) $activeFilters[] = 'Part: ' . htmlspecialchars($filter_part);
+            echo ' &mdash; ' . implode(' | ', $activeFilters);
+            ?>
+        </div>
+        <?php endif; ?>
+    </form>
+</div>
+
 <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
     <button type="button" class="btn btn-success" onclick="exportSelectedPOs()" id="exportBtn" disabled>
         Export Selected to Excel
@@ -483,9 +616,10 @@ showModal();
 <!-- Pagination -->
 <?php if ($total_pages > 1): ?>
 <div style="margin-top: 20px; text-align: center;">
+    <?php $fq = $filterQuery ? '&' . $filterQuery : ''; ?>
     <?php if ($page > 1): ?>
-        <a href="?page=1" class="btn btn-secondary">First</a>
-        <a href="?page=<?= $page - 1 ?>" class="btn btn-secondary">Previous</a>
+        <a href="?page=1<?= $fq ?>" class="btn btn-secondary">First</a>
+        <a href="?page=<?= $page - 1 ?><?= $fq ?>" class="btn btn-secondary">Previous</a>
     <?php endif; ?>
 
     <span style="margin: 0 10px;">
@@ -493,8 +627,8 @@ showModal();
     </span>
 
     <?php if ($page < $total_pages): ?>
-        <a href="?page=<?= $page + 1 ?>" class="btn btn-secondary">Next</a>
-        <a href="?page=<?= $total_pages ?>" class="btn btn-secondary">Last</a>
+        <a href="?page=<?= $page + 1 ?><?= $fq ?>" class="btn btn-secondary">Next</a>
+        <a href="?page=<?= $total_pages ?><?= $fq ?>" class="btn btn-secondary">Last</a>
     <?php endif; ?>
 </div>
 <?php endif; ?>
