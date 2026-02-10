@@ -73,8 +73,8 @@ try {
     echo "ERROR: " . $e->getMessage() . "\n";
 }
 
-// 6. Check POs with plan_id = 15
-echo "\n--- purchase_orders WHERE plan_id = 15 ---\n";
+// 6. Check POs with plan_id = 16 (PP-015)
+echo "\n--- purchase_orders WHERE plan_id = 16 ---\n";
 try {
     $stmt = $pdo->prepare("SELECT id, po_no, part_no, qty, status FROM purchase_orders WHERE plan_id = ?");
     $stmt->execute([$planId]);
@@ -105,6 +105,26 @@ try {
     echo "Matching: " . (empty($matching) ? 'NONE' : implode(', ', $matching)) . "\n";
     echo "Only in PO-31: " . (empty($onlyInPO) ? 'NONE' : implode(', ', $onlyInPO)) . "\n";
     echo "Only in PP-015 po_items: " . (empty($onlyInPP) ? 'NONE' : implode(', ', $onlyInPP)) . "\n";
+} catch (Exception $e) {
+    echo "ERROR: " . $e->getMessage() . "\n";
+}
+
+// 8. Check actual_po_status for each linked po_item
+echo "\n--- Actual PO status for each linked procurement_plan_po_items ---\n";
+try {
+    $stmt = $pdo->prepare("
+        SELECT ppi.part_no, ppi.created_po_id, ppi.created_po_no, ppi.status as pp_status,
+               po.status as actual_po_status, po.part_no as po_part_no, po.qty as po_qty
+        FROM procurement_plan_po_items ppi
+        LEFT JOIN purchase_orders po ON po.id = ppi.created_po_id
+        WHERE ppi.plan_id = ? AND ppi.created_po_id IS NOT NULL
+    ");
+    $stmt->execute([$planId]);
+    $linked = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    echo "Count: " . count($linked) . "\n";
+    foreach ($linked as $l) {
+        echo "  pp_part={$l['part_no']} pp_status={$l['pp_status']} -> po_id={$l['created_po_id']} po_no={$l['created_po_no']} po_part={$l['po_part_no']} po_status={$l['actual_po_status']} po_qty={$l['po_qty']}\n";
+    }
 } catch (Exception $e) {
     echo "ERROR: " . $e->getMessage() . "\n";
 }

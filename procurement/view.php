@@ -273,6 +273,23 @@ if ($planDetails) {
                 if ($actualPoStatus) {
                     $poItem['actual_po_status'] = $actualPoStatus;
                 }
+                // Fallback: if individual line not closed, check by PO number + part_no
+                if (!in_array($actualPoStatus, ['closed', 'received']) && !empty($poItem['created_po_no'])) {
+                    $fallbackStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE po_no = ? AND part_no = ? AND status IN ('closed', 'received') LIMIT 1");
+                    $fallbackStmt->execute([$poItem['created_po_no'], $poItem['part_no']]);
+                    $fallbackStatus = $fallbackStmt->fetchColumn();
+                    if ($fallbackStatus) {
+                        $poItem['actual_po_status'] = $fallbackStatus;
+                    } else {
+                        // Final fallback: check if ALL lines of this PO are closed
+                        $allClosedStmt = $pdo->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('closed', 'received') THEN 1 ELSE 0 END) as closed_count FROM purchase_orders WHERE po_no = ?");
+                        $allClosedStmt->execute([$poItem['created_po_no']]);
+                        $poSummary = $allClosedStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($poSummary && $poSummary['total'] > 0 && $poSummary['total'] == $poSummary['closed_count']) {
+                            $poItem['actual_po_status'] = 'closed';
+                        }
+                    }
+                }
             } catch (Exception $e) {}
         }
     }
