@@ -960,13 +960,18 @@ if ($planDetails) {
             $poPendingCount = 0;
             $poInStockCount = 0;
             $poCancelledCount = 0;
+            $poReceivedCount = 0;
             if ($planIsCompleted) {
                 $poOrderedCount = count($poItems);
             } else {
                 foreach ($poItems as $pi) {
+                    $piActualPoSt = $pi['actual_po_status'] ?? '';
+                    $piHasPO = !empty($pi['created_po_id']) && ($pi['status'] ?? '') !== 'po_cancelled';
                     if (($pi['status'] ?? '') === 'po_cancelled') {
                         $poCancelledCount++;
-                    } elseif ($pi['created_po_id'] && ($pi['status'] ?? '') !== 'po_cancelled') {
+                    } elseif ($piHasPO && in_array($piActualPoSt, ['closed', 'received'])) {
+                        $poReceivedCount++;
+                    } elseif ($piHasPO) {
                         $poOrderedCount++;
                     } elseif ($pi['shortage'] <= 0) {
                         $poInStockCount++;
@@ -980,6 +985,9 @@ if ($planDetails) {
                 <?php if ($planIsCompleted): ?>
                     <span style="color: #16a34a; font-weight: 600;">All <?= count($poItems) ?> Closed (SOs Released)</span>
                 <?php else: ?>
+                    <?php if ($poReceivedCount): ?>
+                        <span style="color: #059669; font-weight: 600;"><?= $poReceivedCount ?> Received</span> |
+                    <?php endif; ?>
                     <span style="color: #16a34a;"><?= $poOrderedCount ?> Ordered</span> |
                     <span style="color: #10b981;"><?= $poInStockCount ?> In Stock</span> |
                     <?php if ($poCancelledCount): ?>
