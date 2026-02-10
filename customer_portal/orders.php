@@ -124,19 +124,28 @@ foreach ($orders as &$o) {
 
     // Determine SO lifecycle step (1-6)
     $status = strtolower($o['status'] ?? '');
+    $ppExists = !empty($o['pp_id']);
+    $ppPct = $o['pp_progress'] ?? 0;
     $steps = [
         'ordered'    => true, // always done
-        'pp_created' => !empty($o['pp_id']),
-        'production' => $o['pp_progress'] !== null && $o['pp_progress'] > 0,
+        'pp_created' => $ppExists,
+        'production' => $ppExists && ($ppPct >= 100 || in_array($o['pp_status'], ['completed'])),
         'stock_ready'=> $o['stock_ok'] || $status === 'released',
         'released'   => $status === 'released',
         'invoiced'   => ($o['invoice_count'] ?? 0) > 0,
     ];
+    // Production is "active" (in-progress) when PP exists but not yet 100%
+    $o['production_active'] = $ppExists && !$steps['production'];
     $o['steps'] = $steps;
 
     // Calculate overall SO progress percentage
+    // Production step counts as partial credit based on PP progress
     $totalSteps = count($steps);
     $doneSteps = count(array_filter($steps));
+    if ($o['production_active']) {
+        // PP exists but not 100%: add fractional credit for production step
+        $doneSteps += $ppPct / 100;
+    }
     $o['so_progress'] = round(($doneSteps / $totalSteps) * 100);
 }
 unset($o);
@@ -516,6 +525,8 @@ include "../includes/sidebar.php";
                             $soPct = $o['so_progress'];
                             $soPctColor = $soPct >= 100 ? '#27ae60' : ($soPct >= 50 ? '#f39c12' : '#3498db');
                             $st = $o['steps'];
+                            $ppPctVal = $o['pp_progress'] ?? 0;
+                            $prodActive = $o['production_active'] ?? false;
                             $stepDefs = [
                                 ['key' => 'ordered',     'label' => 'Order',   'icon' => '1'],
                                 ['key' => 'pp_created',  'label' => 'Plan',    'icon' => '2'],
@@ -529,6 +540,10 @@ include "../includes/sidebar.php";
                             foreach ($stepDefs as $i => $sd) {
                                 if (!$st[$sd['key']]) { $activeIdx = $i; break; }
                             }
+                            // Force production step active when PP exists but not complete
+                            if ($prodActive && $activeIdx !== 2) {
+                                // Production is in-progress even if step tracker says otherwise
+                            }
                             ?>
                             <div class="so-progress-pct" style="color: <?= $soPctColor ?>;">
                                 <?= $soPct ?>% Complete
@@ -540,14 +555,23 @@ include "../includes/sidebar.php";
                                 <?php foreach ($stepDefs as $i => $sd):
                                     $isDone = $st[$sd['key']];
                                     $isActive = ($i === $activeIdx);
+                                    // Special: production step shows as active when PP exists
+                                    if ($sd['key'] === 'production' && $prodActive) {
+                                        $isActive = true;
+                                    }
                                     $cls = $isDone ? 'done' : ($isActive ? 'active' : '');
                                 ?>
                                     <?php if ($i > 0): ?>
-                                        <div class="progress-line <?= $isDone ? 'done' : '' ?>"></div>
+                                        <div class="progress-line <?= $isDone ? 'done' : ($isActive ? 'done' : '') ?>"></div>
                                     <?php endif; ?>
-                                    <div class="progress-step <?= $cls ?>" title="<?= $sd['label'] ?>">
+                                    <div class="progress-step <?= $cls ?>" title="<?= $sd['label'] ?><?= $sd['key'] === 'production' && $prodActive ? ' (' . $ppPctVal . '%)' : '' ?>">
                                         <?= $isDone ? '&#10003;' : $sd['icon'] ?>
-                                        <span class="step-label"><?= $sd['label'] ?></span>
+                                        <span class="step-label">
+                                            <?= $sd['label'] ?>
+                                            <?php if ($sd['key'] === 'production' && $prodActive): ?>
+                                                <span style="color: #3498db; font-weight: 600;"><?= $ppPctVal ?>%</span>
+                                            <?php endif; ?>
+                                        </span>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
