@@ -83,6 +83,41 @@ foreach ($orders as &$o) {
             break;
         }
     }
+
+    // Check real-time stock status for this SO
+    $o['stock_ok'] = false;
+    try {
+        $soLines = $pdo->prepare("SELECT part_no, qty FROM sales_orders WHERE so_no = ? AND status NOT IN ('cancelled')");
+        $soLines->execute([$o['so_no']]);
+        $lines = $soLines->fetchAll(PDO::FETCH_ASSOC);
+        $allOk = true;
+        foreach ($lines as $line) {
+            $stkQ = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stkQ->execute([$line['part_no']]);
+            if ((int)$stkQ->fetchColumn() < (int)$line['qty']) {
+                $allOk = false;
+                break;
+            }
+        }
+        $o['stock_ok'] = $allOk;
+    } catch (Exception $e) {}
+
+    // Determine SO lifecycle step (1-6)
+    $status = strtolower($o['status'] ?? '');
+    $steps = [
+        'ordered'    => true, // always done
+        'pp_created' => !empty($o['pp_id']),
+        'production' => $o['pp_progress'] !== null && $o['pp_progress'] > 0,
+        'stock_ready'=> $o['stock_ok'] || $status === 'released',
+        'released'   => $status === 'released',
+        'invoiced'   => ($o['invoice_count'] ?? 0) > 0,
+    ];
+    $o['steps'] = $steps;
+
+    // Calculate overall SO progress percentage
+    $totalSteps = count($steps);
+    $doneSteps = count(array_filter($steps));
+    $o['so_progress'] = round(($doneSteps / $totalSteps) * 100);
 }
 unset($o);
 
@@ -171,28 +206,63 @@ include "../includes/sidebar.php";
         .order-progress {
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 0;
             font-size: 0.9em;
+            justify-content: center;
         }
         .progress-step {
-            width: 20px;
-            height: 20px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             background: #e9ecef;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.7em;
+            font-size: 0.65em;
             color: white;
+            position: relative;
+            flex-shrink: 0;
+            cursor: default;
         }
         .progress-step.done { background: #27ae60; }
-        .progress-step.active { background: #3498db; }
+        .progress-step.active { background: #3498db; animation: pulse 1.5s infinite; }
+        .progress-step .step-label {
+            position: absolute;
+            top: 32px;
+            white-space: nowrap;
+            font-size: 0.85em;
+            color: #888;
+            font-weight: normal;
+        }
+        .progress-step.done .step-label { color: #27ae60; font-weight: 500; }
+        .progress-step.active .step-label { color: #3498db; font-weight: 500; }
         .progress-line {
-            width: 20px;
+            width: 24px;
             height: 3px;
             background: #e9ecef;
+            flex-shrink: 0;
         }
         .progress-line.done { background: #27ae60; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(52,152,219,0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(52,152,219,0); }
+        }
+
+        .so-progress-cell {
+            min-width: 320px;
+            padding-bottom: 25px !important;
+        }
+        .so-progress-pct {
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+
+        .order-detail-row td {
+            padding: 0 12px 12px 12px !important;
+            border-bottom: 2px solid #e9ecef;
+        }
     </style>
 </head>
 <body>
@@ -212,8 +282,10 @@ include "../includes/sidebar.php";
     <?php
     $total_orders = count($orders);
     $total_value = array_sum(array_column($orders, 'total_value'));
-    $completed_count = count(array_filter($orders, fn($o) => in_array(strtolower($o['status'] ?? ''), ['delivered', 'completed'])));
+    $released_count = count(array_filter($orders, fn($o) => strtolower($o['status'] ?? '') === 'released'));
     $in_production = count(array_filter($orders, fn($o) => $o['pp_id'] && $o['pp_progress'] !== null && $o['pp_progress'] < 100));
+    $invoiced_count = count(array_filter($orders, fn($o) => ($o['invoice_count'] ?? 0) > 0));
+    $pending_count = count(array_filter($orders, fn($o) => !in_array(strtolower($o['status'] ?? ''), ['released', 'cancelled'])));
     ?>
 
     <div class="summary-bar">
@@ -226,8 +298,16 @@ include "../includes/sidebar.php";
             <div class="label">In Production</div>
         </div>
         <div class="summary-item">
-            <div class="value" style="color: #27ae60;"><?= $completed_count ?></div>
-            <div class="label">Completed</div>
+            <div class="value" style="color: #27ae60;"><?= $released_count ?></div>
+            <div class="label">Released</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" style="color: #8e44ad;"><?= $invoiced_count ?></div>
+            <div class="label">Invoiced</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" style="color: #e67e22;"><?= $pending_count ?></div>
+            <div class="label">Pending</div>
         </div>
         <div class="summary-item">
             <div class="value" style="color: #3498db;"><?= number_format($total_value, 2) ?></div>
@@ -254,7 +334,7 @@ include "../includes/sidebar.php";
                         <th class="text-right">Value</th>
                         <th class="text-center">Invoice</th>
                         <th class="text-center">Status</th>
-                        <th class="text-center">Production Progress</th>
+                        <th class="text-center">SO Progress</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -300,29 +380,46 @@ include "../includes/sidebar.php";
                                 <?= htmlspecialchars($o['status'] ?: 'Pending') ?>
                             </span>
                         </td>
-                        <td class="text-center">
-                            <?php if ($o['pp_id']): ?>
-                                <?php
-                                $pct = (int)$o['pp_progress'];
-                                $barColor = $pct >= 100 ? '#27ae60' : ($pct >= 50 ? '#f39c12' : '#3498db');
+                        <td class="text-center so-progress-cell">
+                            <?php
+                            $soPct = $o['so_progress'];
+                            $soPctColor = $soPct >= 100 ? '#27ae60' : ($soPct >= 50 ? '#f39c12' : '#3498db');
+                            $st = $o['steps'];
+                            $stepDefs = [
+                                ['key' => 'ordered',     'label' => 'Order',   'icon' => '1'],
+                                ['key' => 'pp_created',  'label' => 'Plan',    'icon' => '2'],
+                                ['key' => 'production',  'label' => 'Prod',    'icon' => '3'],
+                                ['key' => 'stock_ready', 'label' => 'Stock',   'icon' => '4'],
+                                ['key' => 'released',    'label' => 'Release', 'icon' => '5'],
+                                ['key' => 'invoiced',    'label' => 'Invoice', 'icon' => '6'],
+                            ];
+                            // Find current active step (first not-done step)
+                            $activeIdx = -1;
+                            foreach ($stepDefs as $i => $sd) {
+                                if (!$st[$sd['key']]) { $activeIdx = $i; break; }
+                            }
+                            ?>
+                            <div class="so-progress-pct" style="color: <?= $soPctColor ?>;">
+                                <?= $soPct ?>% Complete
+                                <?php if ($o['pp_no']): ?>
+                                    <span style="color: #999; font-weight: normal;">(<?= htmlspecialchars($o['pp_no']) ?>)</span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="order-progress">
+                                <?php foreach ($stepDefs as $i => $sd):
+                                    $isDone = $st[$sd['key']];
+                                    $isActive = ($i === $activeIdx);
+                                    $cls = $isDone ? 'done' : ($isActive ? 'active' : '');
                                 ?>
-                                <div style="min-width: 120px;">
-                                    <div style="display: flex; align-items: center; gap: 6px; justify-content: center;">
-                                        <div style="background: #e9ecef; border-radius: 10px; width: 70px; height: 10px; overflow: hidden;">
-                                            <div style="background: <?= $barColor ?>; height: 100%; width: <?= $pct ?>%; border-radius: 10px; transition: width 0.3s;"></div>
-                                        </div>
-                                        <span style="font-weight: bold; font-size: 0.85em; color: <?= $barColor ?>;"><?= $pct ?>%</span>
+                                    <?php if ($i > 0): ?>
+                                        <div class="progress-line <?= $isDone ? 'done' : '' ?>"></div>
+                                    <?php endif; ?>
+                                    <div class="progress-step <?= $cls ?>" title="<?= $sd['label'] ?>">
+                                        <?= $isDone ? '&#10003;' : $sd['icon'] ?>
+                                        <span class="step-label"><?= $sd['label'] ?></span>
                                     </div>
-                                    <div style="font-size: 0.75em; color: #999; margin-top: 2px;">
-                                        <?= htmlspecialchars($o['pp_no']) ?>
-                                        <?php if ($o['pp_status'] === 'completed'): ?>
-                                            <span style="color: #27ae60;">&#10003;</span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            <?php else: ?>
-                                <span style="color: #ccc; font-size: 0.85em;">No plan</span>
-                            <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
                         </td>
                         <td>
                             <a href="/sales_orders/view.php?so_no=<?= urlencode($o['so_no']) ?>" class="btn btn-sm" target="_blank">View</a>
