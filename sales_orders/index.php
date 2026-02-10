@@ -209,6 +209,61 @@ $stmt->execute();
 
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Load procurement helper for PP progress
+require_once __DIR__ . '/../includes/procurement_helper.php';
+
+// Find linked procurement plans for each SO
+$soPlanMap = []; // so_no => [plan_id, plan_no, status, percentage]
+$soNos = array_column($orders, 'so_no');
+if (!empty($soNos)) {
+    try {
+        // Check procurement_plans.so_list and WO/PO items so_list
+        $allPlans = $pdo->query("SELECT id, plan_no, status, so_list FROM procurement_plans WHERE status NOT IN ('cancelled') ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($allPlans as $pp) {
+            $ppSoNos = array_filter(array_map('trim', explode(',', $pp['so_list'] ?? '')));
+            foreach ($ppSoNos as $ppSo) {
+                if (in_array($ppSo, $soNos) && !isset($soPlanMap[$ppSo])) {
+                    $progress = calculatePlanProgress($pdo, (int)$pp['id'], $pp['status']);
+                    $soPlanMap[$ppSo] = [
+                        'plan_id' => $pp['id'],
+                        'plan_no' => $pp['plan_no'],
+                        'status' => $pp['status'],
+                        'percentage' => $progress['percentage'],
+                    ];
+                }
+            }
+        }
+        // Also check WO/PO items so_list for SOs not yet found
+        $missingSOs = array_diff($soNos, array_keys($soPlanMap));
+        if (!empty($missingSOs)) {
+            foreach (['procurement_plan_wo_items', 'procurement_plan_po_items'] as $tbl) {
+                try {
+                    $rows = $pdo->query("SELECT DISTINCT plan_id, so_list FROM $tbl WHERE so_list IS NOT NULL AND so_list != ''")->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($rows as $row) {
+                        $itemSOs = array_filter(array_map('trim', explode(',', $row['so_list'])));
+                        foreach ($itemSOs as $iso) {
+                            if (in_array($iso, $missingSOs) && !isset($soPlanMap[$iso])) {
+                                $ppStmt = $pdo->prepare("SELECT id, plan_no, status FROM procurement_plans WHERE id = ? AND status != 'cancelled'");
+                                $ppStmt->execute([$row['plan_id']]);
+                                $ppRow = $ppStmt->fetch(PDO::FETCH_ASSOC);
+                                if ($ppRow) {
+                                    $progress = calculatePlanProgress($pdo, (int)$ppRow['id'], $ppRow['status']);
+                                    $soPlanMap[$iso] = [
+                                        'plan_id' => $ppRow['id'],
+                                        'plan_no' => $ppRow['plan_no'],
+                                        'status' => $ppRow['status'],
+                                        'percentage' => $progress['percentage'],
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+    } catch (Exception $e) {}
+}
+
 include "../includes/sidebar.php";
 ?>
 
@@ -341,6 +396,7 @@ include "../includes/sidebar.php";
             <th>Products</th>
             <th>Date</th>
             <th>Stock Status</th>
+            <th>PP Progress</th>
             <th>Status</th>
             <th>Actions</th>
         </tr>
@@ -383,6 +439,36 @@ include "../includes/sidebar.php";
                     <span class="stock-ok">OK</span>
                 <?php endif; ?>
             </td>
+            <td style="min-width: 120px;">
+                <?php
+                $pp = $soPlanMap[$o['so_no']] ?? null;
+                if ($pp):
+                    $pct = $pp['percentage'];
+                    $ppStatusColors = [
+                        'draft' => '#6366f1',
+                        'approved' => '#f59e0b',
+                        'partiallyordered' => '#3b82f6',
+                        'completed' => '#16a34a',
+                    ];
+                    $barColor = $pct >= 100 ? '#16a34a' : ($pct > 0 ? '#3b82f6' : '#e5e7eb');
+                    $ppColor = $ppStatusColors[$pp['status']] ?? '#6b7280';
+                ?>
+                    <a href="/procurement/view.php?id=<?= $pp['plan_id'] ?>" style="text-decoration: none; color: #2563eb; font-weight: 600; font-size: 0.85em;">
+                        <?= htmlspecialchars($pp['plan_no']) ?>
+                    </a>
+                    <div style="display: flex; align-items: center; gap: 5px; margin-top: 3px;">
+                        <div style="background: #e5e7eb; border-radius: 3px; width: 60px; height: 14px; position: relative; overflow: hidden;">
+                            <div style="background: <?= $barColor ?>; height: 100%; width: <?= $pct ?>%;"></div>
+                        </div>
+                        <span style="font-size: 0.8em; color: #666;"><?= $pct ?>%</span>
+                    </div>
+                    <div style="font-size: 0.7em; color: <?= $ppColor ?>; margin-top: 2px;">
+                        <?= ucfirst(str_replace('partially', 'Partially ', $pp['status'])) ?>
+                    </div>
+                <?php else: ?>
+                    <span style="color: #ccc; font-size: 0.85em;">No PP</span>
+                <?php endif; ?>
+            </td>
             <td>
                 <span class="status-badge status-<?= $o['status'] ?>">
                     <?= ucfirst($o['status']) ?>
@@ -403,7 +489,7 @@ include "../includes/sidebar.php";
 
         <?php if (empty($orders)): ?>
         <tr>
-            <td colspan="9" style="text-align: center; padding: 20px;">No Sales Orders found.</td>
+            <td colspan="10" style="text-align: center; padding: 20px;">No Sales Orders found.</td>
         </tr>
         <?php endif; ?>
     </table>
