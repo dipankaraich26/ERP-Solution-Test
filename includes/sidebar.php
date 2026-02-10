@@ -253,6 +253,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/part_master/list.php" class="<?= $currentDir === 'part_master' ? 'active' : '' ?>">Part Master</a>
             <a href="/stock_entry/index.php" class="<?= $currentDir === 'stock_entry' ? 'active' : '' ?>">Stock Entries</a>
             <a href="/depletion/stock_adjustment.php" class="<?= $currentDir === 'depletion' ? 'active' : '' ?>">Stock Adjustment</a>
+            <a href="/inventory/bom_stock_entry.php" class="<?= $currentDir === 'inventory' && $current === 'bom_stock_entry.php' ? 'active' : '' ?>">BOM Stock Entry</a>
             <a href="/reports/monthly.php" class="<?= $currentDir === 'reports' ? 'active' : '' ?>">Reports</a>
             <a href="/inventory/index.php" class="<?= $currentDir === 'inventory' ? 'active' : '' ?>">Current Stock</a>
         </div>
