@@ -50,6 +50,24 @@ try {
     // Handle error
 }
 
+// Fetch Customer POs for this customer
+$customerPOs = [];
+try {
+    $cpoStmt = $pdo->prepare("
+        SELECT cp.*, q.pi_no, q.quote_no,
+               (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = cp.linked_quote_id) as pi_value,
+               (SELECT GROUP_CONCAT(DISTINCT so.so_no) FROM sales_orders so WHERE so.customer_po_id = cp.id) as linked_so_nos
+        FROM customer_po cp
+        LEFT JOIN quote_master q ON cp.linked_quote_id = q.id
+        WHERE cp.customer_id = ?
+        ORDER BY cp.po_date DESC, cp.id DESC
+    ");
+    $cpoStmt->execute([$customer['customer_id']]);
+    $customerPOs = $cpoStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Table may not exist
+}
+
 // Look up production progress for each SO via linked procurement plans
 try {
     $ppStmt = $pdo->query("
@@ -180,6 +198,9 @@ include "../includes/sidebar.php";
         .status-delivered { background: #d4edda; color: #155724; }
         .status-completed { background: #d4edda; color: #155724; }
         .status-cancelled { background: #f8d7da; color: #721c24; }
+        .status-active { background: #cce5ff; color: #004085; }
+        .status-open { background: #cce5ff; color: #004085; }
+        .status-released { background: #d4edda; color: #155724; }
 
         .summary-bar {
             background: #f8f9fa;
@@ -290,8 +311,12 @@ include "../includes/sidebar.php";
 
     <div class="summary-bar">
         <div class="summary-item">
+            <div class="value"><?= count($customerPOs) ?></div>
+            <div class="label">Customer POs</div>
+        </div>
+        <div class="summary-item">
             <div class="value"><?= $total_orders ?></div>
-            <div class="label">Total Orders</div>
+            <div class="label">Sales Orders</div>
         </div>
         <div class="summary-item">
             <div class="value" style="color: #f39c12;"><?= $in_production ?></div>
@@ -315,6 +340,77 @@ include "../includes/sidebar.php";
         </div>
     </div>
 
+    <!-- Customer Purchase Orders -->
+    <?php if (!empty($customerPOs)): ?>
+    <h2 style="margin-bottom: 10px; color: #2c3e50;">Customer Purchase Orders</h2>
+    <div class="table-scroll-container" style="margin-bottom: 30px;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>PO No</th>
+                    <th>PO Date</th>
+                    <th>Linked PI</th>
+                    <th class="text-right">PI Value</th>
+                    <th class="text-center">Linked SO</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Document</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($customerPOs as $ci => $cpo): ?>
+                <tr>
+                    <td><?= $ci + 1 ?></td>
+                    <td><strong><?= htmlspecialchars($cpo['po_no']) ?></strong></td>
+                    <td><?= $cpo['po_date'] ? date('d M Y', strtotime($cpo['po_date'])) : '-' ?></td>
+                    <td>
+                        <?php if ($cpo['pi_no']): ?>
+                            <a href="/proforma/view.php?id=<?= $cpo['linked_quote_id'] ?>"><?= htmlspecialchars($cpo['pi_no']) ?></a>
+                        <?php else: ?>
+                            -
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-right" style="font-weight: bold;">
+                        <?= $cpo['pi_value'] ? number_format($cpo['pi_value'], 2) : '-' ?>
+                    </td>
+                    <td class="text-center">
+                        <?php if ($cpo['linked_so_nos']): ?>
+                            <?php foreach (explode(',', $cpo['linked_so_nos']) as $soNo): ?>
+                                <a href="/sales_orders/view.php?so_no=<?= urlencode(trim($soNo)) ?>" style="display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; margin: 1px; text-decoration: none;">
+                                    <?= htmlspecialchars(trim($soNo)) ?>
+                                </a>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <span style="color: #adb5bd;">No SO yet</span>
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-center">
+                        <span class="status-badge status-<?= strtolower($cpo['status'] ?: 'active') ?>">
+                            <?= htmlspecialchars(ucfirst($cpo['status'] ?: 'Active')) ?>
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <?php if ($cpo['attachment_path']): ?>
+                            <a href="/<?= htmlspecialchars($cpo['attachment_path']) ?>" target="_blank" style="color: #e74c3c; text-decoration: none; font-weight: bold;" title="View Document">
+                                PDF
+                            </a>
+                        <?php else: ?>
+                            <span style="color: #adb5bd;">-</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <a href="/customer_po/view.php?id=<?= $cpo['id'] ?>" class="btn btn-sm" target="_blank">View</a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+    <?php endif; ?>
+
+    <!-- Sales Orders -->
+    <h2 style="margin-bottom: 10px; color: #2c3e50;">Sales Orders</h2>
     <?php if (empty($orders)): ?>
         <div style="text-align: center; padding: 60px 20px; background: #f8f9fa; border-radius: 10px;">
             <div style="font-size: 3em; margin-bottom: 15px;">📦</div>
