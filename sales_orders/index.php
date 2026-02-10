@@ -146,6 +146,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['create_so'])) {
 }
 
 /* =========================
+   REFRESH STOCK STATUS for open SOs (so display reflects current inventory)
+========================= */
+try {
+    $openSOs = $pdo->query("SELECT id, part_no, qty FROM sales_orders WHERE status IN ('open', 'pending')")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($openSOs as $soRow) {
+        $stkStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+        $stkStmt->execute([$soRow['part_no']]);
+        $avail = (int)$stkStmt->fetchColumn();
+        $newStkStatus = ($avail >= $soRow['qty']) ? 'ok' : 'insufficient';
+        $pdo->prepare("UPDATE sales_orders SET stock_status = ? WHERE id = ?")->execute([$newStkStatus, $soRow['id']]);
+    }
+} catch (Exception $e) {}
+
+/* =========================
    PAGINATION SETUP
 ========================= */
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
