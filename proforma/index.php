@@ -1,5 +1,10 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+
+$isAdmin = getUserRole() === 'admin';
+
 include "../includes/sidebar.php";
 
 // Pagination setup
@@ -109,6 +114,9 @@ if (!empty($invoices)) {
             <td style="text-align: right;"><?= number_format($pi['total_value'] ?? 0, 2) ?></td>
             <td style="white-space: nowrap;">
                 <a class="btn btn-secondary" href="view.php?id=<?= $pi['id'] ?>">View</a>
+                <?php if ($isAdmin): ?>
+                    <a class="btn btn-primary" href="/quotes/edit.php?id=<?= $pi['id'] ?>">Edit</a>
+                <?php endif; ?>
             </td>
         </tr>
         <?php endforeach; ?>

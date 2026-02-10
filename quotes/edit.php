@@ -1,8 +1,11 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
 
 $errors = [];
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$isAdmin = getUserRole() === 'admin';
 
 // Fetch company settings for GST state
 $settings = $pdo->query("SELECT * FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC);
@@ -23,10 +26,14 @@ if (!$quote) {
     exit;
 }
 
-// Prevent editing released quotations
+// Prevent editing released quotations (admin can override)
+$editingReleased = false;
 if ($quote['status'] === 'released') {
-    header("Location: view.php?id=" . $id);
-    exit;
+    if (!$isAdmin) {
+        header("Location: view.php?id=" . $id);
+        exit;
+    }
+    $editingReleased = true;
 }
 
 // Fetch existing items
@@ -342,7 +349,17 @@ include "../includes/sidebar.php";
 <body>
 
 <div class="content">
-    <h1>Edit Quotation - <?= htmlspecialchars($quote['quote_no']) ?></h1>
+    <h1>Edit <?= $editingReleased ? 'Proforma Invoice' : 'Quotation' ?> - <?= htmlspecialchars($editingReleased ? ($quote['pi_no'] ?? $quote['quote_no']) : $quote['quote_no']) ?></h1>
+
+    <?php if ($editingReleased): ?>
+    <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 1.3em;">&#9888;</span>
+        <div>
+            <strong style="color: #856404;">Admin Edit Mode</strong> &mdash;
+            <span style="color: #856404;">You are editing a released Proforma Invoice. Changes will update the PI directly.</span>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if (!empty($errors)): ?>
         <div class="alert error">
@@ -396,15 +413,24 @@ include "../includes/sidebar.php";
                 <div class="form-group" id="status">
                     <label style="font-size: 1.1em;">Status</label>
                     <select name="status" style="border: 2px solid #4a90d9; padding: 10px; font-size: 1em;">
+                        <?php if ($editingReleased): ?>
+                            <option value="released" selected>Released (PI)</option>
+                        <?php endif; ?>
                         <option value="draft" <?= $quote['status'] === 'draft' ? 'selected' : '' ?>>Draft</option>
                         <option value="sent" <?= $quote['status'] === 'sent' ? 'selected' : '' ?>>Sent</option>
                         <option value="accepted" <?= $quote['status'] === 'accepted' ? 'selected' : '' ?>>Accepted</option>
                         <option value="rejected" <?= $quote['status'] === 'rejected' ? 'selected' : '' ?>>Rejected</option>
                         <option value="expired" <?= $quote['status'] === 'expired' ? 'selected' : '' ?>>Expired</option>
                     </select>
+                    <?php if ($editingReleased): ?>
+                    <small style="color: #856404; background: #fff3cd; padding: 5px 10px; border-radius: 4px; display: block; margin-top: 5px;">
+                        Status is "Released". Changing status will un-release this PI.
+                    </small>
+                    <?php else: ?>
                     <small style="color: #155724; background: #d4edda; padding: 5px 10px; border-radius: 4px; display: block; margin-top: 5px;">
                         Set to "Accepted" to enable Release as PI
                     </small>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -543,8 +569,8 @@ include "../includes/sidebar.php";
             </div>
         </div>
 
-        <button type="submit" class="btn btn-success">Update Quotation</button>
-        <a href="view.php?id=<?= $id ?>" class="btn btn-secondary">Cancel</a>
+        <button type="submit" class="btn btn-success">Update <?= $editingReleased ? 'Proforma Invoice' : 'Quotation' ?></button>
+        <a href="<?= $editingReleased ? '/proforma/view.php?id=' . $id : 'view.php?id=' . $id ?>" class="btn btn-secondary">Cancel</a>
     </form>
 </div>
 
