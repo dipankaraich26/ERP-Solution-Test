@@ -236,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $soStmt = $pdo->prepare("
                     SELECT DISTINCT so_no, sales_date, customer_id, customer_po_id, linked_quote_id, status
                     FROM sales_orders
-                    WHERE linked_quote_id = ? AND status NOT IN ('cancelled', 'completed', 'released')
+                    WHERE linked_quote_id = ? AND status NOT IN ('cancelled')
                 ");
                 $soStmt->execute([$id]);
                 $linkedSOs = $soStmt->fetchAll(PDO::FETCH_ASSOC);
