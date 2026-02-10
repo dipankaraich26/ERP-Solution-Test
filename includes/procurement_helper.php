@@ -2109,9 +2109,31 @@ function refreshPlanFromBOM($pdo, int $planId): array {
             ")->execute([$planId]);
         }
 
+        // Force-remove deactivated parts from the plan (regardless of linked WO/PO)
+        $deactivatedWo = $pdo->prepare("
+            DELETE FROM procurement_plan_wo_items
+            WHERE plan_id = ? AND part_no IN (
+                SELECT part_no FROM part_master WHERE status != 'active'
+            )
+        ");
+        $deactivatedWo->execute([$planId]);
+        $removedWo = $deactivatedWo->rowCount();
+
+        $deactivatedPo = $pdo->prepare("
+            DELETE FROM procurement_plan_po_items
+            WHERE plan_id = ? AND part_no IN (
+                SELECT part_no FROM part_master WHERE status != 'active'
+            )
+        ");
+        $deactivatedPo->execute([$planId]);
+        $removedPo = $deactivatedPo->rowCount();
+
+        $removedTotal = $removedWo + $removedPo;
+        $deactivatedMsg = $removedTotal > 0 ? " Removed $removedTotal deactivated part(s)." : '';
+
         return [
             'success' => true,
-            'message' => 'BOM refreshed successfully. WO items: ' . count($workOrderItems) . ', PO items: ' . count($subletItems),
+            'message' => 'BOM refreshed successfully. WO items: ' . count($workOrderItems) . ', PO items: ' . count($subletItems) . $deactivatedMsg,
             'wo_count' => count($workOrderItems),
             'po_count' => count($subletItems)
         ];
