@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
 
             if ($line) {
                 try {
-                    $pdo->prepare("INSERT INTO stock_entries (po_id, part_no, received_qty, invoice_no, remarks, status) VALUES (?, ?, 0, ?, ?, 'posted')")
+                    $pdo->prepare("INSERT INTO stock_entries (po_id, part_no, received_qty, invoice_no, remarks, status, received_date) VALUES (?, ?, 0, ?, ?, 'posted', CURDATE())")
                          ->execute([$line['id'], $line['part_no'], $invoiceNo, $remarks]);
                     setModal('Added', 'Receipt note added successfully.');
                 } catch (Exception $e) {

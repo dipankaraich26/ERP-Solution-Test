@@ -1394,6 +1394,56 @@ function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null):
  */
 function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
     foreach ($poItems as &$poItem) {
+
+        // Case 0 (Retroactive): Item has no PO link - check old procurement_plan_items table
+        // and purchase_orders.plan_id for POs created before the tracking fix
+        if (empty($poItem['created_po_id']) && ($poItem['status'] ?? '') === 'pending') {
+            try {
+                $linkedPo = null;
+
+                // Method 1: Check old procurement_plan_items table for PO reference
+                $oldRef = $pdo->prepare("
+                    SELECT ppi.created_po_id, po.po_no, po.qty, po.status as po_status
+                    FROM procurement_plan_items ppi
+                    JOIN purchase_orders po ON po.id = ppi.created_po_id
+                    WHERE ppi.plan_id = ? AND ppi.part_no = ? AND ppi.created_po_id IS NOT NULL
+                    LIMIT 1
+                ");
+                $oldRef->execute([$planId, $poItem['part_no']]);
+                $linkedPo = $oldRef->fetch(PDO::FETCH_ASSOC);
+
+                // Method 2: Check purchase_orders.plan_id directly
+                if (!$linkedPo) {
+                    $directRef = $pdo->prepare("
+                        SELECT id as created_po_id, po_no, qty, status as po_status
+                        FROM purchase_orders
+                        WHERE plan_id = ? AND part_no = ? AND status != 'cancelled'
+                        ORDER BY id DESC LIMIT 1
+                    ");
+                    $directRef->execute([$planId, $poItem['part_no']]);
+                    $linkedPo = $directRef->fetch(PDO::FETCH_ASSOC);
+                }
+
+                if ($linkedPo) {
+                    // Link the PO to the new tracking table
+                    updatePlanPoItemStatus(
+                        $pdo, $planId, $poItem['part_no'],
+                        (int)$linkedPo['created_po_id'], $linkedPo['po_no'], (float)$linkedPo['qty']
+                    );
+                    $poItem['status'] = 'ordered';
+                    $poItem['created_po_id'] = $linkedPo['created_po_id'];
+                    $poItem['created_po_no'] = $linkedPo['po_no'];
+                    $poItem['ordered_qty'] = $linkedPo['qty'];
+                    $poItem['actual_po_status'] = $linkedPo['po_status'];
+
+                    // Also fix purchase_orders.plan_id if it was missing
+                    $pdo->prepare("UPDATE purchase_orders SET plan_id = ? WHERE id = ? AND (plan_id IS NULL OR plan_id = 0)")
+                         ->execute([$planId, $linkedPo['created_po_id']]);
+                    continue;
+                }
+            } catch (Exception $e) {}
+        }
+
         // Case 1: Item already has linked PO but now has sufficient stock - unlink if it was auto-linked (not PP-created)
         if (!empty($poItem['created_po_id']) && ($poItem['status'] ?? '') === 'ordered' && ($poItem['shortage'] ?? 0) <= 0) {
             try {
@@ -1419,25 +1469,44 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
             continue;
         }
 
-        // Case 2: Pending item with shortage - try to auto-link an existing active PO
+        // Case 2: Pending item with shortage - try to auto-link an existing PO
         if (!empty($poItem['created_po_id'])) continue;
         if (($poItem['status'] ?? '') === 'po_cancelled') continue;
 
         if (($poItem['shortage'] ?? 0) > 0) {
+            // First try active POs (open/partial)
             $existingPo = findExistingActivePo($pdo, $poItem['part_no'], $planId);
             if ($existingPo) {
                 updatePlanPoItemStatus(
-                    $pdo,
-                    $planId,
-                    $poItem['part_no'],
-                    (int)$existingPo['id'],
-                    $existingPo['po_no'],
-                    (float)$existingPo['qty']
+                    $pdo, $planId, $poItem['part_no'],
+                    (int)$existingPo['id'], $existingPo['po_no'], (float)$existingPo['qty']
                 );
                 $poItem['status'] = 'ordered';
                 $poItem['created_po_id'] = $existingPo['id'];
                 $poItem['created_po_no'] = $existingPo['po_no'];
                 $poItem['ordered_qty'] = $existingPo['qty'];
+            } else {
+                // No active PO - check for a closed PO for this part (already received)
+                try {
+                    $closedFallback = $pdo->prepare("
+                        SELECT id, po_no, qty, status FROM purchase_orders
+                        WHERE part_no = ? AND status = 'closed'
+                        ORDER BY id DESC LIMIT 1
+                    ");
+                    $closedFallback->execute([$poItem['part_no']]);
+                    $closedPo = $closedFallback->fetch(PDO::FETCH_ASSOC);
+                    if ($closedPo) {
+                        updatePlanPoItemStatus(
+                            $pdo, $planId, $poItem['part_no'],
+                            (int)$closedPo['id'], $closedPo['po_no'], (float)$closedPo['qty']
+                        );
+                        $poItem['status'] = 'ordered';
+                        $poItem['created_po_id'] = $closedPo['id'];
+                        $poItem['created_po_no'] = $closedPo['po_no'];
+                        $poItem['ordered_qty'] = $closedPo['qty'];
+                        $poItem['actual_po_status'] = 'closed';
+                    }
+                } catch (Exception $e) {}
             }
             continue;
         }
@@ -1453,12 +1522,8 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
             $closedPo = $closedPoStmt->fetch(PDO::FETCH_ASSOC);
             if ($closedPo) {
                 updatePlanPoItemStatus(
-                    $pdo,
-                    $planId,
-                    $poItem['part_no'],
-                    (int)$closedPo['id'],
-                    $closedPo['po_no'],
-                    (float)$closedPo['qty']
+                    $pdo, $planId, $poItem['part_no'],
+                    (int)$closedPo['id'], $closedPo['po_no'], (float)$closedPo['qty']
                 );
                 $poItem['status'] = 'ordered';
                 $poItem['created_po_id'] = $closedPo['id'];
