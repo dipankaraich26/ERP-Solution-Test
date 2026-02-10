@@ -15,17 +15,23 @@ $customer = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$customer) { header("Location: logout.php"); exit; }
 
+$customer_code = $customer['customer_id'] ?? ($_SESSION['customer_code'] ?? '');
+
 $orders = [];
 try {
     $orderStmt = $pdo->prepare("
-        SELECT so.id, so.so_no, so.created_at, so.status, cp.po_no as customer_po_no,
-               (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = so.linked_quote_id) as total_value,
+        SELECT MIN(so.id) as id, so.so_no, MAX(so.created_at) as created_at, MAX(so.status) as status,
+               MAX(cp.po_no) as customer_po_no,
+               (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = MAX(so.linked_quote_id)) as total_value,
                (SELECT COUNT(*) FROM invoice_master WHERE so_no = so.so_no) as invoice_count
         FROM sales_orders so
         LEFT JOIN customer_po cp ON cp.id = so.customer_po_id
-        WHERE so.customer_id = ? GROUP BY so.so_no ORDER BY so.created_at DESC
+        WHERE so.customer_id = ?
+           OR so.customer_id = ?
+           OR so.customer_po_id IN (SELECT cpo.id FROM customer_po cpo WHERE cpo.customer_id = ?)
+        GROUP BY so.so_no ORDER BY MAX(so.created_at) DESC
     ");
-    $orderStmt->execute([$customer_id]);
+    $orderStmt->execute([$customer_id, $customer_code, $customer_code]);
     $orders = $orderStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
