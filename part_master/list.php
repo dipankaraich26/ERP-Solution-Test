@@ -517,8 +517,8 @@ $filterQueryString = !empty($filterParams) ? '&' . implode('&', $filterParams) :
             <td><?= htmlspecialchars($row['part_id']) ?></td>
             <td><?= htmlspecialchars($row['part_name']) ?></td>
             <td><?= htmlspecialchars($row['part_no']) ?></td>
-            <td><?= htmlspecialchars($row['category']) ?></td>
-            <td><?= htmlspecialchars($row['description']) ?></td>
+            <td><?= htmlspecialchars($row['category'] ?? '') ?></td>
+            <td><?= htmlspecialchars($row['description'] ?? '') ?></td>
             <td><?= htmlspecialchars($row['uom']) ?></td>
             <td title="<?= $row['supplier_count'] > 0 ? 'From supplier' : 'From part master' ?>">
                 <?= htmlspecialchars($row['display_rate']) ?>
@@ -526,8 +526,8 @@ $filterQueryString = !empty($filterParams) ? '&' . implode('&', $filterParams) :
                     <span style="color: #2563eb; font-size: 0.8em;" title="Rate from supplier">(S)</span>
                 <?php endif; ?>
             </td>
-            <td><?= htmlspecialchars($row['hsn_code']) ?></td>
-            <td><?= htmlspecialchars($row['gst']) ?></td>
+            <td><?= htmlspecialchars($row['hsn_code'] ?? '') ?></td>
+            <td><?= htmlspecialchars($row['gst'] ?? '') ?></td>
             <td style="text-align: center; font-weight: bold; color: <?= $row['current_stock'] > 0 ? '#16a34a' : '#dc2626' ?>;">
                 <?= $row['current_stock'] ?>
             </td>
