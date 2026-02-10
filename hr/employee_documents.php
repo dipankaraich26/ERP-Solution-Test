@@ -93,6 +93,76 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     }
 }
 
+// Handle add new document type
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_doc_type'])) {
+    $typeName = trim($_POST['type_name'] ?? '');
+    $typeCode = strtoupper(trim($_POST['type_code'] ?? ''));
+    $typeCategory = trim($_POST['type_category'] ?? 'Other');
+    $isMandatory = isset($_POST['is_mandatory']) ? 1 : 0;
+    $requiresExpiry = isset($_POST['requires_expiry']) ? 1 : 0;
+
+    if ($typeName && $typeCode) {
+        try {
+            $maxSort = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), 0) FROM document_types")->fetchColumn();
+            $stmt = $pdo->prepare("INSERT INTO document_types (type_name, type_code, category, is_mandatory, requires_expiry, sort_order) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$typeName, $typeCode, $typeCategory, $isMandatory, $requiresExpiry, $maxSort + 1]);
+            $message = "Document type '$typeName' added successfully!";
+        } catch (PDOException $e) {
+            if (strpos($e->getMessage(), 'Duplicate') !== false) {
+                $error = "Document type '$typeName' or code '$typeCode' already exists.";
+            } else {
+                $error = "Error adding document type: " . $e->getMessage();
+            }
+        }
+    } else {
+        $error = "Type name and code are required.";
+    }
+    // Preserve employee_id
+    if ($employee_id) {
+        header("Location: employee_documents.php?employee_id=$employee_id&manage_types=1");
+    } else {
+        header("Location: employee_documents.php?manage_types=1");
+    }
+    exit;
+}
+
+// Handle delete document type
+if (isset($_GET['delete_type']) && is_numeric($_GET['delete_type'])) {
+    $typeId = intval($_GET['delete_type']);
+    try {
+        // Check if any documents use this type
+        $typeRow = $pdo->prepare("SELECT type_name FROM document_types WHERE id = ?");
+        $typeRow->execute([$typeId]);
+        $typeData = $typeRow->fetch(PDO::FETCH_ASSOC);
+
+        if ($typeData) {
+            $usageCount = $pdo->prepare("SELECT COUNT(*) FROM employee_documents WHERE document_type = ?");
+            $usageCount->execute([$typeData['type_name']]);
+            $count = (int)$usageCount->fetchColumn();
+
+            if ($count > 0) {
+                $error = "Cannot delete '{$typeData['type_name']}' — $count document(s) use this type.";
+            } else {
+                $pdo->prepare("DELETE FROM document_types WHERE id = ?")->execute([$typeId]);
+                $message = "Document type '{$typeData['type_name']}' deleted.";
+            }
+        }
+    } catch (PDOException $e) {
+        $error = "Error deleting document type: " . $e->getMessage();
+    }
+}
+
+// Handle toggle active/inactive document type
+if (isset($_GET['toggle_type']) && is_numeric($_GET['toggle_type'])) {
+    $typeId = intval($_GET['toggle_type']);
+    try {
+        $pdo->prepare("UPDATE document_types SET is_active = IF(is_active = 1, 0, 1) WHERE id = ?")->execute([$typeId]);
+        $message = "Document type status updated.";
+    } catch (PDOException $e) {
+        $error = "Error: " . $e->getMessage();
+    }
+}
+
 // Handle document verification
 if (isset($_GET['verify']) && is_numeric($_GET['verify'])) {
     $docId = intval($_GET['verify']);
@@ -117,10 +187,18 @@ $employees = $pdo->query("
     ORDER BY first_name, last_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch document types
+// Fetch document types (active only for upload form)
 $docTypes = $pdo->query("
     SELECT * FROM document_types WHERE is_active = 1 ORDER BY sort_order, type_name
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch ALL document types for management view
+$allDocTypes = $pdo->query("
+    SELECT dt.*, (SELECT COUNT(*) FROM employee_documents ed WHERE ed.document_type = dt.type_name) AS usage_count
+    FROM document_types dt ORDER BY dt.category, dt.sort_order, dt.type_name
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$showManageTypes = isset($_GET['manage_types']);
 
 // Fetch documents for selected employee
 $documents = [];
@@ -383,7 +461,13 @@ showModal();
 <body>
 
 <div class="content">
-    <h1>Employee Documents</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h1 style="margin: 0;">Employee Documents</h1>
+        <a href="?<?= $employee_id ? 'employee_id='.$employee_id.'&' : '' ?><?= $showManageTypes ? '' : 'manage_types=1' ?>"
+           class="btn <?= $showManageTypes ? 'btn-secondary' : 'btn-primary' ?>" style="white-space: nowrap;">
+            <?= $showManageTypes ? 'Back to Documents' : 'Manage Document Types' ?>
+        </a>
+    </div>
 
     <?php if ($message): ?>
     <div class="alert alert-success"><?= htmlspecialchars($message) ?></div>
@@ -392,6 +476,114 @@ showModal();
     <?php if ($error): ?>
     <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
+
+    <?php if ($showManageTypes): ?>
+    <!-- Document Types Management -->
+    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+        <h3 style="margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Add New Document Type</h3>
+        <form method="post" action="employee_documents.php<?= $employee_id ? '?employee_id='.$employee_id : '' ?>">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                <div class="form-group">
+                    <label>Type Name *</label>
+                    <input type="text" name="type_name" required placeholder="e.g., ESI Card" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                </div>
+                <div class="form-group">
+                    <label>Type Code *</label>
+                    <input type="text" name="type_code" required placeholder="e.g., ESI" maxlength="20" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;text-transform:uppercase;">
+                </div>
+                <div class="form-group">
+                    <label>Category *</label>
+                    <select name="type_category" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                        <option value="Identity">Identity</option>
+                        <option value="Education">Education</option>
+                        <option value="Employment">Employment</option>
+                        <option value="Financial">Financial</option>
+                        <option value="Medical">Medical</option>
+                        <option value="Other" selected>Other</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display: flex; gap: 20px; align-items: end; padding-bottom: 5px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" name="is_mandatory"> Mandatory
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" name="requires_expiry"> Has Expiry
+                    </label>
+                </div>
+            </div>
+            <button type="submit" name="add_doc_type" class="btn btn-success" style="margin-top: 10px;">Add Document Type</button>
+        </form>
+    </div>
+
+    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h3 style="margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+            All Document Types (<?= count($allDocTypes) ?>)
+        </h3>
+        <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Type Name</th>
+                    <th>Code</th>
+                    <th>Category</th>
+                    <th>Mandatory</th>
+                    <th>Expiry</th>
+                    <th>Status</th>
+                    <th>Used By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                $catColors = ['Identity' => '#007bff', 'Education' => '#28a745', 'Employment' => '#17a2b8', 'Financial' => '#ffc107', 'Medical' => '#e83e8c', 'Other' => '#6c757d'];
+                foreach ($allDocTypes as $dt):
+                    $catColor = $catColors[$dt['category']] ?? '#6c757d';
+                ?>
+                <tr style="<?= !$dt['is_active'] ? 'opacity: 0.5;' : '' ?>">
+                    <td><strong><?= htmlspecialchars($dt['type_name']) ?></strong></td>
+                    <td><code><?= htmlspecialchars($dt['type_code']) ?></code></td>
+                    <td>
+                        <span style="background: <?= $catColor ?>; color: <?= $dt['category'] === 'Financial' ? '#333' : 'white' ?>; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;">
+                            <?= htmlspecialchars($dt['category'] ?: 'Other') ?>
+                        </span>
+                    </td>
+                    <td style="text-align: center;"><?= $dt['is_mandatory'] ? '<span style="color:#28a745;font-weight:bold;">Yes</span>' : '-' ?></td>
+                    <td style="text-align: center;"><?= $dt['requires_expiry'] ? '<span style="color:#ffc107;font-weight:bold;">Yes</span>' : '-' ?></td>
+                    <td style="text-align: center;">
+                        <?php if ($dt['is_active']): ?>
+                            <span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:0.8em;">Active</span>
+                        <?php else: ?>
+                            <span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:0.8em;">Inactive</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="text-align: center;">
+                        <?php if ($dt['usage_count'] > 0): ?>
+                            <span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:10px;font-size:0.85em;"><?= $dt['usage_count'] ?> docs</span>
+                        <?php else: ?>
+                            <span style="color:#ccc;">0</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="white-space: nowrap;">
+                        <a href="?<?= $employee_id ? 'employee_id='.$employee_id.'&' : '' ?>manage_types=1&toggle_type=<?= $dt['id'] ?>"
+                           class="btn btn-sm <?= $dt['is_active'] ? 'btn-secondary' : 'btn-success' ?>"
+                           style="padding:4px 8px;font-size:0.85em;">
+                            <?= $dt['is_active'] ? 'Deactivate' : 'Activate' ?>
+                        </a>
+                        <?php if ($dt['usage_count'] == 0): ?>
+                        <a href="?<?= $employee_id ? 'employee_id='.$employee_id.'&' : '' ?>manage_types=1&delete_type=<?= $dt['id'] ?>"
+                           class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:0.85em;"
+                           onclick="return confirm('Delete document type \'<?= htmlspecialchars($dt['type_name']) ?>\'?');">
+                            Delete
+                        </a>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+    </div>
+    <?php else: ?>
 
     <div class="doc-container">
         <!-- Employee Selector -->
@@ -589,6 +781,7 @@ showModal();
             <?php endif; ?>
         </div>
     </div>
+    <?php endif; ?>
 </div>
 
 <script>
