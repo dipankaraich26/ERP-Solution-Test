@@ -231,6 +231,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Note: Lead status is updated to HOT when PI is released (not when quotation is accepted)
             // Workflow: Cold → Warm (quotation created) → Hot (PI released) → Converted (Invoice released)
 
+            // Sync linked Sales Orders when editing a released PI
+            if ($editingReleased) {
+                $soStmt = $pdo->prepare("
+                    SELECT DISTINCT so_no, sales_date, customer_id, customer_po_id, linked_quote_id, status
+                    FROM sales_orders
+                    WHERE linked_quote_id = ? AND status NOT IN ('cancelled', 'completed', 'released')
+                ");
+                $soStmt->execute([$id]);
+                $linkedSOs = $soStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (!empty($linkedSOs)) {
+                    // Get the newly updated quote items
+                    $newItemsStmt = $pdo->prepare("SELECT part_no, qty FROM quote_items WHERE quote_id = ?");
+                    $newItemsStmt->execute([$id]);
+                    $newQuoteItems = $newItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    foreach ($linkedSOs as $so) {
+                        // Delete old SO items
+                        $pdo->prepare("DELETE FROM sales_orders WHERE so_no = ?")->execute([$so['so_no']]);
+
+                        // Re-insert with updated parts and quantities
+                        $soInsert = $pdo->prepare("
+                            INSERT INTO sales_orders
+                            (so_no, part_no, qty, sales_date, customer_id, customer_po_id, linked_quote_id, status, stock_status)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ");
+
+                        foreach ($newQuoteItems as $qItem) {
+                            $stockStmt = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+                            $stockStmt->execute([$qItem['part_no']]);
+                            $available = (int)$stockStmt->fetchColumn();
+                            $stockStatus = ($available >= $qItem['qty']) ? 'ok' : 'insufficient';
+
+                            $soInsert->execute([
+                                $so['so_no'],
+                                $qItem['part_no'],
+                                $qItem['qty'],
+                                $so['sales_date'],
+                                $so['customer_id'],
+                                $so['customer_po_id'],
+                                $so['linked_quote_id'],
+                                $so['status'],
+                                $stockStatus
+                            ]);
+                        }
+                    }
+                }
+            }
+
             $pdo->commit();
             header("Location: view.php?id=" . $id);
             exit;
