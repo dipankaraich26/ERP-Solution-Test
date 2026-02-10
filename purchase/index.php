@@ -737,6 +737,7 @@ function loadPartsForSupplier(supplierId) {
                             <th>Part Name</th>
                             <th>HSN Code</th>
                             <th>Unit</th>
+                            <th>Current Stock</th>
                             <th style="width: 120px;">Rate</th>
                             <th style="width: 100px;">Quantity *</th>
                         </tr>
@@ -760,6 +761,9 @@ function loadPartsForSupplier(supplierId) {
                         <td>${htmlEscape(part.part_name)}</td>
                         <td>${htmlEscape(part.hsn_code || '-')}</td>
                         <td>${htmlEscape(part.uom || 'Nos')}</td>
+                        <td style="text-align: center; font-weight: bold; color: ${parseInt(part.current_stock) > 0 ? '#27ae60' : '#e74c3c'};">
+                            ${parseInt(part.current_stock || 0)}
+                        </td>
                         <td>
                             <input type="number" step="0.01" min="0"
                                    id="rate_${index}"

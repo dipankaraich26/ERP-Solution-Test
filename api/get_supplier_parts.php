@@ -26,9 +26,11 @@ try {
             psm.lead_time_days,
             psm.min_order_qty,
             psm.supplier_sku,
-            psm.is_preferred
+            psm.is_preferred,
+            COALESCE(inv.qty, 0) AS current_stock
         FROM part_supplier_mapping psm
         JOIN part_master pm ON psm.part_no = pm.part_no
+        LEFT JOIN inventory inv ON inv.part_no = psm.part_no
         WHERE psm.supplier_id = ?
         AND psm.active = 1
         AND pm.status = 'active'
