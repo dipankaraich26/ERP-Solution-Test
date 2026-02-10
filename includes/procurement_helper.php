@@ -744,6 +744,7 @@ function getBomChildParts($pdo, string $parentPartNo): array {
         JOIN bom_items bi ON bm.id = bi.bom_id
         JOIN part_master p ON bi.component_part_no = p.part_no
         WHERE bm.parent_part_no = ? AND bm.status = 'active'
+        AND p.status = 'active'
         ORDER BY p.part_name
     ");
     $stmt->execute([$parentPartNo]);
@@ -907,6 +908,7 @@ function getAllPartsForSalesOrders($pdo, array $selectedSOs, array $selectedPart
         JOIN part_master p ON so.part_no = p.part_no
         WHERE so.so_no IN ($placeholders_so)
         AND so.status NOT IN ('cancelled', 'closed', 'completed')
+        AND p.status = 'active'
         $partFilter
     ");
     $stmt->execute($params);
