@@ -259,12 +259,22 @@ if ($planDetails) {
     }
     unset($woItem);
 
-    // Refresh real-time stock for PO items
+    // Refresh real-time stock for PO items + fetch actual PO status
     foreach ($poItems as &$poItem) {
         try {
             $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no'], $planId);
             $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
         } catch (Exception $e) {}
+        if (!empty($poItem['created_po_id'])) {
+            try {
+                $poStatusStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                $poStatusStmt->execute([$poItem['created_po_id']]);
+                $actualPoStatus = $poStatusStmt->fetchColumn();
+                if ($actualPoStatus) {
+                    $poItem['actual_po_status'] = $actualPoStatus;
+                }
+            } catch (Exception $e) {}
+        }
     }
     unset($poItem);
 
@@ -361,8 +371,9 @@ if ($planDetails) {
         if ($planIsCompleted) {
             $inStockOrDoneParts++;
         } elseif (!empty($pi['created_po_id'])) {
+            $actualPoSt = $pi['actual_po_status'] ?? '';
             $poSt = $pi['status'] ?? '';
-            if (in_array($poSt, ['received', 'closed'])) {
+            if (in_array($actualPoSt, ['closed', 'received']) || in_array($poSt, ['received', 'closed'])) {
                 $inStockOrDoneParts++;
             }
         } elseif ($pi['shortage'] <= 0) {
@@ -1041,14 +1052,17 @@ if ($planDetails) {
                     <?php foreach ($poItems as $idx => $item):
                         $isCancelled = ($item['status'] ?? '') === 'po_cancelled';
                         $hasPO = !empty($item['created_po_id']) && !$isCancelled;
+                        $isPOClosed = $hasPO && in_array($item['actual_po_status'] ?? '', ['closed', 'received']);
                         $cancelledPoNo = $item['cancelled_po_no'] ?? $item['created_po_no'] ?? '';
                         if ($planIsCompleted) { $poRowBg = '#f3f4f6'; }
                         elseif ($isCancelled) { $poRowBg = '#fef2f2'; }
+                        elseif ($isPOClosed) { $poRowBg = '#dcfce7'; }
                         elseif ($hasPO) { $poRowBg = '#dcfce7'; }
                         else { $poRowBg = $idx % 2 ? '#fffbeb' : '#fef9e7'; }
                         // Determine row filter status
                         if ($planIsCompleted) { $poRowFilter = 'closed'; }
                         elseif ($isCancelled) { $poRowFilter = 'cancelled'; }
+                        elseif ($isPOClosed) { $poRowFilter = 'in_stock'; }
                         elseif ($hasPO) { $poRowFilter = 'ordered'; }
                         elseif ($item['shortage'] <= 0) { $poRowFilter = 'in_stock'; }
                         else { $poRowFilter = 'pending'; }
@@ -1085,6 +1099,12 @@ if ($planDetails) {
                                     <?php if ($cancelledPoNo): ?>
                                         <br><small style="color: #dc2626; text-decoration: line-through;"><?= htmlspecialchars($cancelledPoNo) ?></small>
                                     <?php endif; ?>
+                                <?php elseif ($isPOClosed): ?>
+                                    <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
+                                        In Stock
+                                    </span>
+                                    <br><small style="color: #059669;">PO Closed</small>
+                                    <br><small style="color: #059669;"><?= htmlspecialchars($item['created_po_no']) ?></small>
                                 <?php elseif ($hasPO): ?>
                                     <span style="display: inline-block; padding: 4px 10px; background: #16a34a; color: white; border-radius: 15px; font-size: 0.8em;">
                                         Ordered
@@ -1116,6 +1136,14 @@ if ($planDetails) {
                                             Generate New PO
                                         </button>
                                     </form>
+                                <?php elseif ($isPOClosed): ?>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
+                                        <span style="color: #16a34a;">✓ Received</span>
+                                        <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
+                                           class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
+                                            View PO
+                                        </a>
+                                    </div>
                                 <?php elseif ($hasPO): ?>
                                     <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                                         <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
@@ -1151,9 +1179,12 @@ if ($planDetails) {
                 <?php foreach ($poItemsBySO as $soNo => $soItems):
                     $allDone = $planIsCompleted;
                     $soOrdered = 0; $soPending = 0; $soInStock = 0; $soCancelled = 0;
+                    $soReceived = 0;
                     if (!$planIsCompleted) {
                         foreach ($soItems as $si) {
+                            $siActualPoStatus = $si['actual_po_status'] ?? '';
                             if (($si['status'] ?? '') === 'po_cancelled') { $soCancelled++; }
+                            elseif (!empty($si['created_po_id']) && in_array($siActualPoStatus, ['closed', 'received'])) { $soReceived++; $soInStock++; }
                             elseif (!empty($si['created_po_id']) && ($si['status'] ?? '') !== 'po_cancelled') { $soOrdered++; }
                             elseif (($si['shortage'] ?? 0) <= 0) { $soInStock++; }
                             else { $soPending++; }
