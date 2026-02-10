@@ -97,7 +97,7 @@ foreach ($orders as &$o) {
             try {
                 $progress = calculatePlanProgress($pdo, (int)$pp['id'], $pp['status']);
                 $o['pp_progress'] = $progress['percentage'];
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 $o['pp_progress'] = 0;
             }
             break;

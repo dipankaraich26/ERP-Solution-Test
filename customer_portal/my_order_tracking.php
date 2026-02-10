@@ -1,6 +1,7 @@
 <?php
 session_start();
 include "../db.php";
+include "../includes/procurement_helper.php";
 
 if (!isset($_SESSION['customer_logged_in']) || !$_SESSION['customer_logged_in']) {
     header("Location: login.php");
@@ -60,35 +61,13 @@ foreach ($quotations as &$q) {
                 $ppStmt->execute([$so['so_no']]);
                 $pp = $ppStmt->fetch(PDO::FETCH_ASSOC);
                 if ($pp) {
-                    // Calculate progress for this plan
-                    $progress = 0;
-                    if ($pp['status'] === 'completed') {
-                        $progress = 100;
-                    } else {
-                        try {
-                            // Count total WO+PO items
-                            $totalStmt = $pdo->prepare("
-                                SELECT
-                                    (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ?) +
-                                    (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ?) as total
-                            ");
-                            $totalStmt->execute([$pp['id'], $pp['id']]);
-                            $totalParts = (int)$totalStmt->fetchColumn();
-
-                            if ($totalParts > 0) {
-                                // Count completed/in-stock items
-                                $doneStmt = $pdo->prepare("
-                                    SELECT
-                                        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ? AND (status IN ('completed', 'closed') OR (created_wo_id IS NULL AND shortage <= 0))) +
-                                        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ? AND (status IN ('received', 'closed') OR (created_po_id IS NULL AND shortage <= 0))) as done
-                                ");
-                                $doneStmt->execute([$pp['id'], $pp['id']]);
-                                $doneParts = (int)$doneStmt->fetchColumn();
-                                $progress = round(($doneParts / $totalParts) * 100);
-                            }
-                        } catch (Exception $e) {}
+                    // Calculate progress for this plan using real-time stock data
+                    try {
+                        $progressResult = calculatePlanProgress($pdo, (int)$pp['id'], $pp['status']);
+                        $pp['progress'] = $progressResult['percentage'];
+                    } catch (\Throwable $e) {
+                        $pp['progress'] = 0;
                     }
-                    $pp['progress'] = $progress;
                     $q['procurement_plans'][] = $pp;
                     if ($progress > $q['pp_progress']) {
                         $q['pp_progress'] = $progress;

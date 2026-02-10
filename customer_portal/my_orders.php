@@ -1,6 +1,7 @@
 <?php
 session_start();
 include "../db.php";
+include "../includes/procurement_helper.php";
 
 if (!isset($_SESSION['customer_logged_in']) || !$_SESSION['customer_logged_in']) {
     header("Location: login.php");
@@ -46,31 +47,14 @@ foreach ($orders as &$o) {
         if ($pp) {
             $o['pp_no'] = $pp['plan_no'];
             $o['pp_status'] = $pp['status'];
-            if ($pp['status'] === 'completed') {
-                $o['pp_progress'] = 100;
-            } else {
-                $totalStmt = $pdo->prepare("
-                    SELECT
-                        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ?) +
-                        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ?) as total
-                ");
-                $totalStmt->execute([$pp['id'], $pp['id']]);
-                $totalParts = (int)$totalStmt->fetchColumn();
-                if ($totalParts > 0) {
-                    $doneStmt = $pdo->prepare("
-                        SELECT
-                            (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = ? AND (status IN ('completed', 'closed') OR (created_wo_id IS NULL AND shortage <= 0))) +
-                            (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = ? AND (status IN ('received', 'closed') OR (created_po_id IS NULL AND shortage <= 0))) as done
-                    ");
-                    $doneStmt->execute([$pp['id'], $pp['id']]);
-                    $doneParts = (int)$doneStmt->fetchColumn();
-                    $o['pp_progress'] = round(($doneParts / $totalParts) * 100);
-                } else {
-                    $o['pp_progress'] = 0;
-                }
+            try {
+                $progress = calculatePlanProgress($pdo, (int)$pp['id'], $pp['status']);
+                $o['pp_progress'] = $progress['percentage'];
+            } catch (\Throwable $e) {
+                $o['pp_progress'] = 0;
             }
         }
-    } catch (Exception $e) {}
+    } catch (\Throwable $e) {}
 }
 unset($o);
 
@@ -157,12 +141,22 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
                     <td class="text-center"><?= $o['invoice_count'] > 0 ? '<span class="invoice-badge">' . $o['invoice_count'] . '</span>' : '-' ?></td>
                     <td><span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>"><?= htmlspecialchars($o['status'] ?: 'Pending') ?></span></td>
                     <td>
-                        <?php if ($o['pp_progress'] !== null): ?>
-                            <div style="display: flex; align-items: center; gap: 8px; min-width: 120px;">
-                                <div style="background: #e9ecef; border-radius: 4px; width: 70px; height: 20px; overflow: hidden; flex-shrink: 0;">
-                                    <div style="background: <?= $o['pp_progress'] >= 100 ? '#27ae60' : ($o['pp_progress'] > 0 ? '#3498db' : '#e9ecef') ?>; height: 100%; width: <?= $o['pp_progress'] ?>%; border-radius: 4px;"></div>
+                        <?php if ($o['pp_no']): ?>
+                            <?php
+                            $ppProg = $o['pp_progress'] ?? 0;
+                            $ppStLbl = $o['pp_status'] === 'partiallyordered' ? 'Partially Ordered' : ucfirst($o['pp_status'] ?? 'Draft');
+                            $ppBarColor = $ppProg >= 100 ? '#27ae60' : ($ppProg > 0 ? '#3498db' : '#f39c12');
+                            ?>
+                            <div style="min-width: 130px;">
+                                <div style="font-size: 0.8em; color: #666; margin-bottom: 3px;">
+                                    <?= htmlspecialchars($o['pp_no']) ?> - <?= $ppStLbl ?>
                                 </div>
-                                <span style="font-size: 0.85em; font-weight: 600; color: <?= $o['pp_progress'] >= 100 ? '#27ae60' : '#2c3e50' ?>;"><?= $o['pp_progress'] ?>%</span>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="background: #e9ecef; border-radius: 4px; width: 70px; height: 20px; overflow: hidden; flex-shrink: 0;">
+                                        <div style="background: <?= $ppBarColor ?>; height: 100%; width: <?= max($ppProg, 5) ?>%; border-radius: 4px;"></div>
+                                    </div>
+                                    <span style="font-size: 0.85em; font-weight: 600; color: <?= $ppProg >= 100 ? '#27ae60' : '#2c3e50' ?>;"><?= $ppProg ?>%</span>
+                                </div>
                             </div>
                         <?php else: ?>
                             <span style="color: #999; font-size: 0.85em;">-</span>
