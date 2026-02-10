@@ -2015,28 +2015,8 @@ function refreshPlanFromBOM($pdo, int $planId): array {
             return ['success' => false, 'message' => 'No valid SO numbers found'];
         }
 
-        // Check which SOs are still active (not released/closed/completed)
-        $activeSOs = [];
-        foreach ($soNumbers as $soNo) {
-            $soStmt = $pdo->prepare("SELECT DISTINCT status FROM sales_orders WHERE so_no = ?");
-            $soStmt->execute([$soNo]);
-            $soStatuses = $soStmt->fetchAll(PDO::FETCH_COLUMN);
-            // Include SO if at least one line is not released/closed/completed
-            $hasActive = false;
-            foreach ($soStatuses as $st) {
-                if (!in_array($st, ['released', 'closed', 'completed', 'cancelled'])) {
-                    $hasActive = true;
-                    break;
-                }
-            }
-            if ($hasActive) {
-                $activeSOs[] = $soNo;
-            }
-        }
-
-        if (empty($activeSOs)) {
-            return ['success' => false, 'message' => 'All linked SOs are already released'];
-        }
+        // Note: We allow BOM refresh even if SOs are released, since the BOM itself may have changed.
+        // The getAllPartsForSalesOrders function already filters out cancelled/closed/completed SO lines.
 
         // Re-run BOM explosion for all linked SOs (including released ones for completeness)
         $allParts = getAllPartsForSalesOrders($pdo, $soNumbers);
@@ -2102,6 +2082,12 @@ function refreshPlanFromBOM($pdo, int $planId): array {
                 WHERE plan_id = ? AND part_no NOT IN ($woPlaceholders)
                 AND (created_wo_id IS NULL OR created_wo_id = 0)
             ")->execute(array_merge([$planId], $newWoPartNos));
+        } else {
+            // No WO items in updated BOM - remove all unlinked WO items
+            $pdo->prepare("
+                DELETE FROM procurement_plan_wo_items
+                WHERE plan_id = ? AND (created_wo_id IS NULL OR created_wo_id = 0)
+            ")->execute([$planId]);
         }
 
         // Remove PO items no longer in BOM (only if they don't have a linked PO)
@@ -2113,6 +2099,12 @@ function refreshPlanFromBOM($pdo, int $planId): array {
                 WHERE plan_id = ? AND part_no NOT IN ($poPlaceholders)
                 AND (created_po_id IS NULL OR created_po_id = 0)
             ")->execute(array_merge([$planId], $newPoPartNos));
+        } else {
+            // No PO items in updated BOM - remove all unlinked PO items
+            $pdo->prepare("
+                DELETE FROM procurement_plan_po_items
+                WHERE plan_id = ? AND (created_po_id IS NULL OR created_po_id = 0)
+            ")->execute([$planId]);
         }
 
         return [
