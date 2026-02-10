@@ -1,11 +1,63 @@
 <?php
 include "../db.php";
-include "../includes/sidebar.php";
+include "../includes/auth.php";
+requireLogin();
+include "../includes/dialog.php";
 
+$isAdmin = getUserRole() === 'admin';
 $po_no = $_GET['po_no'] ?? null;
 if (!$po_no) {
     die("Invalid Purchase Order");
 }
+
+/* --- Handle Receipt Details Update (Admin only) --- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAdmin) {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'update_receipt') {
+        $entryId = (int)($_POST['entry_id'] ?? 0);
+        $invoiceNo = trim($_POST['invoice_no'] ?? '');
+        $remarks = trim($_POST['remarks'] ?? '');
+
+        if ($entryId > 0) {
+            try {
+                $pdo->prepare("UPDATE stock_entries SET invoice_no = ?, remarks = ? WHERE id = ?")
+                     ->execute([$invoiceNo, $remarks, $entryId]);
+                setModal('Updated', 'Receipt details updated successfully.');
+            } catch (Exception $e) {
+                setModal('Error', 'Failed to update: ' . $e->getMessage());
+            }
+            header("Location: view.php?po_no=" . urlencode($po_no));
+            exit;
+        }
+    }
+
+    if ($action === 'add_receipt_note') {
+        $invoiceNo = trim($_POST['invoice_no'] ?? '');
+        $remarks = trim($_POST['remarks'] ?? '');
+
+        if ($invoiceNo || $remarks) {
+            // Get any PO line ID for this PO
+            $firstLine = $pdo->prepare("SELECT id, part_no FROM purchase_orders WHERE po_no = ? LIMIT 1");
+            $firstLine->execute([$po_no]);
+            $line = $firstLine->fetch(PDO::FETCH_ASSOC);
+
+            if ($line) {
+                try {
+                    $pdo->prepare("INSERT INTO stock_entries (po_id, part_no, received_qty, invoice_no, remarks, status) VALUES (?, ?, 0, ?, ?, 'posted')")
+                         ->execute([$line['id'], $line['part_no'], $invoiceNo, $remarks]);
+                    setModal('Added', 'Receipt note added successfully.');
+                } catch (Exception $e) {
+                    setModal('Error', 'Failed to add note: ' . $e->getMessage());
+                }
+            }
+            header("Location: view.php?po_no=" . urlencode($po_no));
+            exit;
+        }
+    }
+}
+
+include "../includes/sidebar.php";
 
 /* --- Fetch Purchase Order Details --- */
 $stmt = $pdo->prepare("
@@ -50,6 +102,25 @@ $itemsStmt = $pdo->prepare("
 ");
 $itemsStmt->execute([$po_no]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch stock receipt entries for this PO
+$receiptStmt = $pdo->prepare("
+    SELECT se.id, se.po_id, se.part_no, pm.part_name, se.received_qty, se.invoice_no, se.remarks, se.status, se.received_date
+    FROM stock_entries se
+    JOIN purchase_orders po ON se.po_id = po.id
+    LEFT JOIN part_master pm ON pm.part_no = se.part_no
+    WHERE po.po_no = ?
+    ORDER BY se.received_date DESC, se.id DESC
+");
+$receiptStmt->execute([$po_no]);
+$receipts = $receiptStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Determine overall PO status
+$poStatuses = array_unique(array_column($items, 'status'));
+$allClosed = count($poStatuses) === 1 && $poStatuses[0] === 'closed';
+$allCancelled = count($poStatuses) === 1 && $poStatuses[0] === 'cancelled';
+$hasOpen = in_array('open', $poStatuses);
+$hasPartial = in_array('partial', $poStatuses);
 
 // Calculate totals for each item and grand totals
 $grandTaxable = 0;
@@ -173,6 +244,7 @@ if (toggle) {
 </script>
 
 <body>
+<?php showModal(); ?>
 
 <div class="content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -249,7 +321,21 @@ if (toggle) {
             <td class="text-right"><?= number_format($i['sgst_amt'], 2) ?></td>
             <td class="text-right"><?= number_format($i['total'], 2) ?></td>
             <td class="text-right hide-print"><?= $i['current_stock'] ?></td>
-            <td><?= htmlspecialchars($i['status']) ?></td>
+            <td>
+                <?php
+                $st = $i['status'];
+                $stBg = match($st) {
+                    'closed' => '#10b981',
+                    'partial' => '#f59e0b',
+                    'cancelled' => '#dc2626',
+                    'open' => '#3b82f6',
+                    default => '#6b7280'
+                };
+                ?>
+                <span style="display: inline-block; padding: 2px 8px; background: <?= $stBg ?>; color: white; border-radius: 10px; font-size: 0.85em;">
+                    <?= htmlspecialchars(ucfirst($st)) ?>
+                </span>
+            </td>
         </tr>
         <?php endforeach; ?>
 
@@ -268,9 +354,135 @@ if (toggle) {
     </table>
     </div>
 
+    <!-- Stock Receipt Details -->
+    <div class="no-print" style="margin-top: 30px;">
+        <h3 style="border-bottom: 2px solid #10b981; padding-bottom: 8px; color: #065f46;">
+            Stock Receipt Details
+            <?php if ($allClosed): ?>
+                <span style="display: inline-block; padding: 3px 12px; background: #10b981; color: white; border-radius: 12px; font-size: 0.7em; vertical-align: middle; margin-left: 10px;">All Received</span>
+            <?php elseif ($hasPartial): ?>
+                <span style="display: inline-block; padding: 3px 12px; background: #f59e0b; color: white; border-radius: 12px; font-size: 0.7em; vertical-align: middle; margin-left: 10px;">Partially Received</span>
+            <?php elseif ($allCancelled): ?>
+                <span style="display: inline-block; padding: 3px 12px; background: #dc2626; color: white; border-radius: 12px; font-size: 0.7em; vertical-align: middle; margin-left: 10px;">Cancelled</span>
+            <?php elseif ($hasOpen): ?>
+                <span style="display: inline-block; padding: 3px 12px; background: #3b82f6; color: white; border-radius: 12px; font-size: 0.7em; vertical-align: middle; margin-left: 10px;">Awaiting Receipt</span>
+            <?php endif; ?>
+        </h3>
+
+        <?php if (!empty($receipts)): ?>
+        <div style="overflow-x: auto;">
+        <table border="1" cellpadding="8" style="margin-top: 10px;">
+            <tr>
+                <th>#</th>
+                <th>Part No</th>
+                <th>Part Name</th>
+                <th>Received Qty</th>
+                <th>Invoice No</th>
+                <th>Received Date</th>
+                <th>Remarks</th>
+                <?php if ($isAdmin): ?>
+                    <th>Action</th>
+                <?php endif; ?>
+            </tr>
+            <?php foreach ($receipts as $ri => $r): ?>
+            <tr id="receipt-row-<?= $r['id'] ?>">
+                <td><?= $ri + 1 ?></td>
+                <td><?= htmlspecialchars($r['part_no']) ?></td>
+                <td><?= htmlspecialchars($r['part_name'] ?? '-') ?></td>
+                <td class="text-right"><?= (float)$r['received_qty'] ?></td>
+                <td>
+                    <span id="inv-display-<?= $r['id'] ?>"><?= htmlspecialchars($r['invoice_no'] ?: '-') ?></span>
+                </td>
+                <td><?= $r['received_date'] ? date('d M Y', strtotime($r['received_date'])) : '-' ?></td>
+                <td>
+                    <span id="rem-display-<?= $r['id'] ?>"><?= htmlspecialchars($r['remarks'] ?: '-') ?></span>
+                </td>
+                <?php if ($isAdmin): ?>
+                <td style="white-space: nowrap;">
+                    <button type="button" class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;"
+                            onclick="editReceipt(<?= $r['id'] ?>, <?= htmlspecialchars(json_encode($r['invoice_no'] ?? '')) ?>, <?= htmlspecialchars(json_encode($r['remarks'] ?? '')) ?>)">
+                        Edit
+                    </button>
+                </td>
+                <?php endif; ?>
+            </tr>
+            <?php endforeach; ?>
+        </table>
+        </div>
+        <?php else: ?>
+            <p style="color: #6b7280; padding: 15px 0;">No stock receipts recorded for this PO.</p>
+        <?php endif; ?>
+
+        <?php if ($isAdmin): ?>
+        <!-- Add Receipt Note (for missing invoice/remarks) -->
+        <div style="margin-top: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px;">
+            <h4 style="margin: 0 0 10px 0; color: #065f46;">Add Receipt Note</h4>
+            <form method="post" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+                <input type="hidden" name="action" value="add_receipt_note">
+                <div style="flex: 1; min-width: 200px;">
+                    <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #374151;">Invoice No</label>
+                    <input type="text" name="invoice_no" placeholder="e.g. INV-2026-001" style="width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px;">
+                </div>
+                <div style="flex: 2; min-width: 250px;">
+                    <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #374151;">Remarks</label>
+                    <input type="text" name="remarks" placeholder="e.g. Received in good condition, GRN-123" style="width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px;">
+                </div>
+                <button type="submit" class="btn btn-success" style="padding: 8px 20px;">Add Note</button>
+            </form>
+        </div>
+        <?php endif; ?>
+    </div>
+
     <br>
-    <a href="index.php" class="btn btn-secondary no-print">Back to Purchase Orders</a>
+    <div class="no-print" style="display: flex; gap: 10px;">
+        <a href="index.php" class="btn btn-secondary">Back to Purchase Orders</a>
+        <?php if ($hasOpen || $hasPartial): ?>
+            <a href="../stock_entry/receive_all.php?po_no=<?= urlencode($po_no) ?>" class="btn btn-success">Receive Stock</a>
+        <?php endif; ?>
+    </div>
 </div>
+
+<!-- Edit Receipt Modal -->
+<?php if ($isAdmin): ?>
+<div id="editReceiptModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 12px; padding: 25px; max-width: 500px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+        <h3 style="margin: 0 0 20px 0; color: #1f2937;">Edit Receipt Details</h3>
+        <form method="post" id="editReceiptForm">
+            <input type="hidden" name="action" value="update_receipt">
+            <input type="hidden" name="entry_id" id="editEntryId">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #374151;">Invoice No</label>
+                <input type="text" name="invoice_no" id="editInvoiceNo" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1em;">
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 5px; color: #374151;">Remarks</label>
+                <textarea name="remarks" id="editRemarks" rows="3" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1em; resize: vertical;"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()" style="padding: 8px 20px;">Cancel</button>
+                <button type="submit" class="btn btn-primary" style="padding: 8px 20px;">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function editReceipt(entryId, invoiceNo, remarks) {
+    document.getElementById('editEntryId').value = entryId;
+    document.getElementById('editInvoiceNo').value = invoiceNo || '';
+    document.getElementById('editRemarks').value = remarks || '';
+    document.getElementById('editReceiptModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('editReceiptModal').style.display = 'none';
+}
+
+document.getElementById('editReceiptModal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+});
+</script>
+<?php endif; ?>
 
 <script>
 function shareToWhatsApp() {
