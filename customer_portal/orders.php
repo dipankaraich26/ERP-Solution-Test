@@ -26,25 +26,27 @@ $orders = [];
 try {
     $orderStmt = $pdo->prepare("
         SELECT
-            so.id,
+            MIN(so.id) as id,
             so.so_no,
-            so.customer_po_id,
-            so.created_at,
-            so.status,
-            cp.po_no as customer_po_no,
-            cp.po_date as customer_po_date,
-            q.pi_no,
-            q.quote_no,
-            (SELECT SUM(total_amount) FROM quote_items WHERE quote_id = so.linked_quote_id) as total_value,
-            (SELECT COUNT(*) FROM invoice_master WHERE so_no = so.so_no) as invoice_count
+            MAX(so.customer_po_id) as customer_po_id,
+            MAX(so.created_at) as created_at,
+            MAX(so.status) as status,
+            MAX(so.linked_quote_id) as linked_quote_id,
+            MAX(cp.po_no) as customer_po_no,
+            MAX(cp.po_date) as customer_po_date,
+            MAX(q.pi_no) as pi_no,
+            MAX(q.quote_no) as quote_no,
+            (SELECT SUM(qi.total_amount) FROM quote_items qi WHERE qi.quote_id = MAX(so.linked_quote_id)) as total_value,
+            (SELECT COUNT(*) FROM invoice_master im WHERE im.so_no = so.so_no) as invoice_count
         FROM sales_orders so
         LEFT JOIN customer_po cp ON cp.id = so.customer_po_id
         LEFT JOIN quote_master q ON q.id = so.linked_quote_id
         WHERE so.customer_id = ?
+           OR so.customer_po_id IN (SELECT cpo.id FROM customer_po cpo WHERE cpo.customer_id = ?)
         GROUP BY so.so_no
-        ORDER BY so.created_at DESC
+        ORDER BY MAX(so.created_at) DESC
     ");
-    $orderStmt->execute([$customer_id]);
+    $orderStmt->execute([$customer_id, $customer['customer_id']]);
     $orders = $orderStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     // Handle error
