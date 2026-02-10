@@ -411,6 +411,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/admin/settings.php" class="<?= $currentDir === 'admin' && $current === 'settings.php' ? 'active' : '' ?>">Company Settings</a>
             <a href="/admin/users.php" class="<?= $currentDir === 'admin' && $current === 'users.php' ? 'active' : '' ?>">User Management</a>
             <a href="/admin/user_permissions.php" class="<?= $currentDir === 'admin' && $current === 'user_permissions.php' ? 'active' : '' ?>">User Permissions</a>
+            <a href="/admin/login_logs.php" class="<?= $currentDir === 'admin' && $current === 'login_logs.php' ? 'active' : '' ?>">Login & Activity Logs</a>
             <a href="/admin/locations.php" class="<?= $currentDir === 'admin' && $current === 'locations.php' ? 'active' : '' ?>">Location Management</a>
             <a href="/admin/attendance_settings.php" class="<?= $currentDir === 'admin' && $current === 'attendance_settings.php' ? 'active' : '' ?>">Attendance Settings</a>
             <a href="/admin/wo_approvers.php" class="<?= $currentDir === 'admin' && $current === 'wo_approvers.php' ? 'active' : '' ?>">WO Approvers</a>

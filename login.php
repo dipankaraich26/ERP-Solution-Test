@@ -32,15 +32,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['full_name'] = $user['full_name'];
             $_SESSION['role'] = $user['role'];
 
-            // Log activity
+            // Log activity with user agent
             $pdo->prepare("
-                INSERT INTO activity_log (user_id, action, module, ip_address)
-                VALUES (?, 'login', 'auth', ?)
-            ")->execute([$user['id'], $_SERVER['REMOTE_ADDR'] ?? '']);
+                INSERT INTO activity_log (user_id, action, module, details, ip_address)
+                VALUES (?, 'login', 'auth', ?, ?)
+            ")->execute([
+                $user['id'],
+                $_SERVER['HTTP_USER_AGENT'] ?? '',
+                $_SERVER['REMOTE_ADDR'] ?? ''
+            ]);
 
             header("Location: /");
             exit;
         } else {
+            // Log failed login attempt
+            try {
+                $pdo->prepare("
+                    INSERT INTO activity_log (user_id, action, module, details, ip_address)
+                    VALUES (NULL, 'login_failed', 'auth', ?, ?)
+                ")->execute([
+                    'Username: ' . $username . ' | ' . ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                    $_SERVER['REMOTE_ADDR'] ?? ''
+                ]);
+            } catch (Exception $e) {}
             $error = 'Invalid username or password';
         }
     }

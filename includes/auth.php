@@ -49,6 +49,17 @@ function requireLogin(): void {
         header("Location: /login.php");
         exit;
     }
+
+    // Auto-track module access based on current URL
+    $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+    $parts = explode('/', trim($scriptPath, '/'));
+    if (count($parts) >= 2) {
+        $module = $parts[0]; // e.g., 'hr', 'purchase', 'admin'
+        $page = $parts[1] ?? '';
+        trackModuleAccess($module, $page);
+    } elseif (count($parts) === 1 && $parts[0] !== '') {
+        trackModuleAccess('dashboard', $parts[0]);
+    }
 }
 
 /**
@@ -228,6 +239,38 @@ function logActivity(string $action, string $module, ?int $recordId = null, ?str
         $details,
         $_SERVER['REMOTE_ADDR'] ?? ''
     ]);
+}
+
+/**
+ * Track module access - logs which module a user visits
+ * Deduplicates: only logs once per module per session hour
+ */
+function trackModuleAccess(string $module, ?string $page = null): void {
+    if (!isLoggedIn()) return;
+
+    // Dedup key: module + current hour
+    $dedup = 'mod_' . $module . '_' . date('YmdH');
+    if (!isset($_SESSION['module_access_log'])) $_SESSION['module_access_log'] = [];
+    if (in_array($dedup, $_SESSION['module_access_log'])) return;
+
+    $_SESSION['module_access_log'][] = $dedup;
+    // Keep array from growing too large
+    if (count($_SESSION['module_access_log']) > 100) {
+        $_SESSION['module_access_log'] = array_slice($_SESSION['module_access_log'], -50);
+    }
+
+    global $pdo;
+    try {
+        $pdo->prepare("
+            INSERT INTO activity_log (user_id, action, module, details, ip_address)
+            VALUES (?, 'module_access', ?, ?, ?)
+        ")->execute([
+            getUserId(),
+            $module,
+            $page,
+            $_SERVER['REMOTE_ADDR'] ?? ''
+        ]);
+    } catch (Exception $e) {}
 }
 
 /**
