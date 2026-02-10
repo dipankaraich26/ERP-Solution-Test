@@ -29,7 +29,7 @@ try {
     $orders = $orderStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
-// Get procurement plan progress for each SO
+// Get procurement plan progress + stock status + lifecycle steps for each SO
 foreach ($orders as &$o) {
     $o['pp_progress'] = null;
     $o['pp_no'] = null;
@@ -55,6 +55,41 @@ foreach ($orders as &$o) {
             }
         }
     } catch (\Throwable $e) {}
+
+    // Check real-time stock for this SO
+    $o['stock_ok'] = false;
+    try {
+        $soLines = $pdo->prepare("SELECT part_no, qty FROM sales_orders WHERE so_no = ? AND status NOT IN ('cancelled')");
+        $soLines->execute([$o['so_no']]);
+        $lines = $soLines->fetchAll(PDO::FETCH_ASSOC);
+        $allOk = true;
+        foreach ($lines as $line) {
+            $stkQ = $pdo->prepare("SELECT COALESCE(qty, 0) FROM inventory WHERE part_no = ?");
+            $stkQ->execute([$line['part_no']]);
+            if ((int)$stkQ->fetchColumn() < (int)$line['qty']) { $allOk = false; break; }
+        }
+        $o['stock_ok'] = $allOk;
+    } catch (\Throwable $e) {}
+
+    // Build lifecycle steps
+    $status = strtolower($o['status'] ?? '');
+    $ppExists = !empty($o['pp_no']);
+    $ppPct = $o['pp_progress'] ?? 0;
+    $steps = [
+        'ordered'    => true,
+        'planning'   => $ppExists,
+        'production' => $ppExists && ($ppPct >= 100 || $o['pp_status'] === 'completed'),
+        'stock_ready'=> $o['stock_ok'] || $status === 'released',
+        'released'   => $status === 'released',
+        'invoiced'   => ($o['invoice_count'] ?? 0) > 0,
+    ];
+    $o['production_active'] = $ppExists && !$steps['production'];
+    $o['steps'] = $steps;
+
+    $totalSteps = count($steps);
+    $doneSteps = count(array_filter($steps));
+    if ($o['production_active']) { $doneSteps += $ppPct / 100; }
+    $o['so_progress'] = round(($doneSteps / $totalSteps) * 100);
 }
 unset($o);
 
@@ -101,6 +136,32 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
         .empty-state { text-align: center; padding: 60px 20px; color: #7f8c8d; }
         .empty-state .icon { font-size: 4em; margin-bottom: 15px; }
         .invoice-badge { background: #27ae60; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
+        .status-open, .status-active { background: #cce5ff; color: #004085; }
+        .status-released { background: #d4edda; color: #155724; }
+
+        /* Step tracker */
+        .order-progress { display: flex; align-items: center; gap: 0; justify-content: center; }
+        .progress-step {
+            width: 30px; height: 30px; border-radius: 50%; background: #e9ecef;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7em; color: white; flex-shrink: 0; position: relative; cursor: default;
+        }
+        .progress-step.done { background: #27ae60; }
+        .progress-step.active { background: #3498db; animation: pulse 1.5s infinite; }
+        .progress-step .step-label {
+            position: absolute; top: 34px; white-space: nowrap;
+            font-size: 0.8em; color: #999; font-weight: normal;
+        }
+        .progress-step.done .step-label { color: #27ae60; font-weight: 500; }
+        .progress-step.active .step-label { color: #3498db; font-weight: 500; }
+        .progress-line { width: 18px; height: 3px; background: #e9ecef; flex-shrink: 0; }
+        .progress-line.done { background: #27ae60; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(52,152,219,0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(52,152,219,0); }
+        }
+        .so-progress-cell { min-width: 280px; padding-bottom: 28px !important; }
+        .so-progress-pct { font-size: 0.8em; font-weight: bold; text-align: center; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -119,9 +180,18 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
         <a href="my_portal.php" class="back-link">&larr; Back to Portal</a>
         <h1>My Orders</h1>
     </div>
-    <?php $total = count($orders); $total_value = array_sum(array_column($orders, 'total_value')); ?>
+    <?php
+    $total = count($orders);
+    $total_value = array_sum(array_column($orders, 'total_value'));
+    $inProduction = count(array_filter($orders, fn($o) => !empty($o['pp_no']) && ($o['pp_progress'] ?? 0) < 100));
+    $releasedCount = count(array_filter($orders, fn($o) => strtolower($o['status'] ?? '') === 'released'));
+    $invoicedCount = count(array_filter($orders, fn($o) => ($o['invoice_count'] ?? 0) > 0));
+    ?>
     <div class="summary-bar">
         <div class="summary-item"><div class="value"><?= $total ?></div><div class="label">Total Orders</div></div>
+        <div class="summary-item"><div class="value" style="color: #f39c12;"><?= $inProduction ?></div><div class="label">In Production</div></div>
+        <div class="summary-item"><div class="value" style="color: #27ae60;"><?= $releasedCount ?></div><div class="label">Released</div></div>
+        <div class="summary-item"><div class="value" style="color: #8e44ad;"><?= $invoicedCount ?></div><div class="label">Invoiced</div></div>
         <div class="summary-item"><div class="value" style="color: #3498db;"><?= number_format($total_value, 2) ?></div><div class="label">Total Value (INR)</div></div>
     </div>
     <?php if (empty($orders)): ?>
@@ -129,9 +199,36 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
     <?php else: ?>
         <div class="table-container"><div class="table-scroll">
             <table class="data-table">
-                <thead><tr><th>#</th><th>SO No</th><th>Your PO</th><th>Date</th><th class="text-right">Value</th><th class="text-center">Invoice</th><th>Status</th><th>Production</th><th>Actions</th></tr></thead>
+                <thead><tr>
+                    <th>#</th>
+                    <th>SO No</th>
+                    <th>Your PO</th>
+                    <th>Date</th>
+                    <th class="text-right">Value</th>
+                    <th class="text-center">Invoice</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Order Progress</th>
+                </tr></thead>
                 <tbody>
-                <?php foreach ($orders as $i => $o): ?>
+                <?php foreach ($orders as $i => $o):
+                    $soPct = $o['so_progress'];
+                    $soPctColor = $soPct >= 100 ? '#27ae60' : ($soPct >= 50 ? '#f39c12' : '#3498db');
+                    $st = $o['steps'];
+                    $ppPctVal = $o['pp_progress'] ?? 0;
+                    $prodActive = $o['production_active'] ?? false;
+                    $stepDefs = [
+                        ['key' => 'ordered',     'label' => 'Order',   'icon' => '1'],
+                        ['key' => 'planning',    'label' => 'Plan',    'icon' => '2'],
+                        ['key' => 'production',  'label' => 'Prod',    'icon' => '3'],
+                        ['key' => 'stock_ready', 'label' => 'Stock',   'icon' => '4'],
+                        ['key' => 'released',    'label' => 'Release', 'icon' => '5'],
+                        ['key' => 'invoiced',    'label' => 'Invoice', 'icon' => '6'],
+                    ];
+                    $activeIdx = -1;
+                    foreach ($stepDefs as $si => $sd) {
+                        if (!$st[$sd['key']]) { $activeIdx = $si; break; }
+                    }
+                ?>
                 <tr>
                     <td><?= $i + 1 ?></td>
                     <td><strong><?= htmlspecialchars($o['so_no']) ?></strong></td>
@@ -139,30 +236,36 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
                     <td><?= $o['created_at'] ? date('d M Y', strtotime($o['created_at'])) : '-' ?></td>
                     <td class="text-right" style="font-weight: bold;"><?= $o['total_value'] ? number_format($o['total_value'], 2) : '-' ?></td>
                     <td class="text-center"><?= $o['invoice_count'] > 0 ? '<span class="invoice-badge">' . $o['invoice_count'] . '</span>' : '-' ?></td>
-                    <td><span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>"><?= htmlspecialchars($o['status'] ?: 'Pending') ?></span></td>
-                    <td>
+                    <td class="text-center">
+                        <span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>"><?= htmlspecialchars($o['status'] ?: 'Pending') ?></span>
                         <?php if ($o['pp_no']): ?>
-                            <?php
-                            $ppProg = $o['pp_progress'] ?? 0;
-                            $ppStLbl = $o['pp_status'] === 'partiallyordered' ? 'Partially Ordered' : ucfirst($o['pp_status'] ?? 'Draft');
-                            $ppBarColor = $ppProg >= 100 ? '#27ae60' : ($ppProg > 0 ? '#3498db' : '#f39c12');
-                            ?>
-                            <div style="min-width: 130px;">
-                                <div style="font-size: 0.8em; color: #666; margin-bottom: 3px;">
-                                    <?= htmlspecialchars($o['pp_no']) ?> - <?= $ppStLbl ?>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <div style="background: #e9ecef; border-radius: 4px; width: 70px; height: 20px; overflow: hidden; flex-shrink: 0;">
-                                        <div style="background: <?= $ppBarColor ?>; height: 100%; width: <?= max($ppProg, 5) ?>%; border-radius: 4px;"></div>
-                                    </div>
-                                    <span style="font-size: 0.85em; font-weight: 600; color: <?= $ppProg >= 100 ? '#27ae60' : '#2c3e50' ?>;"><?= $ppProg ?>%</span>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <span style="color: #999; font-size: 0.85em;">-</span>
+                            <br><small style="color: #666; font-size: 0.75em;"><?= htmlspecialchars($o['pp_no']) ?></small>
                         <?php endif; ?>
                     </td>
-                    <td><a href="/sales_orders/view.php?so_no=<?= urlencode($o['so_no']) ?>" class="btn" target="_blank">View</a></td>
+                    <td class="text-center so-progress-cell">
+                        <div class="so-progress-pct" style="color: <?= $soPctColor ?>;">
+                            <?= $soPct ?>%
+                            <?php if ($prodActive): ?>
+                                <span style="color: #999; font-weight: normal;">(Prod <?= $ppPctVal ?>%)</span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="order-progress">
+                            <?php foreach ($stepDefs as $si => $sd):
+                                $isDone = $st[$sd['key']];
+                                $isActive = ($si === $activeIdx);
+                                if ($sd['key'] === 'production' && $prodActive) { $isActive = true; }
+                                $cls = $isDone ? 'done' : ($isActive ? 'active' : '');
+                            ?>
+                                <?php if ($si > 0): ?>
+                                    <div class="progress-line <?= $isDone ? 'done' : ($isActive ? 'done' : '') ?>"></div>
+                                <?php endif; ?>
+                                <div class="progress-step <?= $cls ?>" title="<?= $sd['label'] ?><?= $sd['key'] === 'production' && $prodActive ? ' (' . $ppPctVal . '%)' : '' ?>">
+                                    <?= $isDone ? '&#10003;' : $sd['icon'] ?>
+                                    <span class="step-label"><?= $sd['label'] ?></span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
                 </tbody>

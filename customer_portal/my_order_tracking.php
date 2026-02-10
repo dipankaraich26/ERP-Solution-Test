@@ -69,8 +69,8 @@ foreach ($quotations as &$q) {
                         $pp['progress'] = 0;
                     }
                     $q['procurement_plans'][] = $pp;
-                    if ($progress > $q['pp_progress']) {
-                        $q['pp_progress'] = $progress;
+                    if ($pp['progress'] > $q['pp_progress']) {
+                        $q['pp_progress'] = $pp['progress'];
                     }
                 }
             } catch (Exception $e) {}
