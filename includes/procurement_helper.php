@@ -1293,6 +1293,67 @@ function syncWoStatusToPlan($pdo, int $woId, string $newWoStatus): bool {
 }
 
 /**
+ * Sync Purchase Order status changes back to procurement plan tracking.
+ * Call this when a PO line is closed/received via stock entry.
+ * @param PDO $pdo Database connection
+ * @param int $poLineId The purchase_orders row ID that was updated
+ * @param string $partNo Part number
+ * @param string $newPoStatus The new PO status (e.g. 'closed', 'partial')
+ * @return bool Success status
+ */
+function syncPoStatusToPlan($pdo, int $poLineId, string $partNo, string $newPoStatus): bool {
+    try {
+        $statusMap = [
+            'open'      => 'ordered',
+            'partial'   => 'ordered',
+            'closed'    => 'closed',
+            'received'  => 'received',
+            'cancelled' => 'po_cancelled',
+        ];
+        $planStatus = $statusMap[$newPoStatus] ?? 'ordered';
+
+        // Method 1: Find plan via purchase_orders.plan_id
+        $poStmt = $pdo->prepare("SELECT plan_id, po_no FROM purchase_orders WHERE id = ?");
+        $poStmt->execute([$poLineId]);
+        $po = $poStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($po && $po['plan_id']) {
+            $stmt = $pdo->prepare("
+                UPDATE procurement_plan_po_items
+                SET status = ?
+                WHERE plan_id = ? AND part_no = ?
+            ");
+            $stmt->execute([$planStatus, $po['plan_id'], $partNo]);
+            if ($stmt->rowCount() > 0) return true;
+        }
+
+        // Method 2: Find via procurement_plan_po_items.created_po_id
+        $fallback = $pdo->prepare("
+            UPDATE procurement_plan_po_items
+            SET status = ?
+            WHERE created_po_id = ?
+        ");
+        $fallback->execute([$planStatus, $poLineId]);
+        if ($fallback->rowCount() > 0) return true;
+
+        // Method 3: Find via po_no + part_no in procurement_plan_po_items
+        if ($po && $po['po_no']) {
+            $byPoNo = $pdo->prepare("
+                UPDATE procurement_plan_po_items
+                SET status = ?
+                WHERE created_po_no = ? AND part_no = ?
+            ");
+            $byPoNo->execute([$planStatus, $po['po_no'], $partNo]);
+            return $byPoNo->rowCount() > 0;
+        }
+
+        return false;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/**
  * Update Purchase Order item status when PO is created
  * @param PDO $pdo Database connection
  * @param int $planId Plan ID
@@ -2292,6 +2353,23 @@ function calculatePlanProgress($pdo, int $planId, string $planStatus): array {
             $pi['current_stock'] = (int)getAvailableStock($pdo, $pi['part_no'], $planId);
             $pi['shortage'] = max(0, $pi['required_qty'] - $pi['current_stock']);
         } catch (Exception $e) {}
+        $pi['actual_po_status'] = '';
+        if (!empty($pi['created_po_id'])) {
+            try {
+                $ps = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                $ps->execute([$pi['created_po_id']]);
+                $pi['actual_po_status'] = $ps->fetchColumn() ?: '';
+            } catch (Exception $e) {}
+            // Fallback: check by po_no + part_no
+            if (!in_array($pi['actual_po_status'], ['closed', 'received']) && !empty($pi['created_po_no'])) {
+                try {
+                    $fb = $pdo->prepare("SELECT status FROM purchase_orders WHERE po_no = ? AND part_no = ? AND status IN ('closed', 'received') LIMIT 1");
+                    $fb->execute([$pi['created_po_no'], $pi['part_no']]);
+                    $fbStatus = $fb->fetchColumn();
+                    if ($fbStatus) $pi['actual_po_status'] = $fbStatus;
+                } catch (Exception $e) {}
+            }
+        }
     }
     unset($pi);
 
@@ -2354,8 +2432,9 @@ function calculatePlanProgress($pdo, int $planId, string $planStatus): array {
     }
     foreach ($poItems as $pi) {
         if (!empty($pi['created_po_id'])) {
+            $actualPoSt = $pi['actual_po_status'] ?? '';
             $poSt = $pi['status'] ?? '';
-            if (in_array($poSt, ['received', 'closed'])) {
+            if (in_array($actualPoSt, ['closed', 'received']) || in_array($poSt, ['received', 'closed'])) {
                 $doneParts++;
             }
         } elseif ($pi['shortage'] <= 0) {

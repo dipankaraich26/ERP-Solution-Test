@@ -432,6 +432,7 @@ include "../includes/sidebar.php";
                         <th class="text-right">Value</th>
                         <th class="text-center">Invoice</th>
                         <th class="text-center">Status</th>
+                        <th class="text-center">PP Status</th>
                         <th class="text-center">SO Progress</th>
                         <th>Actions</th>
                     </tr>
@@ -477,6 +478,38 @@ include "../includes/sidebar.php";
                             <span class="status-badge status-<?= strtolower($o['status'] ?: 'pending') ?>">
                                 <?= htmlspecialchars($o['status'] ?: 'Pending') ?>
                             </span>
+                        </td>
+                        <td class="text-center">
+                            <?php if ($o['pp_id']): ?>
+                                <?php
+                                $ppStatusColors = [
+                                    'draft' => ['bg' => '#fff3cd', 'color' => '#856404'],
+                                    'approved' => ['bg' => '#cce5ff', 'color' => '#004085'],
+                                    'partiallyordered' => ['bg' => '#d1ecf1', 'color' => '#0c5460'],
+                                    'completed' => ['bg' => '#d4edda', 'color' => '#155724'],
+                                    'cancelled' => ['bg' => '#f8d7da', 'color' => '#721c24'],
+                                ];
+                                $ppSc = $ppStatusColors[$o['pp_status']] ?? ['bg' => '#e2e3e5', 'color' => '#383d41'];
+                                $ppStatusLabel = $o['pp_status'] === 'partiallyordered' ? 'Partially Ordered' : ucfirst($o['pp_status']);
+                                ?>
+                                <a href="/procurement/view.php?id=<?= $o['pp_id'] ?>" target="_blank" style="text-decoration: none;">
+                                    <span style="display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 600; background: <?= $ppSc['bg'] ?>; color: <?= $ppSc['color'] ?>;">
+                                        <?= htmlspecialchars($o['pp_no']) ?>
+                                    </span>
+                                </a>
+                                <br>
+                                <small style="color: <?= $ppSc['color'] ?>;"><?= $ppStatusLabel ?></small>
+                                <?php if ($o['pp_progress'] !== null): ?>
+                                    <div style="margin-top: 4px;">
+                                        <div style="background: #e9ecef; border-radius: 6px; height: 8px; width: 80px; display: inline-block; overflow: hidden; vertical-align: middle;">
+                                            <div style="height: 100%; width: <?= $o['pp_progress'] ?>%; background: <?= $o['pp_progress'] >= 100 ? '#27ae60' : ($o['pp_progress'] >= 50 ? '#f39c12' : '#3498db') ?>; border-radius: 6px;"></div>
+                                        </div>
+                                        <span style="font-size: 0.75em; font-weight: 600; color: <?= $o['pp_progress'] >= 100 ? '#27ae60' : '#666' ?>;"><?= $o['pp_progress'] ?>%</span>
+                                    </div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span style="color: #adb5bd; font-size: 0.85em;">No PP</span>
+                            <?php endif; ?>
                         </td>
                         <td class="text-center so-progress-cell">
                             <?php

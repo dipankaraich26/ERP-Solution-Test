@@ -1,6 +1,7 @@
 <?php
 include "../db.php";
 include "../includes/dialog.php";
+include "../includes/procurement_helper.php";
 
 // This page shows a receive form for all lines under a PO and processes the POST to receive quantities.
 
@@ -127,6 +128,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // update PO line status
             $newStatus = ($qty + $lineInfo['received']) >= $lineInfo['ordered'] ? 'closed' : 'partial';
             $updatePo->execute([$newStatus, $lid]);
+
+            // Sync PO closure back to procurement plan tracking
+            if ($newStatus === 'closed') {
+                syncPoStatusToPlan($pdo, $lid, $lineInfo['part_no'], 'closed');
+            }
         }
 
         $pdo->commit();

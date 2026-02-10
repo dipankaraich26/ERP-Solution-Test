@@ -1,6 +1,7 @@
 <?php
 include "../db.php";
 include "../includes/dialog.php";
+include "../includes/procurement_helper.php";
 
 $po_id = $_GET['po_id'] ?? 0;
 
@@ -73,6 +74,11 @@ if ($_SERVER["REQUEST_METHOD"]==="POST") {
             UPDATE purchase_orders SET status=?
             WHERE id=?
         ")->execute([$newStatus, $po_id]);
+
+        // Sync PO closure back to procurement plan tracking
+        if ($newStatus === 'closed') {
+            syncPoStatusToPlan($pdo, (int)$po_id, $po['part_no'], 'closed');
+        }
 
         $pdo->commit();
         header("Location: index.php");
