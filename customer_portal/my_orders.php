@@ -33,7 +33,9 @@ try {
     ");
     $orderStmt->execute([$customer_id, $customer_code, $customer_code]);
     $orders = $orderStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Exception $e) {}
+} catch (Exception $e) {
+    $orders_error = $e->getMessage();
+}
 
 // Get procurement plan progress + stock status + lifecycle steps for each SO
 foreach ($orders as &$o) {
@@ -200,6 +202,12 @@ try { $company_settings = $pdo->query("SELECT logo_path, company_name, phone FRO
         <div class="summary-item"><div class="value" style="color: #8e44ad;"><?= $invoicedCount ?></div><div class="label">Invoiced</div></div>
         <div class="summary-item"><div class="value" style="color: #3498db;"><?= number_format($total_value, 2) ?></div><div class="label">Total Value (INR)</div></div>
     </div>
+    <?php if (!empty($orders_error)): ?>
+        <div style="background: #fee2e2; color: #991b1b; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+            <strong>Debug:</strong> <?= htmlspecialchars($orders_error) ?>
+            <br><small>customer_id=<?= htmlspecialchars($customer_id) ?> | customer_code=<?= htmlspecialchars($customer_code) ?></small>
+        </div>
+    <?php endif; ?>
     <?php if (empty($orders)): ?>
         <div class="table-container"><div class="empty-state"><div class="icon">📦</div><h3>No Orders Found</h3></div></div>
     <?php else: ?>
