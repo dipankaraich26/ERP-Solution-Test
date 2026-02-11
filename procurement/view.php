@@ -272,11 +272,17 @@ if ($planDetails) {
         } catch (Exception $e) {}
         if (!empty($poItem['created_po_id'])) {
             try {
-                $poStatusStmt = $pdo->prepare("SELECT status FROM purchase_orders WHERE id = ?");
+                $poStatusStmt = $pdo->prepare("SELECT po.status, po.supplier_id, s.supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON s.id = po.supplier_id WHERE po.id = ?");
                 $poStatusStmt->execute([$poItem['created_po_id']]);
-                $actualPoStatus = $poStatusStmt->fetchColumn();
+                $poLive = $poStatusStmt->fetch(PDO::FETCH_ASSOC);
+                $actualPoStatus = $poLive['status'] ?? null;
                 if ($actualPoStatus) {
                     $poItem['actual_po_status'] = $actualPoStatus;
+                }
+                // Sync supplier from PO (in case it was edited after plan creation)
+                if ($poLive && !empty($poLive['supplier_name'])) {
+                    $poItem['supplier_name'] = $poLive['supplier_name'];
+                    $poItem['supplier_id'] = $poLive['supplier_id'];
                 }
                 // Fallback: if individual line not closed, check by PO number + part_no
                 if (!in_array($actualPoStatus, ['closed', 'received']) && !empty($poItem['created_po_no'])) {
