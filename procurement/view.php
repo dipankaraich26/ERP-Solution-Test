@@ -263,7 +263,12 @@ if ($planDetails) {
     foreach ($poItems as &$poItem) {
         try {
             $poItem['current_stock'] = (int)getAvailableStock($pdo, $poItem['part_no'], $planId);
-            $poItem['shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
+            $poItem['raw_shortage'] = max(0, $poItem['required_qty'] - $poItem['current_stock']);
+            // Factor in provisional stock from own-plan open/partial POs
+            $provisional = getProvisionalStockForPlan($pdo, $poItem['part_no'], $planId);
+            $poItem['provisional_stock'] = $provisional;
+            $effectiveStock = $poItem['current_stock'] + $provisional;
+            $poItem['shortage'] = max(0, $poItem['required_qty'] - $effectiveStock);
         } catch (Exception $e) {}
         if (!empty($poItem['created_po_id'])) {
             try {
@@ -391,6 +396,9 @@ if ($planDetails) {
             $actualPoSt = $pi['actual_po_status'] ?? '';
             $poSt = $pi['status'] ?? '';
             if (in_array($actualPoSt, ['closed', 'received']) || in_array($poSt, ['received', 'closed'])) {
+                $inStockOrDoneParts++;
+            } elseif ($pi['shortage'] <= 0) {
+                // Open/partial PO + provisional stock covers need = count as done
                 $inStockOrDoneParts++;
             }
         } elseif ($pi['shortage'] <= 0) {
@@ -1085,9 +1093,11 @@ if ($planDetails) {
                         elseif ($hasPO) { $poRowBg = '#dcfce7'; }
                         else { $poRowBg = $idx % 2 ? '#fffbeb' : '#fef9e7'; }
                         // Determine row filter status
+                        $poCoveredByProvisional = $hasPO && !$isPOClosed && $item['shortage'] <= 0 && ($item['provisional_stock'] ?? 0) > 0;
                         if ($planIsCompleted) { $poRowFilter = 'closed'; }
                         elseif ($isCancelled) { $poRowFilter = 'cancelled'; }
                         elseif ($isPOClosed) { $poRowFilter = 'in_stock'; }
+                        elseif ($poCoveredByProvisional) { $poRowFilter = 'in_stock'; }
                         elseif ($hasPO) { $poRowFilter = 'ordered'; }
                         elseif ($item['shortage'] <= 0) { $poRowFilter = 'in_stock'; }
                         else { $poRowFilter = 'pending'; }
@@ -1101,6 +1111,11 @@ if ($planDetails) {
                             <td><?= $item['required_qty'] ?></td>
                             <td style="color: <?= $item['shortage'] > 0 ? '#dc2626' : '#16a34a' ?>; font-weight: bold;">
                                 <?= $item['shortage'] ?>
+                                <?php if (($item['provisional_stock'] ?? 0) > 0 && ($item['raw_shortage'] ?? 0) > 0): ?>
+                                    <br><small style="color: #2563eb; font-weight: normal; font-size: 0.75em;" title="PO on order covers shortage">
+                                        PO on order: <?= $item['provisional_stock'] ?>
+                                    </small>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($hasPO): ?>
@@ -1135,6 +1150,9 @@ if ($planDetails) {
                                         Ordered
                                     </span>
                                     <br><small style="color: #059669;"><?= htmlspecialchars($item['created_po_no']) ?></small>
+                                    <?php if ($poCoveredByProvisional): ?>
+                                        <br><small style="color: #2563eb; font-weight: 600;">Covered by PO</small>
+                                    <?php endif; ?>
                                 <?php elseif ($item['shortage'] <= 0): ?>
                                     <span style="display: inline-block; padding: 4px 10px; background: #10b981; color: white; border-radius: 15px; font-size: 0.8em;">
                                         In Stock

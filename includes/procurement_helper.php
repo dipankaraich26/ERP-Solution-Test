@@ -552,6 +552,35 @@ function getAvailableStock($pdo, string $partNo, ?int $excludePlanId = null): fl
 }
 
 /**
+ * Get provisional stock from open/partial POs belonging to a specific plan.
+ * Provisional = ordered_qty - received_so_far (only for open/partial POs).
+ * Only counts POs with plan_id matching this plan (own-plan priority).
+ * @return float Provisional qty (un-received PO stock on order for this plan)
+ */
+function getProvisionalStockForPlan($pdo, string $partNo, int $planId): float {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT po.id, po.qty AS ordered_qty,
+                   COALESCE((SELECT SUM(se.received_qty) FROM stock_entries se
+                             WHERE se.po_id = po.id AND se.status = 'posted'), 0) AS received_qty
+            FROM purchase_orders po
+            WHERE po.part_no = ?
+              AND po.plan_id = ?
+              AND po.status IN ('open', 'partial')
+        ");
+        $stmt->execute([$partNo, $planId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $provisional = 0;
+        foreach ($rows as $row) {
+            $provisional += max(0, (float)$row['ordered_qty'] - (float)$row['received_qty']);
+        }
+        return $provisional;
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
  * Block stock for an approved procurement plan
  * Blocks min(required_qty, available_stock) for each part in WO+PO items
  */
@@ -1440,7 +1469,7 @@ function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null):
                     AND ppi.plan_id != ?
                     AND ppi.status NOT IN ('pending', 'po_cancelled')
               )
-            ORDER BY po.id DESC
+            ORDER BY po.id ASC
             LIMIT 1
         ");
         $stmt->execute([$partNo, $excludePlanId ?? 0]);
@@ -2358,7 +2387,11 @@ function calculatePlanProgress($pdo, int $planId, string $planStatus): array {
     foreach ($poItems as &$pi) {
         try {
             $pi['current_stock'] = (int)getAvailableStock($pdo, $pi['part_no'], $planId);
-            $pi['shortage'] = max(0, $pi['required_qty'] - $pi['current_stock']);
+            // Factor in provisional stock from own-plan open/partial POs
+            $provisional = getProvisionalStockForPlan($pdo, $pi['part_no'], $planId);
+            $pi['provisional_stock'] = $provisional;
+            $effectiveStock = $pi['current_stock'] + $provisional;
+            $pi['shortage'] = max(0, $pi['required_qty'] - $effectiveStock);
         } catch (Exception $e) {}
         $pi['actual_po_status'] = '';
         if (!empty($pi['created_po_id'])) {
@@ -2442,6 +2475,9 @@ function calculatePlanProgress($pdo, int $planId, string $planStatus): array {
             $actualPoSt = $pi['actual_po_status'] ?? '';
             $poSt = $pi['status'] ?? '';
             if (in_array($actualPoSt, ['closed', 'received']) || in_array($poSt, ['received', 'closed'])) {
+                $doneParts++;
+            } elseif ($pi['shortage'] <= 0) {
+                // Open/partial PO + provisional stock covers the need = done
                 $doneParts++;
             }
         } elseif ($pi['shortage'] <= 0) {
