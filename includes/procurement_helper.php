@@ -1562,12 +1562,14 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
                 $chk->execute([$poItem['created_po_id']]);
                 $poRow = $chk->fetch(PDO::FETCH_ASSOC);
                 $poActualStatus = $poRow['status'] ?? '';
-                if (in_array($poActualStatus, ['closed', 'received'])) {
-                    // PO is closed/received - keep linked for tracking
+                $poBelongsToThisPlan = ($poRow && (int)($poRow['plan_id'] ?? 0) === $planId);
+
+                if (in_array($poActualStatus, ['closed', 'received']) && $poBelongsToThisPlan) {
+                    // PO is closed/received AND belongs to this plan - keep linked for tracking
                     continue;
                 }
-                if ($poRow && ((int)($poRow['plan_id'] ?? 0) !== $planId)) {
-                    // This PO was NOT created by this plan - it was auto-linked. Unlink it.
+                if (!$poBelongsToThisPlan) {
+                    // This PO was NOT created by this plan - unlink it (whether open or closed)
                     $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ?")
                          ->execute([$planId, $poItem['part_no']]);
                     $poItem['status'] = 'pending';
