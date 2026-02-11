@@ -24,7 +24,7 @@ try {
 
 // Pagination
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
-$per_page = 20;
+$per_page = 15;
 $offset = ($page - 1) * $per_page;
 
 // Filters
@@ -460,32 +460,39 @@ include "../includes/sidebar.php";
         </div>
 
         <!-- Pagination -->
-        <?php if ($total_pages > 1): ?>
-        <div class="pagination">
+        <div class="pagination" style="flex-wrap: wrap; align-items: center;">
             <?php
             $query_params = $_GET;
             unset($query_params['page']);
             $base_url = 'wo_inspections.php?' . http_build_query($query_params);
+            $from = $offset + 1;
+            $to = min($offset + $per_page, $total_count);
             ?>
-            <?php if ($page > 1): ?>
-                <a href="<?= $base_url ?>&page=<?= $page - 1 ?>">Prev</a>
-            <?php endif; ?>
-            <?php
-            $start_page = max(1, $page - 2);
-            $end_page = min($total_pages, $page + 2);
-            for ($i = $start_page; $i <= $end_page; $i++):
-            ?>
-                <?php if ($i == $page): ?>
-                    <span class="current"><?= $i ?></span>
-                <?php else: ?>
-                    <a href="<?= $base_url ?>&page=<?= $i ?>"><?= $i ?></a>
+            <span style="color: #666; font-size: 0.9em; margin-right: 15px;">
+                Showing <?= $from ?>-<?= $to ?> of <?= $total_count ?> (Page <?= $page ?> of <?= $total_pages ?>)
+            </span>
+            <?php if ($total_pages > 1): ?>
+                <?php if ($page > 1): ?>
+                    <a href="<?= $base_url ?>&page=1">First</a>
+                    <a href="<?= $base_url ?>&page=<?= $page - 1 ?>">Prev</a>
                 <?php endif; ?>
-            <?php endfor; ?>
-            <?php if ($page < $total_pages): ?>
-                <a href="<?= $base_url ?>&page=<?= $page + 1 ?>">Next</a>
+                <?php
+                $start_page = max(1, $page - 2);
+                $end_page = min($total_pages, $page + 2);
+                for ($i = $start_page; $i <= $end_page; $i++):
+                ?>
+                    <?php if ($i == $page): ?>
+                        <span class="current"><?= $i ?></span>
+                    <?php else: ?>
+                        <a href="<?= $base_url ?>&page=<?= $i ?>"><?= $i ?></a>
+                    <?php endif; ?>
+                <?php endfor; ?>
+                <?php if ($page < $total_pages): ?>
+                    <a href="<?= $base_url ?>&page=<?= $page + 1 ?>">Next</a>
+                    <a href="<?= $base_url ?>&page=<?= $total_pages ?>">Last</a>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
-        <?php endif; ?>
     <?php endif; ?>
 </div>
 
