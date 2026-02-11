@@ -853,6 +853,14 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
                 size: A4;
                 margin: 10mm;
             }
+
+            /* Force all background colors & gradients to print */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+
             body {
                 background: white;
                 padding: 0;
@@ -1035,7 +1043,6 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
             }
             .signature-area {
                 height: 50px;
-                background: white;
             }
             .signature-line {
                 padding-top: 8px;
@@ -1073,16 +1080,12 @@ $document_title = $quote['pi_no'] ? 'PROFORMA INVOICE' : 'QUOTATION';
             /* Ensure grand total text is visible in print */
             .summary-table .grand-total {
                 background: #059669 !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
             }
             .summary-table .grand-total td,
             .summary-table .grand-total td.label,
             .summary-table .grand-total td.value {
                 background: transparent !important;
                 color: white !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
             }
 
             /* Page break control */
