@@ -3,6 +3,27 @@ include "../db.php";
 include "../includes/auth.php";
 requireLogin();
 
+// Handle AJAX lead time update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_lead_time') {
+    header('Content-Type: application/json');
+    $partNo = $_POST['part_no'] ?? '';
+    $supplierId = (int)($_POST['supplier_id'] ?? 0);
+    $newLT = max(0, (int)($_POST['lead_time'] ?? 0));
+    try {
+        if ($supplierId > 0) {
+            $pdo->prepare("UPDATE part_supplier_mapping SET lead_time_days = ? WHERE part_no = ? AND supplier_id = ?")
+                ->execute([$newLT, $partNo, $supplierId]);
+        } else {
+            $pdo->prepare("UPDATE part_supplier_mapping SET lead_time_days = ? WHERE part_no = ? AND active = 1 ORDER BY supplier_rate ASC LIMIT 1")
+                ->execute([$newLT, $partNo]);
+        }
+        echo json_encode(['ok' => true, 'lead_time' => $newLT]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Ensure part_supplier_mapping table exists
 try {
     $pdo->query("SELECT 1 FROM part_supplier_mapping LIMIT 1");
@@ -417,7 +438,7 @@ $maxLeadTime = max(array_column($parts, 'lead_time'));
                             echo '<td><strong>' . htmlspecialchars($item['part_id'] ?? '-') . '</strong></td>';
                             echo '<td>' . htmlspecialchars($item['category'] ?? '-') . '</td>';
                             echo '<td style="text-align:right; font-weight:600;">₹ ' . number_format($item['value'], 2) . '</td>';
-                            echo '<td style="text-align:center; font-weight:600;">' . $item['lead_time'] . '</td>';
+                            echo '<td style="text-align:center; font-weight:600;"><div class="lt-editable" data-part="' . htmlspecialchars($item['part_no']) . '" data-supplier="' . (int)($item['supplier_id'] ?? 0) . '" data-lt="' . (int)$item['lead_time'] . '" title="Click to edit"><span class="lt-display" style="cursor:pointer; border-bottom:1px dashed #999;">' . (int)$item['lead_time'] . '</span></div></td>';
                             echo '<td>' . htmlspecialchars($item['supplier_name'] ?? '-') . '</td>';
                             echo '<td style="text-align:center;">' . $item['current_stock'] . '</td>';
                             echo '<td><span style="display:inline-block; padding:3px 8px; background:' . $qColor . '20; color:' . $qColor . '; border-radius:12px; font-size:0.8em; font-weight:600;">' . $qLabel . '</span></td>';
@@ -466,6 +487,65 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Inline lead time editing
+    document.querySelectorAll('.lt-editable').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            if (el.querySelector('input')) return;
+            var display = el.querySelector('.lt-display');
+            var currentLT = parseInt(el.getAttribute('data-lt')) || 0;
+            var partNo = el.getAttribute('data-part');
+            var supplierId = el.getAttribute('data-supplier');
+
+            var input = document.createElement('input');
+            input.type = 'number';
+            input.min = '0';
+            input.max = '999';
+            input.value = currentLT;
+            input.style.cssText = 'width:55px; padding:2px 4px; font-size:0.9em; font-weight:600; text-align:center; border:2px solid #667eea; border-radius:4px; outline:none;';
+
+            display.style.display = 'none';
+            el.appendChild(input);
+            input.focus();
+            input.select();
+
+            function save() {
+                var newVal = Math.max(0, parseInt(input.value) || 0);
+                input.remove();
+                display.style.display = '';
+                if (newVal === currentLT) return;
+
+                display.textContent = display.textContent.includes('d') ? newVal + 'd' : newVal;
+                el.setAttribute('data-lt', newVal);
+
+                // Update all matching elements for same part
+                document.querySelectorAll('.lt-editable[data-part="' + partNo + '"]').forEach(function(other) {
+                    other.setAttribute('data-lt', newVal);
+                    var otherDisp = other.querySelector('.lt-display');
+                    if (otherDisp) otherDisp.textContent = otherDisp.textContent.includes('d') ? newVal + 'd' : newVal;
+                });
+
+                // AJAX save
+                var fd = new FormData();
+                fd.append('action', 'update_lead_time');
+                fd.append('part_no', partNo);
+                fd.append('supplier_id', supplierId);
+                fd.append('lead_time', newVal);
+                fetch('matrix.php', { method: 'POST', body: fd })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.ok) alert('Failed to save: ' + (data.error || 'Unknown error'));
+                    })
+                    .catch(function() { alert('Network error saving lead time'); });
+            }
+
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', function(ev) {
+                if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+                if (ev.key === 'Escape') { input.value = currentLT; input.blur(); }
+            });
+        });
+    });
 });
 </script>
 
@@ -502,14 +582,22 @@ function renderQuadrantItems($items, $qKey) {
 }
 
 function renderPartRow($item) {
+    $pno = htmlspecialchars($item['part_no']);
+    $sid = (int)($item['supplier_id'] ?? 0);
+    $lt = (int)$item['lead_time'];
     echo '<div class="part-row">';
     echo '  <div class="part-info">';
-    echo '    <span class="part-no">' . htmlspecialchars($item['part_no']) . '</span>';
+    echo '    <span class="part-no">' . $pno . '</span>';
     echo '    <span class="part-name">' . htmlspecialchars($item['part_name']) . '</span>';
     echo '  </div>';
     echo '  <div class="part-metrics">';
     echo '    <div class="metric"><div style="font-weight:600;">₹' . number_format($item['value'], 0) . '</div><div class="metric-label">Value</div></div>';
-    echo '    <div class="metric"><div style="font-weight:600;">' . $item['lead_time'] . 'd</div><div class="metric-label">Lead</div></div>';
+    echo '    <div class="metric">';
+    echo '      <div class="lt-editable" data-part="' . $pno . '" data-supplier="' . $sid . '" data-lt="' . $lt . '" title="Click to edit">';
+    echo '        <span class="lt-display" style="font-weight:600; cursor:pointer; border-bottom:1px dashed #999;">' . $lt . 'd</span>';
+    echo '      </div>';
+    echo '      <div class="metric-label">Lead</div>';
+    echo '    </div>';
     echo '  </div>';
     echo '</div>';
 }
