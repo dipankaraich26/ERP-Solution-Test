@@ -205,6 +205,9 @@ include "../includes/sidebar.php";
             font-weight: 600;
             color: #495057;
             white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         .data-table tr:hover { background: #f8f9fa; }
 
@@ -367,8 +370,8 @@ include "../includes/sidebar.php";
             <p>No work orders match the current filters.</p>
         </div>
     <?php else: ?>
-        <div style="overflow-x: auto;">
-        <table class="data-table">
+        <div style="overflow-x: auto; overflow-y: auto; max-height: 70vh; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <table class="data-table" style="box-shadow: none;">
             <thead>
                 <tr>
                     <th>WO No</th>
