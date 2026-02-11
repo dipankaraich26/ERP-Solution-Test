@@ -69,6 +69,17 @@ try {
     $stats['calibration_overdue'] = 0;
 }
 
+// WO Quality Checklist stats
+try {
+    $stats['wo_pending_qc'] = $pdo->query("SELECT COUNT(*) FROM work_orders w LEFT JOIN wo_quality_checklists qc ON qc.work_order_id = w.id WHERE w.status IN ('completed','qc_approval') AND qc.id IS NULL")->fetchColumn();
+    $stats['wo_checklists_submitted'] = $pdo->query("SELECT COUNT(*) FROM wo_quality_checklists WHERE status = 'Submitted'")->fetchColumn();
+    $stats['wo_checklists_failed'] = $pdo->query("SELECT COUNT(*) FROM wo_quality_checklists WHERE overall_result = 'Fail'")->fetchColumn();
+} catch (Exception $e) {
+    $stats['wo_pending_qc'] = 0;
+    $stats['wo_checklists_submitted'] = 0;
+    $stats['wo_checklists_failed'] = 0;
+}
+
 // Quality Issues stats
 try {
     $stats['quality_issues_open'] = $pdo->query("SELECT COUNT(*) FROM qc_quality_issues WHERE status NOT IN ('Closed', 'Cancelled')")->fetchColumn();
@@ -137,6 +148,19 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $recentQualityIssues = [];
+}
+
+// Recent WO Quality Checklists
+try {
+    $recentWoChecklists = $pdo->query("
+        SELECT qc.*, w.wo_no, w.part_no, p.part_name
+        FROM wo_quality_checklists qc
+        JOIN work_orders w ON qc.work_order_id = w.id
+        LEFT JOIN part_master p ON w.part_no = p.part_no
+        ORDER BY qc.created_at DESC LIMIT 5
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $recentWoChecklists = [];
 }
 
 include "../includes/sidebar.php";
@@ -387,6 +411,16 @@ if (toggle) {
             <div class="stat-value"><?= $stats['calibration_due'] ?></div>
             <div class="stat-label">Calibrations Due</div>
         </div>
+        <div class="stat-card <?= $stats['wo_pending_qc'] > 0 ? 'warning' : 'success' ?>">
+            <div class="stat-icon">🏭</div>
+            <div class="stat-value"><?= $stats['wo_pending_qc'] ?></div>
+            <div class="stat-label">WO Pending QC</div>
+        </div>
+        <div class="stat-card <?= $stats['wo_checklists_failed'] > 0 ? 'danger' : 'info' ?>">
+            <div class="stat-icon">🔧</div>
+            <div class="stat-value"><?= $stats['wo_checklists_submitted'] ?></div>
+            <div class="stat-label">WO Checklists Submitted</div>
+        </div>
     </div>
 
     <!-- Dashboard Panels -->
@@ -546,6 +580,45 @@ if (toggle) {
             </div>
         </div>
 
+        <!-- Recent WO Quality Checklists -->
+        <div class="dashboard-panel">
+            <h3>🏭 Recent WO Quality Checklists</h3>
+            <?php if (empty($recentWoChecklists)): ?>
+                <p style="color: #7f8c8d; text-align: center; padding: 30px;">No WO quality checklists yet.</p>
+            <?php else: ?>
+                <table class="mini-table">
+                    <thead>
+                        <tr>
+                            <th>Checklist #</th>
+                            <th>WO No</th>
+                            <th>Part</th>
+                            <th>Result</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentWoChecklists as $wqc): ?>
+                        <tr>
+                            <td><a href="/work_orders/quality_checklist.php?id=<?= $wqc['work_order_id'] ?>"><?= htmlspecialchars($wqc['checklist_no']) ?></a></td>
+                            <td><a href="/work_orders/view.php?id=<?= $wqc['work_order_id'] ?>"><?= htmlspecialchars($wqc['wo_no']) ?></a></td>
+                            <td><?= htmlspecialchars($wqc['part_name'] ?: $wqc['part_no']) ?></td>
+                            <td>
+                                <span class="status-badge <?php
+                                    echo $wqc['overall_result'] === 'Pass' ? 'status-pass' :
+                                        ($wqc['overall_result'] === 'Fail' ? 'status-fail' : 'status-pending');
+                                ?>"><?= $wqc['overall_result'] ?></span>
+                            </td>
+                            <td><?= $wqc['status'] ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+            <div style="margin-top: 15px; text-align: right;">
+                <a href="wo_inspections.php" class="btn btn-sm btn-secondary">View All WO Inspections</a>
+            </div>
+        </div>
+
         <!-- Quality Metrics Summary -->
         <div class="dashboard-panel">
             <h3>📊 This Month's Quality Metrics</h3>
@@ -607,6 +680,10 @@ if (toggle) {
         <a href="calibration.php" class="quick-action-btn">
             <div class="action-icon">📏</div>
             Calibration
+        </a>
+        <a href="wo_inspections.php" class="quick-action-btn" style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);">
+            <div class="action-icon">🏭</div>
+            WO Inspections
         </a>
     </div>
 </div>
