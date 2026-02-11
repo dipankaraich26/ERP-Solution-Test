@@ -284,7 +284,7 @@ include "../includes/sidebar.php";
 
 <?php include "../includes/header.php"; ?>
 
-<div class="content">
+<div class="content" style="overflow-x: auto;">
     <div class="page-header">
         <div>
             <h1>WO Quality Inspections</h1>
