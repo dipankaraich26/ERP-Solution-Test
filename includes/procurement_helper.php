@@ -1429,14 +1429,21 @@ function getExistingPoForPlanItem($pdo, int $planId, string $partNo): ?array {
  */
 function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null): ?array {
     try {
+        // Find active PO for this part that is NOT already linked to a different plan
         $stmt = $pdo->prepare("
-            SELECT id, po_no, part_no, qty, rate, supplier_id, status
-            FROM purchase_orders
-            WHERE part_no = ? AND status NOT IN ('cancelled', 'closed')
-            ORDER BY id DESC
+            SELECT po.id, po.po_no, po.part_no, po.qty, po.rate, po.supplier_id, po.status
+            FROM purchase_orders po
+            WHERE po.part_no = ? AND po.status NOT IN ('cancelled', 'closed')
+              AND NOT EXISTS (
+                  SELECT 1 FROM procurement_plan_po_items ppi
+                  WHERE ppi.created_po_id = po.id
+                    AND ppi.plan_id != ?
+                    AND ppi.status NOT IN ('pending', 'po_cancelled')
+              )
+            ORDER BY po.id DESC
             LIMIT 1
         ");
-        $stmt->execute([$partNo]);
+        $stmt->execute([$partNo, $excludePlanId ?? 0]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result ?: null;
     } catch (Exception $e) {
@@ -1560,14 +1567,14 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
                 $poItem['created_po_no'] = $existingPo['po_no'];
                 $poItem['ordered_qty'] = $existingPo['qty'];
             } else {
-                // No active PO - check for a closed PO for this part (already received)
+                // No active PO - check for a closed PO that belongs to THIS plan (already received)
                 try {
                     $closedFallback = $pdo->prepare("
                         SELECT id, po_no, qty, status FROM purchase_orders
-                        WHERE part_no = ? AND status = 'closed'
+                        WHERE part_no = ? AND status = 'closed' AND plan_id = ?
                         ORDER BY id DESC LIMIT 1
                     ");
-                    $closedFallback->execute([$poItem['part_no']]);
+                    $closedFallback->execute([$poItem['part_no'], $planId]);
                     $closedPo = $closedFallback->fetch(PDO::FETCH_ASSOC);
                     if ($closedPo) {
                         updatePlanPoItemStatus(
@@ -1585,14 +1592,14 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
             continue;
         }
 
-        // Case 3: Pending item with sufficient stock but no PO link - re-link closed PO if one exists
+        // Case 3: Pending item with sufficient stock but no PO link - re-link closed PO only if it belongs to THIS plan
         try {
             $closedPoStmt = $pdo->prepare("
                 SELECT id, po_no, qty FROM purchase_orders
-                WHERE part_no = ? AND status = 'closed'
+                WHERE part_no = ? AND status = 'closed' AND plan_id = ?
                 ORDER BY id DESC LIMIT 1
             ");
-            $closedPoStmt->execute([$poItem['part_no']]);
+            $closedPoStmt->execute([$poItem['part_no'], $planId]);
             $closedPo = $closedPoStmt->fetch(PDO::FETCH_ASSOC);
             if ($closedPo) {
                 updatePlanPoItemStatus(
