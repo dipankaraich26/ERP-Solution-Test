@@ -303,8 +303,27 @@ function convertPlanToPurchaseOrders($pdo, int $planId, string $purchaseDate): ?
         $currentSupplier = null;
         $poNo = null;
 
-        // Group items by supplier and create POs
+        // Group items by supplier and create POs (skip items with sufficient stock)
+        $skippedCount = 0;
         foreach ($items as $item) {
+            // Re-check current stock before creating PO
+            $currentStock = (float)getAvailableStock($pdo, $item['part_no'], $planId);
+            $requiredQty = (float)($item['required_qty'] ?? $item['recommended_qty']);
+            $actualShortage = max(0, $requiredQty - $currentStock);
+
+            if ($actualShortage <= 0) {
+                // Sufficient stock now - skip PO creation
+                $skippedCount++;
+                continue;
+            }
+
+            // Use actual shortage as PO qty (don't over-order)
+            $orderQty = min((float)$item['recommended_qty'], $actualShortage);
+            if ($orderQty <= 0) {
+                $skippedCount++;
+                continue;
+            }
+
             if ($item['supplier_id'] !== $currentSupplier) {
                 // New supplier: generate new PO number
                 $maxNo = $pdo->query("
@@ -337,7 +356,7 @@ function convertPlanToPurchaseOrders($pdo, int $planId, string $purchaseDate): ?
             $poStmt->execute([
                 $poNo,
                 $item['part_no'],
-                $item['recommended_qty'],
+                $orderQty,
                 $itemRate,
                 $purchaseDate,
                 $item['supplier_id'],
@@ -355,11 +374,11 @@ function convertPlanToPurchaseOrders($pdo, int $planId, string $purchaseDate): ?
             $updateStmt->execute([$poLineId, $poLineId, $item['id']]);
 
             // Also update procurement_plan_po_items if they exist
-            updatePlanPoItemStatus($pdo, $planId, $item['part_no'], $poLineId, $poNo, (float)$item['recommended_qty']);
+            updatePlanPoItemStatus($pdo, $planId, $item['part_no'], $poLineId, $poNo, $orderQty);
 
             $createdPOs[$poNo]['items'][] = [
                 'part_no' => $item['part_no'],
-                'qty' => $item['recommended_qty']
+                'qty' => $orderQty
             ];
         }
 
@@ -373,9 +392,18 @@ function convertPlanToPurchaseOrders($pdo, int $planId, string $purchaseDate): ?
 
         $pdo->commit();
 
+        $poCount = count($createdPOs);
+        $msg = $poCount . ' purchase order(s) created';
+        if ($skippedCount > 0) {
+            $msg .= ', ' . $skippedCount . ' item(s) skipped (already in stock)';
+        }
+        if ($poCount === 0 && $skippedCount > 0) {
+            $msg = 'No POs created - all ' . $skippedCount . ' item(s) already have sufficient stock';
+        }
+
         return [
             'success' => true,
-            'message' => count($createdPOs) . ' purchase order(s) created',
+            'message' => $msg,
             'created_pos' => array_keys($createdPOs),
             'details' => $createdPOs
         ];
