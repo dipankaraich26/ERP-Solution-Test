@@ -43,6 +43,7 @@ $parts = $pdo->query("
     LEFT JOIN inventory i ON p.part_no = i.part_no
     WHERE p.status = 'active'
     AND COALESCE(psm.supplier_rate, p.rate, 0) > 0
+    AND (p.part_id IS NULL OR p.part_id NOT IN ('YID-042','YID-044','YID-046','YID-052','YID-083','YID-091','YID-099'))
     ORDER BY p.part_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
