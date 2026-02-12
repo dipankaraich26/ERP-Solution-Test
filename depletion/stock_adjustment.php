@@ -1,6 +1,16 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
 include "../includes/dialog.php";
+
+requireLogin();
+
+// Only admin can access stock adjustment
+if (getUserRole() !== 'admin') {
+    setModal("Access Denied", "Only administrators can perform stock adjustments.");
+    header("Location: index.php");
+    exit;
+}
 
 showModal();
 
