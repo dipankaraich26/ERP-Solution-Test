@@ -2,6 +2,9 @@
 include "../db.php";
 include "../includes/dialog.php";
 
+// Fetch company settings for From address
+$settings = $pdo->query("SELECT * FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if (!$id) {
