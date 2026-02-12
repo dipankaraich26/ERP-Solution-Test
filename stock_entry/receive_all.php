@@ -82,6 +82,18 @@ if ($inspectionEnabled) {
     }
 }
 
+// Auto-add attachment columns if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM stock_entries LIKE 'invoice_attachment'")->rowCount();
+    if ($cols === 0) {
+        $pdo->exec("ALTER TABLE stock_entries ADD COLUMN invoice_attachment VARCHAR(255) DEFAULT NULL");
+    }
+    $cols2 = $pdo->query("SHOW COLUMNS FROM stock_entries LIKE 'material_photo'")->rowCount();
+    if ($cols2 === 0) {
+        $pdo->exec("ALTER TABLE stock_entries ADD COLUMN material_photo VARCHAR(255) DEFAULT NULL");
+    }
+} catch (Exception $e) { /* columns may already exist */ }
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Check inspection approval before processing
     if ($inspectionEnabled && !$canReceive) {
@@ -100,9 +112,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!is_array($lineIds)) $lineIds = [$lineIds];
     if (!is_array($recvQtys)) $recvQtys = [$recvQtys];
 
+    // Handle file uploads
+    $invoiceAttachment = null;
+    $materialPhoto = null;
+    $uploadDir = __DIR__ . '/../uploads/stock_entry/';
+    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+    if (!empty($_FILES['invoice_attachment']['name'])) {
+        $ext = strtolower(pathinfo($_FILES['invoice_attachment']['name'], PATHINFO_EXTENSION));
+        $allowed = ['pdf','jpg','jpeg','png','gif','doc','docx','xls','xlsx'];
+        if (in_array($ext, $allowed) && $_FILES['invoice_attachment']['size'] <= 10 * 1024 * 1024) {
+            $fname = time() . '_invoice_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['invoice_attachment']['name']);
+            if (move_uploaded_file($_FILES['invoice_attachment']['tmp_name'], $uploadDir . $fname)) {
+                $invoiceAttachment = $fname;
+            }
+        }
+    }
+    if (!empty($_FILES['material_photo']['name'])) {
+        $ext = strtolower(pathinfo($_FILES['material_photo']['name'], PATHINFO_EXTENSION));
+        $allowed = ['jpg','jpeg','png','gif','webp'];
+        if (in_array($ext, $allowed) && $_FILES['material_photo']['size'] <= 10 * 1024 * 1024) {
+            $fname = time() . '_material_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['material_photo']['name']);
+            if (move_uploaded_file($_FILES['material_photo']['tmp_name'], $uploadDir . $fname)) {
+                $materialPhoto = $fname;
+            }
+        }
+    }
+
     $pdo->beginTransaction();
     try {
-        $insertStock = $pdo->prepare("INSERT INTO stock_entries (po_id, part_no, received_qty, invoice_no, status) VALUES (?, ?, ?, ?, 'posted')");
+        $insertStock = $pdo->prepare("INSERT INTO stock_entries (po_id, part_no, received_qty, invoice_no, status, invoice_attachment, material_photo) VALUES (?, ?, ?, ?, 'posted', ?, ?)");
         $upInventory = $pdo->prepare("INSERT INTO inventory (part_no, qty) VALUES (?, ?) ON DUPLICATE KEY UPDATE qty = qty + VALUES(qty)");
         $updatePo = $pdo->prepare("UPDATE purchase_orders SET status = ? WHERE id = ?");
 
@@ -120,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($qty > $remaining) throw new Exception('Received qty for ' . $lineInfo['part_no'] . ' exceeds remaining');
 
             // insert stock entry
-            $insertStock->execute([$lid, $lineInfo['part_no'], $qty, $invoiceNo]);
+            $insertStock->execute([$lid, $lineInfo['part_no'], $qty, $invoiceNo, $invoiceAttachment, $materialPhoto]);
 
             // update inventory
             $upInventory->execute([$lineInfo['part_no'], $qty]);
@@ -363,7 +402,7 @@ if (toggle) {
     <?php if (!$inspectionEnabled || $canReceive): ?>
     <!-- Receive Stock Form -->
     <div class="receive-form">
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="po_no" value="<?= htmlspecialchars($po_no) ?>">
 
             <table class="receive-table">
@@ -410,6 +449,19 @@ if (toggle) {
                 <div>
                     <label>Remarks</label>
                     <input type="text" name="remarks" placeholder="Optional remarks">
+                </div>
+            </div>
+
+            <div class="form-row" style="grid-template-columns: 1fr 1fr;">
+                <div>
+                    <label>Invoice Attachment</label>
+                    <input type="file" name="invoice_attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="padding: 8px;">
+                    <small style="color: #888; display: block; margin-top: 4px;">PDF, Image, or Document (max 10MB)</small>
+                </div>
+                <div>
+                    <label>Material Photo</label>
+                    <input type="file" name="material_photo" accept="image/*" style="padding: 8px;">
+                    <small style="color: #888; display: block; margin-top: 4px;">JPG, PNG, or WebP (max 10MB)</small>
                 </div>
             </div>
 

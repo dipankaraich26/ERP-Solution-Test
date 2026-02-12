@@ -18,7 +18,8 @@ $total_pages = ceil($total_count / $per_page);
 
 // Fetch stock entries with related PO number and part name
 $stmt = $pdo->prepare(
-    "SELECT se.id, se.po_id, se.part_no, COALESCE(pm.part_name, '') AS part_name, se.received_qty, se.invoice_no, se.status, se.received_date, se.remarks, po.po_no
+    "SELECT se.id, se.po_id, se.part_no, COALESCE(pm.part_name, '') AS part_name, se.received_qty, se.invoice_no, se.status, se.received_date, se.remarks, po.po_no,
+            se.invoice_attachment, se.material_photo
      FROM stock_entries se
      LEFT JOIN purchase_orders po ON se.po_id = po.id
      LEFT JOIN part_master pm ON se.part_no = pm.part_no
@@ -55,6 +56,8 @@ $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <th>Remarks</th>
             <th>Status</th>
             <th>Date</th>
+            <th>Invoice Attachment</th>
+            <th>Material Photo</th>
         </tr>
         <?php foreach ($entries as $e): ?>
         <tr>
@@ -67,6 +70,20 @@ $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <td><?= htmlspecialchars($e['remarks'] ?? 'N/A') ?></td>
             <td><?= htmlspecialchars($e['status']) ?></td>
             <td><?= isset($e['received_date']) ? htmlspecialchars($e['received_date']) : '' ?></td>
+            <td>
+                <?php if (!empty($e['invoice_attachment'])): ?>
+                    <a href="../uploads/stock_entry/<?= htmlspecialchars($e['invoice_attachment']) ?>" target="_blank" title="View Invoice">📄 View</a>
+                <?php else: ?>
+                    <span style="color:#999;">—</span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <?php if (!empty($e['material_photo'])): ?>
+                    <a href="../uploads/stock_entry/<?= htmlspecialchars($e['material_photo']) ?>" target="_blank" title="View Photo">📷 View</a>
+                <?php else: ?>
+                    <span style="color:#999;">—</span>
+                <?php endif; ?>
+            </td>
         </tr>
         <?php endforeach; ?>
     </table>

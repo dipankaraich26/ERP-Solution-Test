@@ -37,6 +37,18 @@ $receivedQty = $received->fetchColumn() ?? 0;
 
 $remaining = $po['qty'] - $receivedQty;
 
+// Auto-add attachment columns if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM stock_entries LIKE 'invoice_attachment'")->rowCount();
+    if ($cols === 0) {
+        $pdo->exec("ALTER TABLE stock_entries ADD COLUMN invoice_attachment VARCHAR(255) DEFAULT NULL");
+    }
+    $cols2 = $pdo->query("SHOW COLUMNS FROM stock_entries LIKE 'material_photo'")->rowCount();
+    if ($cols2 === 0) {
+        $pdo->exec("ALTER TABLE stock_entries ADD COLUMN material_photo VARCHAR(255) DEFAULT NULL");
+    }
+} catch (Exception $e) { /* columns may already exist */ }
+
 $error = '';
 if ($_SERVER["REQUEST_METHOD"]==="POST") {
     $qty = (float)$_POST['received_qty'];
@@ -44,18 +56,47 @@ if ($_SERVER["REQUEST_METHOD"]==="POST") {
     if ($qty <= 0 || $qty > $remaining) {
         $error = "Invalid received quantity. Must be between 0 and $remaining";
     } else {
+        // Handle file uploads
+        $invoiceAttachment = null;
+        $materialPhoto = null;
+        $uploadDir = __DIR__ . '/../uploads/stock_entry/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+        if (!empty($_FILES['invoice_attachment']['name'])) {
+            $ext = strtolower(pathinfo($_FILES['invoice_attachment']['name'], PATHINFO_EXTENSION));
+            $allowed = ['pdf','jpg','jpeg','png','gif','doc','docx','xls','xlsx'];
+            if (in_array($ext, $allowed) && $_FILES['invoice_attachment']['size'] <= 10 * 1024 * 1024) {
+                $fname = time() . '_invoice_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['invoice_attachment']['name']);
+                if (move_uploaded_file($_FILES['invoice_attachment']['tmp_name'], $uploadDir . $fname)) {
+                    $invoiceAttachment = $fname;
+                }
+            }
+        }
+        if (!empty($_FILES['material_photo']['name'])) {
+            $ext = strtolower(pathinfo($_FILES['material_photo']['name'], PATHINFO_EXTENSION));
+            $allowed = ['jpg','jpeg','png','gif','webp'];
+            if (in_array($ext, $allowed) && $_FILES['material_photo']['size'] <= 10 * 1024 * 1024) {
+                $fname = time() . '_material_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['material_photo']['name']);
+                if (move_uploaded_file($_FILES['material_photo']['tmp_name'], $uploadDir . $fname)) {
+                    $materialPhoto = $fname;
+                }
+            }
+        }
+
         $pdo->beginTransaction();
 
         /* Insert stock entry */
         $pdo->prepare("
             INSERT INTO stock_entries
-            (po_id, part_no, received_qty, invoice_no)
-            VALUES (?, ?, ?, ?)
+            (po_id, part_no, received_qty, invoice_no, invoice_attachment, material_photo)
+            VALUES (?, ?, ?, ?, ?, ?)
         ")->execute([
             $po_id,
             $po['part_no'],
             $qty,
-            $_POST['invoice_no']
+            $_POST['invoice_no'],
+            $invoiceAttachment,
+            $materialPhoto
         ]);
 
         /* Update inventory */
@@ -230,7 +271,7 @@ if (toggle) {
         </div>
 
         <?php if ($remaining > 0): ?>
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             <div class="form-group">
                 <label>Invoice No</label>
                 <input type="text" name="invoice_no" placeholder="Enter supplier invoice number">
@@ -239,6 +280,19 @@ if (toggle) {
             <div class="form-group">
                 <label>Received Qty *</label>
                 <input type="number" step="0.001" name="received_qty" required max="<?= $remaining ?>" placeholder="Max: <?= $remaining ?>">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Invoice Attachment</label>
+                    <input type="file" name="invoice_attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+                    <small style="color: #888; display: block; margin-top: 4px;">PDF, Image, or Document (max 10MB)</small>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Material Photo</label>
+                    <input type="file" name="material_photo" accept="image/*" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+                    <small style="color: #888; display: block; margin-top: 4px;">JPG, PNG, or WebP (max 10MB)</small>
+                </div>
             </div>
 
             <div class="btn-group">
