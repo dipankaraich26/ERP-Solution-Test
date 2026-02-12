@@ -950,9 +950,29 @@ function printShipToAddress() {
                 <button onclick="window.close()" style="padding: 15px 40px; font-size: 18px; cursor: pointer; background: #6c757d; color: white; border: none; border-radius: 5px;">Close</button>
             </div>
             <div class="label-container">
-                <div class="label-header">SHIP TO</div>
+                <div class="label-header">SHIPPING LABEL</div>
                 <div class="label-content">
-                    ${shipToContent.innerHTML}
+                    <div style="border-bottom: 2px solid #999; padding-bottom: 20px; margin-bottom: 25px;">
+                        <p style="font-size: 18px; color: #666; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 2px;">From:</p>
+                        <p style="margin: 5px 0;"><strong style="font-size: 28px;"><?= htmlspecialchars($settings['company_name'] ?? 'Yashka Infotronics') ?></strong></p>
+                        <p style="margin: 5px 0; font-size: 20px;"><?= htmlspecialchars($settings['address_line1'] ?? '') ?></p>
+                        <?php if (!empty($settings['address_line2'])): ?>
+                            <p style="margin: 5px 0; font-size: 20px;"><?= htmlspecialchars($settings['address_line2']) ?></p>
+                        <?php endif; ?>
+                        <p style="margin: 5px 0; font-size: 20px;"><?= htmlspecialchars(implode(', ', array_filter([
+                            $settings['city'] ?? '', $settings['state'] ?? '', $settings['pincode'] ?? ''
+                        ]))) ?></p>
+                        <?php if (!empty($settings['phone'])): ?>
+                            <p style="margin: 5px 0; font-size: 18px;">Tel: <?= htmlspecialchars($settings['phone']) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['gstin'])): ?>
+                            <p style="margin: 5px 0; font-size: 18px;">GSTIN: <?= htmlspecialchars($settings['gstin']) ?></p>
+                        <?php endif; ?>
+                    </div>
+                    <div>
+                        <p style="font-size: 18px; color: #666; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 2px;">Ship To:</p>
+                        ${shipToContent.innerHTML}
+                    </div>
                 </div>
                 <div class="invoice-ref">
                     <strong>Invoice:</strong> <?= htmlspecialchars($invoice['invoice_no']) ?> &nbsp;&nbsp;|&nbsp;&nbsp;

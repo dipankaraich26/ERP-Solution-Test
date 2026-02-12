@@ -229,24 +229,47 @@ $document_title = 'TAX INVOICE';
 
     <?php include "../includes/company_header.php"; ?>
 
-    <div class="doc-info" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0;">
+    <!-- Invoice Details + Reference Row -->
+    <div class="doc-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
         <div class="invoice-box" style="border-right: 1px solid #ddd;">
             <h4>Invoice Details</h4>
             <p><strong><?= htmlspecialchars($invoice['invoice_no']) ?></strong></p>
             <p>Date: <?= htmlspecialchars($invoice['invoice_date']) ?></p>
-            <p>Status: <?= ucfirst(htmlspecialchars($invoice['status'])) ?></p>
             <?php if ($chain): ?>
-                <p style="margin-top: 10px;">
-                    SO: <?= htmlspecialchars($chain['so_no']) ?><br>
+                <p style="margin-top: 8px;">
+                    SO: <?= htmlspecialchars($chain['so_no']) ?>
                     <?php if ($chain['customer_po_no']): ?>
-                        Customer PO: <?= htmlspecialchars($chain['customer_po_no']) ?><br>
+                        &nbsp;|&nbsp; Customer PO: <?= htmlspecialchars($chain['customer_po_no']) ?>
                     <?php endif; ?>
                     <?php if ($chain['pi_no']): ?>
-                        PI: <?= htmlspecialchars($chain['pi_no']) ?>
+                        &nbsp;|&nbsp; PI: <?= htmlspecialchars($chain['pi_no']) ?>
                     <?php endif; ?>
                 </p>
             <?php endif; ?>
         </div>
+        <div class="invoice-box">
+            <h4>From (Dispatch)</h4>
+            <p><strong><?= htmlspecialchars($settings['company_name'] ?? 'Yashka Infotronics') ?></strong></p>
+            <p><?= htmlspecialchars($settings['address_line1'] ?? '') ?></p>
+            <?php if (!empty($settings['address_line2'])): ?>
+                <p><?= htmlspecialchars($settings['address_line2']) ?></p>
+            <?php endif; ?>
+            <p><?= htmlspecialchars(implode(', ', array_filter([
+                $settings['city'] ?? '',
+                $settings['state'] ?? '',
+                $settings['pincode'] ?? ''
+            ]))) ?></p>
+            <?php if (!empty($settings['gstin'])): ?>
+                <p>GSTIN: <?= htmlspecialchars($settings['gstin']) ?></p>
+            <?php endif; ?>
+            <?php if (!empty($settings['phone'])): ?>
+                <p>Tel: <?= htmlspecialchars($settings['phone']) ?></p>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Bill To + Ship To Row -->
+    <div class="doc-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: -1px;">
         <div class="customer-box" style="border-right: 1px solid #ddd;">
             <h4>Bill To</h4>
             <?php if ($chain): ?>
@@ -265,6 +288,9 @@ $document_title = 'TAX INVOICE';
                 ]))) ?></p>
                 <?php if ($chain['gstin']): ?>
                     <p>GSTIN: <?= htmlspecialchars($chain['gstin']) ?></p>
+                <?php endif; ?>
+                <?php if ($chain['contact'] ?? ''): ?>
+                    <p>Contact: <?= htmlspecialchars($chain['contact']) ?></p>
                 <?php endif; ?>
             <?php else: ?>
                 <p>Customer information not available</p>
@@ -295,7 +321,24 @@ $document_title = 'TAX INVOICE';
                     <p>GSTIN: <?= htmlspecialchars($invoice['ship_to_gstin']) ?></p>
                 <?php endif; ?>
             <?php else: ?>
-                <p style="color: #999; font-style: italic;">Same as Bill To</p>
+                <!-- If no ship-to, show Bill To address as default -->
+                <?php if ($chain): ?>
+                    <p><strong><?= htmlspecialchars($chain['company_name'] ?? $chain['customer_name'] ?? '') ?></strong></p>
+                    <p><?= htmlspecialchars($chain['address1'] ?? '') ?></p>
+                    <?php if ($chain['address2']): ?>
+                        <p><?= htmlspecialchars($chain['address2']) ?></p>
+                    <?php endif; ?>
+                    <p><?= htmlspecialchars(implode(', ', array_filter([
+                        $chain['city'] ?? '',
+                        $chain['state'] ?? '',
+                        $chain['pincode'] ?? ''
+                    ]))) ?></p>
+                    <?php if ($chain['gstin']): ?>
+                        <p>GSTIN: <?= htmlspecialchars($chain['gstin']) ?></p>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <p style="color: #999; font-style: italic;">Same as Bill To</p>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
