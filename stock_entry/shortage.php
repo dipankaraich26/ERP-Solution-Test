@@ -6,63 +6,61 @@ include "../includes/sidebar.php";
 // Filters
 $supplierFilter = isset($_GET['supplier_id']) ? (int)$_GET['supplier_id'] : 0;
 $search = trim($_GET['search'] ?? '');
-$qtyCheck = isset($_GET['qty_check']) && $_GET['qty_check'] !== '' ? (float)$_GET['qty_check'] : null;
-$statusFilter = $_GET['po_status'] ?? '';
+$stockQty = isset($_GET['stock_qty']) && $_GET['stock_qty'] !== '' ? (int)$_GET['stock_qty'] : null;
 
 // Fetch all suppliers for dropdown
 $suppliers = $pdo->query("SELECT id, supplier_name, supplier_code FROM suppliers ORDER BY supplier_name")->fetchAll(PDO::FETCH_ASSOC);
 
-// Build query: supplier-wise PO shortage (ordered - received)
-$where = ["po.status NOT IN ('closed','cancelled')"];
+// Build query: all parts mapped to suppliers, with current stock and on-order qty
+$where = ["pm.status = 'active'", "psm.active = 1"];
 $params = [];
 
 if ($supplierFilter > 0) {
-    $where[] = "po.supplier_id = :supplier_id";
+    $where[] = "psm.supplier_id = :supplier_id";
     $params[':supplier_id'] = $supplierFilter;
 }
 if ($search !== '') {
-    $where[] = "(po.po_no LIKE :search OR pm.part_no LIKE :search OR pm.part_name LIKE :search)";
+    $where[] = "(pm.part_no LIKE :search OR pm.part_name LIKE :search)";
     $params[':search'] = '%' . $search . '%';
 }
-if ($statusFilter === 'open') {
-    $where[] = "po.status = 'open'";
-} elseif ($statusFilter === 'partial') {
-    $where[] = "po.status = 'partial'";
-} elseif ($statusFilter === 'pending') {
-    $where[] = "po.status IN ('open','pending')";
+
+// Stock qty filter: filter by exact current stock level
+if ($stockQty !== null) {
+    $where[] = "COALESCE(i.qty, 0) = :stock_qty";
+    $params[':stock_qty'] = $stockQty;
 }
 
 $whereClause = implode(' AND ', $where);
 
-// Main query: get all open PO lines with received qty
 $sql = "
     SELECT
-        po.id AS po_line_id,
-        po.po_no,
-        po.part_no,
+        pm.part_no,
         pm.part_name,
-        po.qty AS ordered_qty,
-        COALESCE(recv.total_received, 0) AS received_qty,
-        (po.qty - COALESCE(recv.total_received, 0)) AS shortage_qty,
-        po.status AS po_status,
-        po.purchase_date,
-        po.supplier_id,
+        pm.uom,
+        COALESCE(i.qty, 0) AS current_stock,
+        psm.supplier_id,
         s.supplier_name,
         s.supplier_code,
-        COALESCE(i.qty, 0) AS current_stock
-    FROM purchase_orders po
-    JOIN part_master pm ON po.part_no = pm.part_no
-    LEFT JOIN suppliers s ON po.supplier_id = s.id
-    LEFT JOIN inventory i ON po.part_no = i.part_no
+        COALESCE(on_order.ordered_qty, 0) AS ordered_qty
+    FROM part_supplier_mapping psm
+    JOIN part_master pm ON psm.part_no = pm.part_no
+    LEFT JOIN suppliers s ON psm.supplier_id = s.id
+    LEFT JOIN inventory i ON pm.part_no = i.part_no
     LEFT JOIN (
-        SELECT po_id, SUM(received_qty) AS total_received
-        FROM stock_entries
-        WHERE status = 'posted'
-        GROUP BY po_id
-    ) recv ON recv.po_id = po.id
+        SELECT po.part_no, po.supplier_id,
+               SUM(po.qty) - COALESCE(SUM(recv.total_received), 0) AS ordered_qty
+        FROM purchase_orders po
+        LEFT JOIN (
+            SELECT po_id, SUM(received_qty) AS total_received
+            FROM stock_entries
+            WHERE status = 'posted'
+            GROUP BY po_id
+        ) recv ON recv.po_id = po.id
+        WHERE po.status NOT IN ('closed','cancelled')
+        GROUP BY po.part_no, po.supplier_id
+    ) on_order ON on_order.part_no = pm.part_no AND on_order.supplier_id = psm.supplier_id
     WHERE $whereClause
-    HAVING shortage_qty > 0
-    ORDER BY s.supplier_name, po.po_no, pm.part_name
+    ORDER BY s.supplier_name, pm.part_name
 ";
 
 $stmt = $pdo->prepare($sql);
@@ -74,9 +72,9 @@ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Group by supplier
 $bySupplier = [];
-$grandTotalOrdered = 0;
-$grandTotalReceived = 0;
-$grandTotalShortage = 0;
+$totalParts = 0;
+$totalZeroStock = 0;
+$totalWithOrders = 0;
 
 foreach ($rows as $r) {
     $sid = $r['supplier_id'] ?: 0;
@@ -88,29 +86,20 @@ foreach ($rows as $r) {
             'name' => $sName,
             'code' => $sCode,
             'items' => [],
-            'total_ordered' => 0,
-            'total_received' => 0,
-            'total_shortage' => 0,
-            'po_count' => 0
+            'part_count' => 0,
+            'zero_count' => 0,
+            'with_orders' => 0
         ];
     }
 
-    // Qty check: if user entered a qty, flag whether current stock covers it
-    $r['qty_status'] = null;
-    if ($qtyCheck !== null) {
-        $r['qty_status'] = $r['current_stock'] >= $qtyCheck ? 'sufficient' : 'short';
-        $r['qty_deficit'] = max(0, $qtyCheck - $r['current_stock']);
-    }
-
     $bySupplier[$sid]['items'][] = $r;
-    $bySupplier[$sid]['total_ordered'] += $r['ordered_qty'];
-    $bySupplier[$sid]['total_received'] += $r['received_qty'];
-    $bySupplier[$sid]['total_shortage'] += $r['shortage_qty'];
-    $bySupplier[$sid]['po_count']++;
+    $bySupplier[$sid]['part_count']++;
+    if ($r['current_stock'] == 0) $bySupplier[$sid]['zero_count']++;
+    if ($r['ordered_qty'] > 0) $bySupplier[$sid]['with_orders']++;
 
-    $grandTotalOrdered += $r['ordered_qty'];
-    $grandTotalReceived += $r['received_qty'];
-    $grandTotalShortage += $r['shortage_qty'];
+    $totalParts++;
+    if ($r['current_stock'] == 0) $totalZeroStock++;
+    if ($r['ordered_qty'] > 0) $totalWithOrders++;
 }
 ?>
 
@@ -142,6 +131,22 @@ foreach ($rows as $r) {
         border: 1px solid #ccc;
         border-radius: 4px;
         font-size: 0.95em;
+    }
+    .qty-btns { display: flex; gap: 6px; margin-top: 2px; }
+    .qty-btns a {
+        padding: 5px 14px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid #ccc;
+        color: #333;
+        background: #f8f9fa;
+    }
+    .qty-btns a.active, .qty-btns a:hover {
+        background: #4a90d9;
+        color: #fff;
+        border-color: #4a90d9;
     }
     .summary-cards {
         display: grid;
@@ -183,22 +188,15 @@ foreach ($rows as $r) {
         align-items: center;
         cursor: pointer;
     }
-    .supplier-header:hover {
-        background: #3a7ec5;
-    }
+    .supplier-header:hover { background: #3a7ec5; }
     .supplier-header .badge {
         background: rgba(255,255,255,0.25);
         padding: 4px 12px;
         border-radius: 12px;
         font-size: 0.85em;
     }
-    .supplier-body {
-        overflow-x: auto;
-    }
-    .supplier-body table {
-        width: 100%;
-        border-collapse: collapse;
-    }
+    .supplier-body { overflow-x: auto; }
+    .supplier-body table { width: 100%; border-collapse: collapse; }
     .supplier-body th {
         background: #f0f4f8;
         padding: 10px 14px;
@@ -214,9 +212,7 @@ foreach ($rows as $r) {
         border-bottom: 1px solid #eee;
         font-size: 0.92em;
     }
-    .supplier-body tr:hover {
-        background: #f8fafc;
-    }
+    .supplier-body tr:hover { background: #f8fafc; }
     .supplier-footer {
         background: #f0f4f8;
         padding: 12px 20px;
@@ -226,22 +222,18 @@ foreach ($rows as $r) {
         font-size: 0.9em;
         color: #333;
     }
-    .shortage-bar {
+    .stock-zero { color: #dc3545; font-weight: 700; }
+    .stock-low { color: #f59e0b; font-weight: 600; }
+    .stock-ok { color: #10b981; }
+    .order-badge {
         display: inline-block;
-        height: 8px;
-        border-radius: 4px;
-        margin-left: 8px;
-        vertical-align: middle;
-    }
-    .status-badge {
-        display: inline-block;
-        padding: 3px 10px;
+        padding: 2px 10px;
         border-radius: 10px;
-        font-size: 0.82em;
+        font-size: 0.85em;
         font-weight: 600;
+        background: #dbeafe;
+        color: #1e40af;
     }
-    .qty-sufficient { background: #d1fae5; color: #065f46; }
-    .qty-short { background: #fee2e2; color: #991b1b; }
 
     body.dark .shortage-filters,
     body.dark .summary-card,
@@ -249,6 +241,8 @@ foreach ($rows as $r) {
     body.dark .shortage-filters label { color: #bdc3c7; }
     body.dark .shortage-filters select,
     body.dark .shortage-filters input { background: #34495e; border-color: #4a6278; color: #ecf0f1; }
+    body.dark .qty-btns a { background: #34495e; border-color: #4a6278; color: #bdc3c7; }
+    body.dark .qty-btns a.active, body.dark .qty-btns a:hover { background: #2980b9; color: #fff; border-color: #2980b9; }
     body.dark .supplier-header { background: #2980b9; }
     body.dark .supplier-body th { background: #34495e; color: #bdc3c7; border-color: #4a6278; }
     body.dark .supplier-body td { border-color: #4a6278; color: #ecf0f1; }
@@ -279,7 +273,7 @@ if (toggle) {
 </script>
 
 <div class="content" style="overflow-x: auto;">
-    <h1>Shortage Checking — Supplier Wise</h1>
+    <h1>Shortage Check — Supplier Wise</h1>
 
     <!-- Filters -->
     <form method="get" class="shortage-filters">
@@ -296,23 +290,13 @@ if (toggle) {
         </div>
 
         <div class="filter-group">
-            <label>PO Status</label>
-            <select name="po_status">
-                <option value="">All Open</option>
-                <option value="open" <?= $statusFilter === 'open' ? 'selected' : '' ?>>Open</option>
-                <option value="partial" <?= $statusFilter === 'partial' ? 'selected' : '' ?>>Partial</option>
-                <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>Pending</option>
-            </select>
+            <label>Search (Part)</label>
+            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Part no or name...">
         </div>
 
         <div class="filter-group">
-            <label>Search (PO / Part)</label>
-            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="PO no, part no or name...">
-        </div>
-
-        <div class="filter-group">
-            <label>Qty to Check</label>
-            <input type="number" step="0.001" name="qty_check" value="<?= $qtyCheck !== null ? htmlspecialchars($qtyCheck) : '' ?>" placeholder="Enter qty..." style="width: 130px;">
+            <label>Stock Qty</label>
+            <input type="number" name="stock_qty" min="0" value="<?= $stockQty !== null ? (int)$stockQty : '' ?>" placeholder="Any" style="width: 100px;">
         </div>
 
         <div class="filter-group">
@@ -321,48 +305,58 @@ if (toggle) {
         </div>
     </form>
 
+    <!-- Quick qty filter buttons -->
+    <div class="qty-btns" style="margin-bottom: 18px;">
+        <a href="?supplier_id=<?= $supplierFilter ?>&search=<?= urlencode($search) ?>" class="<?= $stockQty === null ? 'active' : '' ?>">All</a>
+        <a href="?supplier_id=<?= $supplierFilter ?>&search=<?= urlencode($search) ?>&stock_qty=0" class="<?= $stockQty === 0 ? 'active' : '' ?>">Zero Stock</a>
+        <a href="?supplier_id=<?= $supplierFilter ?>&search=<?= urlencode($search) ?>&stock_qty=1" class="<?= $stockQty === 1 ? 'active' : '' ?>">Stock = 1</a>
+        <a href="?supplier_id=<?= $supplierFilter ?>&search=<?= urlencode($search) ?>&stock_qty=2" class="<?= $stockQty === 2 ? 'active' : '' ?>">Stock = 2</a>
+        <a href="?supplier_id=<?= $supplierFilter ?>&search=<?= urlencode($search) ?>&stock_qty=5" class="<?= $stockQty === 5 ? 'active' : '' ?>">Stock = 5</a>
+    </div>
+
     <!-- Summary Cards -->
     <div class="summary-cards">
         <div class="summary-card">
             <div class="value" style="color: #3b82f6;"><?= count($bySupplier) ?></div>
-            <div class="label">Suppliers with Shortages</div>
+            <div class="label">Suppliers</div>
         </div>
         <div class="summary-card">
-            <div class="value" style="color: #f59e0b;"><?= count($rows) ?></div>
-            <div class="label">PO Lines Pending</div>
+            <div class="value" style="color: #f59e0b;"><?= $totalParts ?></div>
+            <div class="label">Total Parts</div>
         </div>
         <div class="summary-card">
-            <div class="value" style="color: #10b981;"><?= number_format($grandTotalOrdered) ?></div>
-            <div class="label">Total Ordered</div>
+            <div class="value" style="color: #ef4444;"><?= $totalZeroStock ?></div>
+            <div class="label">Zero Stock Parts</div>
         </div>
         <div class="summary-card">
-            <div class="value" style="color: #6366f1;"><?= number_format($grandTotalReceived) ?></div>
-            <div class="label">Total Received</div>
-        </div>
-        <div class="summary-card">
-            <div class="value" style="color: #ef4444;"><?= number_format($grandTotalShortage) ?></div>
-            <div class="label">Total Shortage</div>
+            <div class="value" style="color: #10b981;"><?= $totalWithOrders ?></div>
+            <div class="label">With Open Orders</div>
         </div>
     </div>
 
     <?php if (empty($bySupplier)): ?>
         <div style="text-align: center; padding: 40px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-            <p style="font-size: 1.2em; color: #666;">No shortages found for the selected filters.</p>
+            <p style="font-size: 1.2em; color: #666;">No parts found for the selected filters.</p>
         </div>
     <?php else: ?>
         <?php foreach ($bySupplier as $sid => $sup): ?>
         <div class="supplier-section">
-            <div class="supplier-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? '' : 'none'; this.querySelector('.toggle-icon').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';">
+            <div class="supplier-header" onclick="var b=this.nextElementSibling; b.style.display=b.style.display==='none'?'':'none'; this.querySelector('.ti').textContent=b.style.display==='none'?'▶':'▼';">
                 <span>
-                    <span class="toggle-icon">▼</span>
+                    <span class="ti">▼</span>
                     &nbsp;<?= htmlspecialchars($sup['name']) ?>
                     <?php if ($sup['code']): ?>
                         <span style="opacity: 0.8; font-size: 0.85em;">(<?= htmlspecialchars($sup['code']) ?>)</span>
                     <?php endif; ?>
                 </span>
                 <span>
-                    <span class="badge"><?= $sup['po_count'] ?> line<?= $sup['po_count'] > 1 ? 's' : '' ?></span>
-                    <span class="badge" style="background: rgba(239,68,68,0.3); margin-left: 6px;">Shortage: <?= number_format($sup['total_shortage']) ?></span>
+                    <span class="badge"><?= $sup['part_count'] ?> part<?= $sup['part_count'] > 1 ? 's' : '' ?></span>
+                    <?php if ($sup['zero_count'] > 0): ?>
+                        <span class="badge" style="background: rgba(239,68,68,0.3); margin-left: 6px;">Zero: <?= $sup['zero_count'] ?></span>
+                    <?php endif; ?>
+                    <?php if ($sup['with_orders'] > 0): ?>
+                        <span class="badge" style="background: rgba(16,185,129,0.3); margin-left: 6px;">On Order: <?= $sup['with_orders'] ?></span>
+                    <?php endif; ?>
                 </span>
             </div>
 
@@ -371,55 +365,32 @@ if (toggle) {
                     <table>
                         <thead>
                             <tr>
-                                <th>PO No</th>
+                                <th>#</th>
                                 <th>Part No</th>
                                 <th>Part Name</th>
-                                <th>Ordered</th>
-                                <th>Received</th>
-                                <th>Shortage</th>
-                                <th>%</th>
+                                <th>UOM</th>
                                 <th>Current Stock</th>
-                                <?php if ($qtyCheck !== null): ?>
-                                    <th>Qty Check (<?= htmlspecialchars($qtyCheck) ?>)</th>
-                                <?php endif; ?>
-                                <th>PO Status</th>
-                                <th>PO Date</th>
-                                <th>Action</th>
+                                <th>Ordered (On Order)</th>
                             </tr>
                         </thead>
                         <tbody>
-                        <?php foreach ($sup['items'] as $item):
-                            $pct = $item['ordered_qty'] > 0 ? round(($item['received_qty'] / $item['ordered_qty']) * 100) : 0;
-                        ?>
+                        <?php $idx = 0; foreach ($sup['items'] as $item): $idx++; ?>
                             <tr>
-                                <td><strong><?= htmlspecialchars($item['po_no']) ?></strong></td>
-                                <td><?= htmlspecialchars($item['part_no']) ?></td>
+                                <td><?= $idx ?></td>
+                                <td><strong><?= htmlspecialchars($item['part_no']) ?></strong></td>
                                 <td><?= htmlspecialchars($item['part_name']) ?></td>
-                                <td style="text-align:right;"><?= number_format($item['ordered_qty']) ?></td>
-                                <td style="text-align:right;"><?= number_format($item['received_qty']) ?></td>
-                                <td style="text-align:right; color: #dc3545; font-weight: 600;"><?= number_format($item['shortage_qty']) ?></td>
+                                <td><?= htmlspecialchars($item['uom'] ?? 'Nos') ?></td>
                                 <td style="text-align:right;">
-                                    <?= $pct ?>%
-                                    <span class="shortage-bar" style="width: <?= $pct ?>px; background: <?= $pct >= 75 ? '#10b981' : ($pct >= 50 ? '#f59e0b' : '#ef4444') ?>;"></span>
-                                </td>
-                                <td style="text-align:right;"><?= number_format($item['current_stock']) ?></td>
-                                <?php if ($qtyCheck !== null): ?>
-                                    <td style="text-align:center;">
-                                        <?php if ($item['qty_status'] === 'sufficient'): ?>
-                                            <span class="status-badge qty-sufficient">Sufficient</span>
-                                        <?php else: ?>
-                                            <span class="status-badge qty-short">Short by <?= number_format($item['qty_deficit']) ?></span>
-                                        <?php endif; ?>
-                                    </td>
-                                <?php endif; ?>
-                                <td>
-                                    <span class="status-badge" style="background: <?= $item['po_status'] === 'partial' ? '#fef3c7' : '#dbeafe' ?>; color: <?= $item['po_status'] === 'partial' ? '#92400e' : '#1e40af' ?>;">
-                                        <?= ucfirst(htmlspecialchars($item['po_status'])) ?>
+                                    <span class="<?= $item['current_stock'] == 0 ? 'stock-zero' : ($item['current_stock'] <= 5 ? 'stock-low' : 'stock-ok') ?>">
+                                        <?= number_format($item['current_stock']) ?>
                                     </span>
                                 </td>
-                                <td><?= $item['purchase_date'] ? date('d M Y', strtotime($item['purchase_date'])) : '—' ?></td>
-                                <td>
-                                    <a href="receive_all.php?po_no=<?= urlencode($item['po_no']) ?>" class="btn btn-success" style="padding: 4px 12px; font-size: 0.85em;">Receive</a>
+                                <td style="text-align:right;">
+                                    <?php if ($item['ordered_qty'] > 0): ?>
+                                        <span class="order-badge"><?= number_format($item['ordered_qty']) ?></span>
+                                    <?php else: ?>
+                                        <span style="color: #999;">—</span>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -428,10 +399,9 @@ if (toggle) {
                 </div>
 
                 <div class="supplier-footer">
-                    <span>Ordered: <span style="color: #3b82f6;"><?= number_format($sup['total_ordered']) ?></span></span>
-                    <span>Received: <span style="color: #10b981;"><?= number_format($sup['total_received']) ?></span></span>
-                    <span>Shortage: <span style="color: #ef4444;"><?= number_format($sup['total_shortage']) ?></span></span>
-                    <span>Fulfillment: <span style="color: #6366f1;"><?= $sup['total_ordered'] > 0 ? round(($sup['total_received'] / $sup['total_ordered']) * 100) : 0 ?>%</span></span>
+                    <span>Parts: <strong><?= $sup['part_count'] ?></strong></span>
+                    <span>Zero Stock: <span style="color: #ef4444;"><?= $sup['zero_count'] ?></span></span>
+                    <span>With Orders: <span style="color: #10b981;"><?= $sup['with_orders'] ?></span></span>
                 </div>
             </div>
         </div>
