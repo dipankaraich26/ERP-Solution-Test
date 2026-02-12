@@ -6,6 +6,14 @@ include "../includes/dialog.php";
 $errors = [];
 $editUser = null;
 
+// Auto-add employee_id column if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM users LIKE 'employee_id'")->rowCount();
+    if ($cols === 0) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN employee_id INT DEFAULT NULL");
+    }
+} catch (Exception $e) {}
+
 // Handle Add/Edit User
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -18,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $role = $_POST['role'] ?? 'user';
         $is_active = isset($_POST['is_active']) ? 1 : 0;
         $password = $_POST['password'] ?? '';
+        $employee_id = !empty($_POST['employee_id']) ? (int)$_POST['employee_id'] : null;
 
         // Validation
         if ($username === '') $errors[] = "Username is required";
@@ -36,10 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $hash = password_hash($password, PASSWORD_DEFAULT);
                         $stmt = $pdo->prepare("
-                            INSERT INTO users (username, password_hash, full_name, email, phone, role, is_active)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO users (username, password_hash, full_name, email, phone, role, is_active, employee_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ");
-                        $stmt->execute([$username, $hash, $full_name, $email ?: null, $phone ?: null, $role, $is_active]);
+                        $stmt->execute([$username, $hash, $full_name, $email ?: null, $phone ?: null, $role, $is_active, $employee_id]);
                         setModal("Success", "User '$username' created successfully!");
                         header("Location: users.php");
                         exit;
@@ -60,18 +69,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $hash = password_hash($password, PASSWORD_DEFAULT);
                         $stmt = $pdo->prepare("
                             UPDATE users SET username = ?, password_hash = ?, full_name = ?,
-                            email = ?, phone = ?, role = ?, is_active = ?
+                            email = ?, phone = ?, role = ?, is_active = ?, employee_id = ?
                             WHERE id = ?
                         ");
-                        $stmt->execute([$username, $hash, $full_name, $email ?: null, $phone ?: null, $role, $is_active, $user_id]);
+                        $stmt->execute([$username, $hash, $full_name, $email ?: null, $phone ?: null, $role, $is_active, $employee_id, $user_id]);
                     } else {
                         // Update without password
                         $stmt = $pdo->prepare("
                             UPDATE users SET username = ?, full_name = ?,
-                            email = ?, phone = ?, role = ?, is_active = ?
+                            email = ?, phone = ?, role = ?, is_active = ?, employee_id = ?
                             WHERE id = ?
                         ");
-                        $stmt->execute([$username, $full_name, $email ?: null, $phone ?: null, $role, $is_active, $user_id]);
+                        $stmt->execute([$username, $full_name, $email ?: null, $phone ?: null, $role, $is_active, $employee_id, $user_id]);
                     }
                     setModal("Success", "User '$username' updated successfully!");
                     header("Location: users.php");
@@ -102,8 +111,13 @@ if (isset($_GET['edit'])) {
     $editUser = $editUser->fetch(PDO::FETCH_ASSOC);
 }
 
-// Fetch all users
-$users = $pdo->query("SELECT * FROM users ORDER BY role, username")->fetchAll(PDO::FETCH_ASSOC);
+// Fetch all users with linked employee info
+$users = $pdo->query("
+    SELECT u.*, e.emp_id as linked_emp_id, CONCAT(e.first_name, ' ', e.last_name) as linked_emp_name
+    FROM users u
+    LEFT JOIN employees e ON u.employee_id = e.id
+    ORDER BY u.role, u.username
+")->fetchAll(PDO::FETCH_ASSOC);
 
 include "../includes/sidebar.php";
 showModal();
@@ -237,6 +251,8 @@ showModal();
                 </div>
                 <?php endif; ?>
 
+                <input type="hidden" name="employee_id" id="employee_id" value="<?= htmlspecialchars($editUser['employee_id'] ?? '') ?>">
+
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Username *</label>
@@ -297,6 +313,7 @@ showModal();
                     <th>Username</th>
                     <th>Full Name</th>
                     <th>Email</th>
+                    <th>Linked Employee</th>
                     <th>Role</th>
                     <th>Status</th>
                     <th>Last Login</th>
@@ -309,6 +326,13 @@ showModal();
                     <td><strong><?= htmlspecialchars($u['username']) ?></strong></td>
                     <td><?= htmlspecialchars($u['full_name']) ?></td>
                     <td><?= htmlspecialchars($u['email'] ?? '-') ?></td>
+                    <td>
+                        <?php if ($u['linked_emp_id']): ?>
+                            <span style="font-size: 0.9em;"><?= htmlspecialchars($u['linked_emp_id']) ?> - <?= htmlspecialchars($u['linked_emp_name']) ?></span>
+                        <?php else: ?>
+                            <span style="color: #999;">Not linked</span>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <span class="role-badge role-<?= $u['role'] ?>">
                             <?= ucfirst($u['role']) ?>
@@ -425,6 +449,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function selectEmployee(emp) {
         // Fill in the form fields
+        document.getElementById('employee_id').value = emp.id;
         document.getElementById('full_name').value = emp.full_name;
         document.getElementById('email').value = emp.email || '';
         document.getElementById('phone').value = emp.phone || '';

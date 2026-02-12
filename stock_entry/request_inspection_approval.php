@@ -94,8 +94,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Approver actions
-    if ($action === 'approve' && $approval) {
+    // Approver actions - verify logged-in user is the assigned approver
+    $loggedInEmployeeId = $_SESSION['employee_id'] ?? null;
+    $isAssignedApprover = $approval && $loggedInEmployeeId && ((int)$loggedInEmployeeId === (int)$approval['approver_id']);
+
+    if (($action === 'approve' || $action === 'reject') && !$isAssignedApprover) {
+        $error = "Only the assigned approver can approve or reject this inspection.";
+    }
+
+    if ($action === 'approve' && $approval && $isAssignedApprover) {
         try {
             $pdo->beginTransaction();
 
@@ -127,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'reject' && $approval) {
+    if ($action === 'reject' && $approval && $isAssignedApprover) {
         if (empty($_POST['remarks'])) {
             $error = "Please provide a reason for rejection.";
         } else {
@@ -340,7 +347,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <!-- Approver Action Form -->
-            <?php if ($approval['status'] === 'Pending'): ?>
+            <?php
+                $loggedInEmpId = $_SESSION['employee_id'] ?? null;
+                $canApprove = $loggedInEmpId && ((int)$loggedInEmpId === (int)$approval['approver_id']);
+            ?>
+            <?php if ($approval['status'] === 'Pending' && $canApprove): ?>
             <div class="action-section">
                 <h4 style="margin: 0 0 15px 0;">Approver Actions</h4>
                 <form method="post">
@@ -360,6 +371,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </button>
                     </div>
                 </form>
+            </div>
+            <?php elseif ($approval['status'] === 'Pending' && !$canApprove): ?>
+            <div style="margin-top: 20px; background: #fff3cd; padding: 15px; border-radius: 8px; color: #856404;">
+                <strong>Waiting for Approver:</strong> Only the assigned approver
+                (<?= htmlspecialchars($approval['first_name'] . ' ' . $approval['last_name']) ?>)
+                can approve or reject this inspection. Please log in as the assigned approver.
             </div>
             <?php endif; ?>
 

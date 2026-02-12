@@ -186,13 +186,16 @@ include "../includes/sidebar.php";
             font-size: 0.9em;
         }
 
+        .table-scroll-wrapper {
+            max-height: 65vh;
+            overflow-y: auto;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
         .data-table {
             width: 100%;
             border-collapse: collapse;
             background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
         .data-table th, .data-table td {
             padding: 12px 15px;
@@ -204,6 +207,9 @@ include "../includes/sidebar.php";
             font-weight: 600;
             color: #495057;
             font-size: 0.9em;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         .data-table tr:hover { background: #f8f9fa; }
         .data-table td { font-size: 0.9em; }
@@ -252,6 +258,7 @@ include "../includes/sidebar.php";
             border-radius: 10px;
         }
 
+        body.dark .table-scroll-wrapper { box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         body.dark .data-table { background: #2c3e50; }
         body.dark .data-table th { background: #34495e; color: #ecf0f1; }
         body.dark .data-table tr:hover { background: #34495e; }
@@ -371,7 +378,7 @@ if (toggle) {
             <p style="margin-top: 10px; color: #999;">Go to Stock Entry &rarr; Receive All &rarr; Generate Inspection Checklist</p>
         </div>
     <?php else: ?>
-        <div style="overflow-x: auto;">
+        <div class="table-scroll-wrapper" style="overflow-x: auto;">
         <table class="data-table">
             <thead>
                 <tr>
