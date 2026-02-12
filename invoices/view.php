@@ -959,11 +959,14 @@ function printShipToAddress() {
                         <?php if (!empty($settings['address_line2'])): ?>
                             <p style="margin: 5px 0; font-size: 20px;"><?= htmlspecialchars($settings['address_line2']) ?></p>
                         <?php endif; ?>
-                        <p style="margin: 5px 0; font-size: 20px;"><?= htmlspecialchars(implode(', ', array_filter([
-                            $settings['city'] ?? '', $settings['state'] ?? '', $settings['pincode'] ?? ''
-                        ]))) ?></p>
+                        <?php if (!empty($settings['city'])): ?>
+                            <p style="margin: 5px 0; font-size: 20px;">City: <?= htmlspecialchars($settings['city']) ?><?= !empty($settings['pincode']) ? ' - ' . htmlspecialchars($settings['pincode']) : '' ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($settings['state'])): ?>
+                            <p style="margin: 5px 0; font-size: 20px;">State: <?= htmlspecialchars($settings['state']) ?></p>
+                        <?php endif; ?>
                         <?php if (!empty($settings['phone'])): ?>
-                            <p style="margin: 5px 0; font-size: 18px;">Tel: <?= htmlspecialchars($settings['phone']) ?></p>
+                            <p style="margin: 5px 0; font-size: 20px;">Contact No: <?= htmlspecialchars($settings['phone']) ?></p>
                         <?php endif; ?>
                         <?php if (!empty($settings['gstin'])): ?>
                             <p style="margin: 5px 0; font-size: 18px;">GSTIN: <?= htmlspecialchars($settings['gstin']) ?></p>

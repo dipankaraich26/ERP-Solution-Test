@@ -254,16 +254,17 @@ $document_title = 'TAX INVOICE';
             <?php if (!empty($settings['address_line2'])): ?>
                 <p><?= htmlspecialchars($settings['address_line2']) ?></p>
             <?php endif; ?>
-            <p><?= htmlspecialchars(implode(', ', array_filter([
-                $settings['city'] ?? '',
-                $settings['state'] ?? '',
-                $settings['pincode'] ?? ''
-            ]))) ?></p>
-            <?php if (!empty($settings['gstin'])): ?>
-                <p>GSTIN: <?= htmlspecialchars($settings['gstin']) ?></p>
+            <?php if (!empty($settings['city'])): ?>
+                <p>City: <?= htmlspecialchars($settings['city']) ?><?= !empty($settings['pincode']) ? ' - ' . htmlspecialchars($settings['pincode']) : '' ?></p>
+            <?php endif; ?>
+            <?php if (!empty($settings['state'])): ?>
+                <p>State: <?= htmlspecialchars($settings['state']) ?></p>
             <?php endif; ?>
             <?php if (!empty($settings['phone'])): ?>
-                <p>Tel: <?= htmlspecialchars($settings['phone']) ?></p>
+                <p>Contact No: <?= htmlspecialchars($settings['phone']) ?></p>
+            <?php endif; ?>
+            <?php if (!empty($settings['gstin'])): ?>
+                <p>GSTIN: <?= htmlspecialchars($settings['gstin']) ?></p>
             <?php endif; ?>
         </div>
     </div>
