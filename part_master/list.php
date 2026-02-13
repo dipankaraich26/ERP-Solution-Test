@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('part_master');
 include "../includes/dialog.php";
 
 showModal();

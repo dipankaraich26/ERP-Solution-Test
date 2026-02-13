@@ -1,6 +1,8 @@
 <?php
 include "../db.php";
 include "../includes/auth.php";
+requireLogin();
+requirePermission('crm');
 include "../includes/dialog.php";
 
 // Get current user info

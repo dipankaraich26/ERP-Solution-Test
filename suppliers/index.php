@@ -5,6 +5,9 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('suppliers');
 include "../includes/dialog.php";
 
 $error = '';

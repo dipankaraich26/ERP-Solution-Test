@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('customers');
 include "../includes/sidebar.php";
 
 // Handle bulk delete request

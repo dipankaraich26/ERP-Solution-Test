@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('quotes');
 include "../includes/sidebar.php";
 
 // Handle delete request

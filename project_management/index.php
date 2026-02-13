@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('project_management');
 include "../includes/dialog.php";
 
 showModal();

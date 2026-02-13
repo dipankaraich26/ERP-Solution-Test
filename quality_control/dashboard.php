@@ -2,6 +2,7 @@
 include "../db.php";
 include "../includes/auth.php";
 requireLogin();
+requirePermission('quality_control');
 
 // Get summary statistics
 $stats = [];

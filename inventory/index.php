@@ -1,6 +1,9 @@
 <?php
 ob_start();
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('inventory');
 
 $view = $_GET['view'] ?? 'normal';
 $qty_filter = isset($_GET['qty']) && $_GET['qty'] !== '' ? (int)$_GET['qty'] : null;

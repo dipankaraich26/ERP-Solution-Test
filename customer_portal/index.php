@@ -2,6 +2,7 @@
 include "../db.php";
 include "../includes/auth.php";
 requireLogin();
+requirePermission('customer_portal');
 
 // Get customer selection
 $customer_id = isset($_GET['customer_id']) ? (int)$_GET['customer_id'] : 0;

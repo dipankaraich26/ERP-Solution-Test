@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('customer_po');
 include "../includes/sidebar.php";
 
 // Pagination setup

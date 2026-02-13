@@ -1,5 +1,8 @@
 <?php
 require '../db.php';
+require '../includes/auth.php';
+requireLogin();
+requirePermission('procurement');
 require '../includes/procurement_helper.php';
 
 // Pagination setup

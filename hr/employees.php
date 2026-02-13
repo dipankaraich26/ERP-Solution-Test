@@ -1,5 +1,8 @@
 <?php
 require "../db.php";
+require "../includes/auth.php";
+requireLogin();
+requirePermission('hr_employees');
 require "../includes/header.php";
 require "../includes/sidebar.php";
 

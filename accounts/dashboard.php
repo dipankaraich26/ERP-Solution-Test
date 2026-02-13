@@ -2,6 +2,7 @@
 include "../db.php";
 include "../includes/auth.php";
 requireLogin();
+requirePermission('accounts');
 
 // Current Financial Year
 $current_month = date('n');

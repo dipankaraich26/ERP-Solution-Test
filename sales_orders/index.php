@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('sales_orders');
 include "../includes/dialog.php";
 
 showModal();

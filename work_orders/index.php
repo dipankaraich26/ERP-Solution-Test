@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('work_orders');
 include "../includes/sidebar.php";
 
 $success = '';

@@ -5,6 +5,8 @@
  */
 include "../db.php";
 include "../includes/auth.php";
+requireLogin();
+requirePermission('qms');
 
 // Check if tables exist, redirect to installer if not
 try {

@@ -2,6 +2,7 @@
 include "../db.php";
 include "../includes/auth.php";
 requireLogin();
+requirePermission('hr_employees');
 
 // Get company settings
 $settings = $pdo->query("SELECT * FROM company_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];

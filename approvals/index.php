@@ -3,6 +3,7 @@ include "../db.php";
 include "../includes/auth.php";
 include "../includes/dialog.php";
 requireLogin();
+requirePermission('approvals');
 
 showModal();
 

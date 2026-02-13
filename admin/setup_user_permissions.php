@@ -87,14 +87,27 @@ try {
         ['service_technicians', 'Technicians', 'Service', 61],
         ['service_analytics', 'Service Analytics', 'Service', 62],
 
+        // Quality Control
+        ['quality_control', 'Quality Control', 'Quality Control', 55],
+
+        // QMS
+        ['qms', 'QMS (Quality Management System)', 'QMS', 57],
+
+        // Accounts & Finance
+        ['accounts', 'Accounts & Finance', 'Accounts & Finance', 58],
+
         // Tasks & Projects
         ['tasks', 'Tasks', 'Tasks & Projects', 70],
-        ['project_management', 'Projects', 'Tasks & Projects', 71],
+        ['project_management', 'Product Engineering', 'Tasks & Projects', 71],
 
         // Admin
         ['admin_settings', 'Company Settings', 'Admin', 80],
         ['admin_users', 'User Management', 'Admin', 81],
         ['admin_locations', 'Location Management', 'Admin', 82],
+
+        // Other
+        ['approvals', 'Approvals', 'Admin', 83],
+        ['customer_portal', 'Customer Portal', 'Sales & CRM', 9],
     ];
 
     $insertStmt = $pdo->prepare("

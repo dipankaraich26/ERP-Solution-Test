@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('bom');
 include "../includes/sidebar.php";
 
 // Auto-migrate: add rate column to bom_items if missing

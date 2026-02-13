@@ -4,6 +4,7 @@ include "../includes/auth.php";
 include "../includes/dialog.php";
 
 requireLogin();
+requirePermission('depletion');
 
 // Only admin can access stock adjustment
 if (getUserRole() !== 'admin') {

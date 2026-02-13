@@ -1,5 +1,8 @@
 <?php
 include "../db.php";
+include "../includes/auth.php";
+requireLogin();
+requirePermission('marketing_catalogs');
 include "../includes/dialog.php";
 
 // Filters

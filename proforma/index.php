@@ -2,6 +2,7 @@
 include "../db.php";
 include "../includes/auth.php";
 requireLogin();
+requirePermission('proforma');
 
 $isAdmin = getUserRole() === 'admin';
 
