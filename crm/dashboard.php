@@ -334,6 +334,101 @@ try {
     // Query may fail if tables don't exist
 }
 
+// ===========================================
+// REGION-WISE & STATE-WISE LEADS
+// ===========================================
+
+// Define Indian regions by grouping states
+$indiaRegions = [
+    'North' => ['Delhi', 'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir', 'Ladakh', 'Punjab', 'Rajasthan', 'Uttarakhand', 'Uttar Pradesh', 'Chandigarh'],
+    'South' => ['Andhra Pradesh', 'Karnataka', 'Kerala', 'Tamil Nadu', 'Telangana', 'Puducherry', 'Lakshadweep'],
+    'East' => ['Bihar', 'Jharkhand', 'Odisha', 'West Bengal'],
+    'West' => ['Goa', 'Gujarat', 'Maharashtra', 'Dadra and Nagar Haveli and Daman and Diu'],
+    'Central' => ['Chhattisgarh', 'Madhya Pradesh'],
+    'Northeast' => ['Arunachal Pradesh', 'Assam', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Sikkim', 'Tripura', 'Andaman and Nicobar Islands'],
+];
+
+// Build reverse lookup: state => region
+$stateToRegion = [];
+foreach ($indiaRegions as $region => $states) {
+    foreach ($states as $state) {
+        $stateToRegion[strtolower(trim($state))] = $region;
+    }
+}
+
+// Region colors for visual display
+$regionColors = [
+    'North' => ['bg' => '#e3f2fd', 'border' => '#1565c0', 'icon' => '🏔️'],
+    'South' => ['bg' => '#e8f5e9', 'border' => '#2e7d32', 'icon' => '🌴'],
+    'East' => ['bg' => '#fff3e0', 'border' => '#ef6c00', 'icon' => '🌅'],
+    'West' => ['bg' => '#fce4ec', 'border' => '#c62828', 'icon' => '🏖️'],
+    'Central' => ['bg' => '#f3e5f5', 'border' => '#7b1fa2', 'icon' => '🏛️'],
+    'Northeast' => ['bg' => '#e0f2f1', 'border' => '#00695c', 'icon' => '🍃'],
+];
+
+// Fetch leads grouped by state (all-time for overall view)
+$leadsByState = [];
+$leadsByRegion = [];
+try {
+    $stateStmt = $pdo->query("
+        SELECT
+            COALESCE(NULLIF(TRIM(l.state), ''), 'Not Specified') as state_name,
+            COUNT(l.id) as total_leads,
+            SUM(CASE WHEN LOWER(l.lead_status) = 'hot' THEN 1 ELSE 0 END) as hot_leads,
+            SUM(CASE WHEN LOWER(l.lead_status) = 'warm' THEN 1 ELSE 0 END) as warm_leads,
+            SUM(CASE WHEN LOWER(l.lead_status) = 'cold' THEN 1 ELSE 0 END) as cold_leads,
+            SUM(CASE WHEN LOWER(l.lead_status) = 'converted' THEN 1 ELSE 0 END) as converted_leads,
+            SUM(CASE WHEN LOWER(l.lead_status) = 'lost' THEN 1 ELSE 0 END) as lost_leads,
+            COALESCE(SUM(sub.lead_value), 0) as total_value,
+            COALESCE(SUM(CASE WHEN LOWER(l.lead_status) = 'converted' THEN sub.lead_value ELSE 0 END), 0) as converted_value
+        FROM crm_leads l
+        LEFT JOIN (
+            SELECT l2.id as lead_id, COALESCE(SUM(qi.total_amount), 0) as lead_value
+            FROM crm_leads l2
+            LEFT JOIN quote_master q ON q.reference = l2.lead_no
+            LEFT JOIN quote_items qi ON qi.quote_id = q.id
+            GROUP BY l2.id
+        ) sub ON sub.lead_id = l.id
+        GROUP BY COALESCE(NULLIF(TRIM(l.state), ''), 'Not Specified')
+        ORDER BY total_leads DESC
+    ");
+    $leadsByState = $stateStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Aggregate into regions
+    foreach ($leadsByState as $row) {
+        $stateLower = strtolower(trim($row['state_name']));
+        $region = $stateToRegion[$stateLower] ?? 'Other';
+
+        if (!isset($leadsByRegion[$region])) {
+            $leadsByRegion[$region] = [
+                'region' => $region,
+                'total_leads' => 0, 'hot_leads' => 0, 'warm_leads' => 0,
+                'cold_leads' => 0, 'converted_leads' => 0, 'lost_leads' => 0,
+                'total_value' => 0, 'converted_value' => 0, 'states' => []
+            ];
+        }
+        $leadsByRegion[$region]['total_leads'] += (int)$row['total_leads'];
+        $leadsByRegion[$region]['hot_leads'] += (int)$row['hot_leads'];
+        $leadsByRegion[$region]['warm_leads'] += (int)$row['warm_leads'];
+        $leadsByRegion[$region]['cold_leads'] += (int)$row['cold_leads'];
+        $leadsByRegion[$region]['converted_leads'] += (int)$row['converted_leads'];
+        $leadsByRegion[$region]['lost_leads'] += (int)$row['lost_leads'];
+        $leadsByRegion[$region]['total_value'] += (float)$row['total_value'];
+        $leadsByRegion[$region]['converted_value'] += (float)$row['converted_value'];
+        if ($row['state_name'] !== 'Not Specified') {
+            $leadsByRegion[$region]['states'][] = $row;
+        }
+    }
+
+    // Sort regions by total leads descending
+    uasort($leadsByRegion, function($a, $b) { return $b['total_leads'] - $a['total_leads']; });
+} catch (Exception $e) {
+    // Query may fail
+}
+
+// Total leads for percentage calculations
+$regionGrandTotal = array_sum(array_column($leadsByRegion, 'total_leads'));
+
 // Daily Sales Person Wise New Leads (Today)
 $dailyLeadsBySalesPerson = [];
 try {
@@ -804,6 +899,14 @@ include "../includes/sidebar.php";
         body.dark .metric-value { color: #ecf0f1; }
         body.dark .status-pct { color: #bdc3c7; }
         body.dark .status-bar { background: #4a6278; }
+
+        /* Dark mode for region cards */
+        body.dark .region-card {
+            background: #34495e !important;
+        }
+        body.dark .region-card strong {
+            color: #ecf0f1 !important;
+        }
     </style>
 </head>
 <body>
@@ -1065,6 +1168,151 @@ if (toggle) {
             <div class="stat-label">Cold Leads Value</div>
         </div>
     </div>
+
+    <!-- Region-wise Leads -->
+    <?php if (!empty($leadsByRegion)): ?>
+    <div class="section-title">Region-wise Leads (India)</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 25px;">
+        <?php foreach ($leadsByRegion as $regionName => $regionData):
+            $color = $regionColors[$regionName] ?? ['bg' => '#f5f5f5', 'border' => '#9e9e9e', 'icon' => '📍'];
+            $pct = $regionGrandTotal > 0 ? round(($regionData['total_leads'] / $regionGrandTotal) * 100, 1) : 0;
+            $convRate = $regionData['total_leads'] > 0 ? round(($regionData['converted_leads'] / $regionData['total_leads']) * 100, 1) : 0;
+        ?>
+        <div class="region-card" style="background: <?= $color['bg'] ?>; border-left: 5px solid <?= $color['border'] ?>; border-radius: 10px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.4em;"><?= $color['icon'] ?></span>
+                    <strong style="color: #2c3e50; font-size: 1.1em;"><?= htmlspecialchars($regionName) ?></strong>
+                </div>
+                <span style="background: <?= $color['border'] ?>; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600;"><?= $pct ?>%</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 12px; text-align: center;">
+                <div style="background: rgba(255,255,255,0.7); padding: 8px 4px; border-radius: 6px;">
+                    <div style="font-size: 1.3em; font-weight: bold; color: #2c3e50;"><?= $regionData['total_leads'] ?></div>
+                    <div style="font-size: 0.7em; color: #666; text-transform: uppercase;">Total</div>
+                </div>
+                <div style="background: rgba(231,76,60,0.15); padding: 8px 4px; border-radius: 6px;">
+                    <div style="font-size: 1.3em; font-weight: bold; color: #e74c3c;"><?= $regionData['hot_leads'] ?></div>
+                    <div style="font-size: 0.7em; color: #e74c3c; text-transform: uppercase;">Hot</div>
+                </div>
+                <div style="background: rgba(243,156,18,0.15); padding: 8px 4px; border-radius: 6px;">
+                    <div style="font-size: 1.3em; font-weight: bold; color: #f39c12;"><?= $regionData['warm_leads'] ?></div>
+                    <div style="font-size: 0.7em; color: #f39c12; text-transform: uppercase;">Warm</div>
+                </div>
+                <div style="background: rgba(52,152,219,0.15); padding: 8px 4px; border-radius: 6px;">
+                    <div style="font-size: 1.3em; font-weight: bold; color: #3498db;"><?= $regionData['cold_leads'] ?></div>
+                    <div style="font-size: 0.7em; color: #3498db; text-transform: uppercase;">Cold</div>
+                </div>
+                <div style="background: rgba(39,174,96,0.2); padding: 8px 4px; border-radius: 6px;">
+                    <div style="font-size: 1.3em; font-weight: bold; color: #27ae60;"><?= $regionData['converted_leads'] ?></div>
+                    <div style="font-size: 0.7em; color: #27ae60; text-transform: uppercase;">Won</div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px;">
+                    <div style="font-size: 0.7em; color: #666; text-transform: uppercase;">Pipeline</div>
+                    <div style="font-size: 1em; font-weight: bold; color: #3498db;">₹<?= number_format($regionData['total_value'], 0) ?></div>
+                </div>
+                <div style="background: rgba(39,174,96,0.2); padding: 8px; border-radius: 6px;">
+                    <div style="font-size: 0.7em; color: #666; text-transform: uppercase;">Actual Sales</div>
+                    <div style="font-size: 1em; font-weight: bold; color: #27ae60;">₹<?= number_format($regionData['converted_value'], 0) ?></div>
+                </div>
+            </div>
+
+            <div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 4px;">
+                    <span style="color: #666;">Conversion</span>
+                    <span style="font-weight: 600; color: <?= $convRate >= 30 ? '#27ae60' : ($convRate >= 15 ? '#f39c12' : '#e74c3c') ?>;"><?= $convRate ?>%</span>
+                </div>
+                <div style="height: 6px; background: rgba(0,0,0,0.1); border-radius: 3px; overflow: hidden;">
+                    <div style="height: 100%; width: <?= min($convRate, 100) ?>%; background: <?= $convRate >= 30 ? '#27ae60' : ($convRate >= 15 ? '#f39c12' : '#e74c3c') ?>; border-radius: 3px;"></div>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- State-wise Leads Table -->
+    <?php if (!empty($leadsByState)): ?>
+    <div class="dashboard-panel" style="margin-bottom: 25px;">
+        <h3>📍 State-wise Leads Breakdown</h3>
+        <div class="table-responsive">
+            <table class="data-table perf-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>State</th>
+                        <th>Region</th>
+                        <th class="text-center">Total</th>
+                        <th class="text-center hot-col">Hot</th>
+                        <th class="text-center warm-col">Warm</th>
+                        <th class="text-center cold-col">Cold</th>
+                        <th class="text-center conv-col">Won</th>
+                        <th class="text-right">Pipeline</th>
+                        <th class="text-right sold-col">Sales</th>
+                        <th class="text-center">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    $stateRank = 0;
+                    $stateTotals = ['total' => 0, 'hot' => 0, 'warm' => 0, 'cold' => 0, 'converted' => 0, 'lost' => 0, 'value' => 0, 'conv_value' => 0];
+                    foreach ($leadsByState as $stateRow):
+                        $stateRank++;
+                        $stateLower = strtolower(trim($stateRow['state_name']));
+                        $region = $stateToRegion[$stateLower] ?? 'Other';
+                        $rColor = $regionColors[$region] ?? ['border' => '#9e9e9e'];
+                        $sharePct = $regionGrandTotal > 0 ? round(($stateRow['total_leads'] / $regionGrandTotal) * 100, 1) : 0;
+                        $stateTotals['total'] += (int)$stateRow['total_leads'];
+                        $stateTotals['hot'] += (int)$stateRow['hot_leads'];
+                        $stateTotals['warm'] += (int)$stateRow['warm_leads'];
+                        $stateTotals['cold'] += (int)$stateRow['cold_leads'];
+                        $stateTotals['converted'] += (int)$stateRow['converted_leads'];
+                        $stateTotals['value'] += (float)$stateRow['total_value'];
+                        $stateTotals['conv_value'] += (float)$stateRow['converted_value'];
+                    ?>
+                    <tr>
+                        <td><?= $stateRank ?></td>
+                        <td><strong><?= htmlspecialchars($stateRow['state_name']) ?></strong></td>
+                        <td><span style="background: <?= $rColor['border'] ?>20; color: <?= $rColor['border'] ?>; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; font-weight: 600;"><?= $region ?></span></td>
+                        <td class="text-center"><strong><?= $stateRow['total_leads'] ?></strong></td>
+                        <td class="text-center hot-col"><?= $stateRow['hot_leads'] ?: '-' ?></td>
+                        <td class="text-center warm-col"><?= $stateRow['warm_leads'] ?: '-' ?></td>
+                        <td class="text-center cold-col"><?= $stateRow['cold_leads'] ?: '-' ?></td>
+                        <td class="text-center conv-col"><?= $stateRow['converted_leads'] ?: '-' ?></td>
+                        <td class="text-right">₹<?= number_format($stateRow['total_value'], 0) ?></td>
+                        <td class="text-right sold-col"><strong>₹<?= number_format($stateRow['converted_value'], 0) ?></strong></td>
+                        <td class="text-center">
+                            <div style="display: flex; align-items: center; gap: 6px; justify-content: center;">
+                                <div style="width: 50px; height: 6px; background: #e9ecef; border-radius: 3px; overflow: hidden;">
+                                    <div style="width: <?= min($sharePct, 100) ?>%; height: 100%; background: <?= $rColor['border'] ?>; border-radius: 3px;"></div>
+                                </div>
+                                <span style="font-size: 0.8em; color: #495057;"><?= $sharePct ?>%</span>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="3"><strong>Grand Total</strong></td>
+                        <td class="text-center"><strong><?= $stateTotals['total'] ?></strong></td>
+                        <td class="text-center hot-col"><?= $stateTotals['hot'] ?: '-' ?></td>
+                        <td class="text-center warm-col"><?= $stateTotals['warm'] ?: '-' ?></td>
+                        <td class="text-center cold-col"><?= $stateTotals['cold'] ?: '-' ?></td>
+                        <td class="text-center conv-col"><?= $stateTotals['converted'] ?: '-' ?></td>
+                        <td class="text-right"><strong>₹<?= number_format($stateTotals['value'], 0) ?></strong></td>
+                        <td class="text-right sold-col"><strong>₹<?= number_format($stateTotals['conv_value'], 0) ?></strong></td>
+                        <td class="text-center">100%</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Sales Activity Stats -->
     <div class="section-title">Sales Activity</div>
