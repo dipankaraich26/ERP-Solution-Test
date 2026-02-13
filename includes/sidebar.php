@@ -387,6 +387,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/quality_control/audits.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['audits.php', 'audit_add.php', 'audit_view.php']) ? 'active' : '' ?>">Supplier Audits</a>
             <a href="/quality_control/calibration.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['calibration.php', 'calibration_add.php']) ? 'active' : '' ?>">Calibration</a>
             <a href="/quality_control/wo_inspections.php" class="<?= $currentDir === 'quality_control' && $current === 'wo_inspections.php' ? 'active' : '' ?>">WO Inspections</a>
+            <a href="/quality_control/process_mapping.php" class="<?= $currentDir === 'quality_control' && $current === 'process_mapping.php' ? 'active' : '' ?>">Process Mapping</a>
         </div>
     </div>
 
