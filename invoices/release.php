@@ -49,6 +49,22 @@ if ($linkedLead && $linkedLead['lead_id']) {
 }
 
 // ===========================================
+// CHECK RELEASE PHOTOS - All 3 mandatory
+// ===========================================
+$photoFields = ['photo_complete_mc' => 'Complete MC', 'photo_packaging_items' => 'Packaging Items', 'photo_box_materials' => 'BOX with Materials'];
+$missingPhotos = [];
+foreach ($photoFields as $field => $label) {
+    if (empty($invoice[$field])) {
+        $missingPhotos[] = $label;
+    }
+}
+if (!empty($missingPhotos)) {
+    setModal("Cannot Release Invoice", "Release photos are mandatory. Missing: " . implode(', ', $missingPhotos) . ". Please upload all photos before releasing.");
+    header("Location: view.php?id=$id");
+    exit;
+}
+
+// ===========================================
 // CHECK E-WAY BILL - Required only if invoice value >= 50,000
 // ===========================================
 // Get the invoice total from linked PI

@@ -22,6 +22,85 @@ if (!$invoice) {
     exit;
 }
 
+// Auto-add release photo columns
+try {
+    $pdo->exec("ALTER TABLE invoice_master ADD COLUMN photo_complete_mc VARCHAR(255) NULL");
+} catch (PDOException $e) {}
+try {
+    $pdo->exec("ALTER TABLE invoice_master ADD COLUMN photo_packaging_items VARCHAR(255) NULL");
+} catch (PDOException $e) {}
+try {
+    $pdo->exec("ALTER TABLE invoice_master ADD COLUMN photo_box_materials VARCHAR(255) NULL");
+} catch (PDOException $e) {}
+
+// Handle Release Photos upload
+$photo_errors = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_release_photos') {
+    if ($invoice['status'] !== 'draft') {
+        $photo_errors[] = "Can only upload photos for draft invoices";
+    } else {
+        $uploadDir = '../uploads/invoices/release_photos';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+
+        $photoFields = [
+            'photo_complete_mc' => 'Complete MC',
+            'photo_packaging_items' => 'Packaging Items',
+            'photo_box_materials' => 'BOX with Materials'
+        ];
+        $allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
+        $maxSize = 10 * 1024 * 1024; // 10MB
+
+        foreach ($photoFields as $field => $label) {
+            if (isset($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES[$field];
+                if (!in_array($file['type'], $allowed)) {
+                    $photo_errors[] = "$label: Only image files (JPG, PNG, GIF, WebP) allowed";
+                    continue;
+                }
+                if ($file['size'] > $maxSize) {
+                    $photo_errors[] = "$label: File too large (max 10MB)";
+                    continue;
+                }
+                $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                $fname = strtoupper(str_replace('photo_', '', $field)) . '_' . str_replace('/', '_', $invoice['invoice_no']) . '_' . time() . '.' . $ext;
+                $fpath = $uploadDir . '/' . $fname;
+
+                if (move_uploaded_file($file['tmp_name'], $fpath)) {
+                    // Delete old file
+                    if (!empty($invoice[$field]) && file_exists('../' . $invoice[$field])) {
+                        unlink('../' . $invoice[$field]);
+                    }
+                    $pdo->prepare("UPDATE invoice_master SET $field = ? WHERE id = ?")->execute(['uploads/invoices/release_photos/' . $fname, $id]);
+                    $invoice[$field] = 'uploads/invoices/release_photos/' . $fname;
+                } else {
+                    $photo_errors[] = "$label: Upload failed";
+                }
+            }
+        }
+
+        if (empty($photo_errors)) {
+            setModal("Success", "Release photos saved successfully");
+            header("Location: view.php?id=$id");
+            exit;
+        }
+    }
+}
+
+// Handle individual photo removal
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'remove_release_photo') {
+    $field = $_POST['photo_field'] ?? '';
+    $validFields = ['photo_complete_mc', 'photo_packaging_items', 'photo_box_materials'];
+    if (in_array($field, $validFields) && $invoice['status'] === 'draft') {
+        if (!empty($invoice[$field]) && file_exists('../' . $invoice[$field])) {
+            unlink('../' . $invoice[$field]);
+        }
+        $pdo->prepare("UPDATE invoice_master SET $field = NULL WHERE id = ?")->execute([$id]);
+        setModal("Success", "Photo removed");
+        header("Location: view.php?id=$id");
+        exit;
+    }
+}
+
 // Handle Ship-to Address form submission
 $shipto_errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_shipto') {
@@ -219,7 +298,10 @@ if ($chain && $chain['pi_id']) {
 // E-Way Bill is mandatory only if invoice value >= 50,000
 $ewayRequired = $grandTotal >= 50000;
 $ewayOk = !$ewayRequired || (!empty($invoice['eway_bill_no']) && !empty($invoice['eway_bill_attachment']));
-$canRelease = $leadOk && $ewayOk;
+
+// Release photos mandatory check
+$photosOk = !empty($invoice['photo_complete_mc']) && !empty($invoice['photo_packaging_items']) && !empty($invoice['photo_box_materials']);
+$canRelease = $leadOk && $ewayOk && $photosOk;
 
 include "../includes/sidebar.php";
 ?>
@@ -367,6 +449,7 @@ include "../includes/sidebar.php";
                         $reasons = [];
                         if (!$leadOk) $reasons[] = 'Lead must be HOT or Converted';
                         if ($ewayRequired && !$ewayOk) $reasons[] = 'E-Way Bill required (Invoice ≥ ₹50,000)';
+                        if (!$photosOk) $reasons[] = 'Release photos required (MC, Packaging, Box)';
                         echo implode(' | ', $reasons);
                     ?>">
                         Release Invoice (Blocked)
@@ -396,6 +479,20 @@ include "../includes/sidebar.php";
                     <?php if (empty($invoice['eway_bill_no']) && empty($invoice['eway_bill_attachment'])): ?> & <?php endif; ?>
                     <?php if (empty($invoice['eway_bill_attachment'])): ?>Attachment missing<?php endif; ?>
                     <a href="#ewaySection" class="btn btn-sm btn-primary" style="margin-left: 10px; padding: 3px 10px; font-size: 0.85em;">Add E-Way Bill</a>
+                </li>
+                <?php endif; ?>
+                <?php if (!$photosOk): ?>
+                <li style="margin-top: 8px;">
+                    <span style="color: #dc3545;">&#10007;</span>
+                    <strong>Release Photos Required</strong> —
+                    <?php
+                    $missing = [];
+                    if (empty($invoice['photo_complete_mc'])) $missing[] = 'Complete MC';
+                    if (empty($invoice['photo_packaging_items'])) $missing[] = 'Packaging Items';
+                    if (empty($invoice['photo_box_materials'])) $missing[] = 'BOX with Materials';
+                    echo implode(', ', $missing) . ' photo(s) missing';
+                    ?>
+                    <a href="#releasePhotosSection" class="btn btn-sm btn-primary" style="margin-left: 10px; padding: 3px 10px; font-size: 0.85em;">Upload Photos</a>
                 </li>
                 <?php endif; ?>
             </ul>
@@ -651,6 +748,127 @@ include "../includes/sidebar.php";
         <div class="details-section">
             <h3>Payment Details</h3>
             <p><?= nl2br(htmlspecialchars($chain['payment_details'])) ?></p>
+        </div>
+        <?php endif; ?>
+
+        <!-- Release Photos (read-only for released invoices) -->
+        <?php if ($invoice['status'] === 'released' && (!empty($invoice['photo_complete_mc']) || !empty($invoice['photo_packaging_items']) || !empty($invoice['photo_box_materials']))): ?>
+        <div class="details-section" style="margin-top: 30px;">
+            <h3 style="color: #155724;">Release Photos</h3>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                <?php
+                $viewPhotos = [
+                    'photo_complete_mc' => ['label' => 'Complete MC', 'color' => '#3498db'],
+                    'photo_packaging_items' => ['label' => 'Packaging Items', 'color' => '#27ae60'],
+                    'photo_box_materials' => ['label' => 'BOX with Materials', 'color' => '#e67e22']
+                ];
+                foreach ($viewPhotos as $f => $info):
+                    if (!empty($invoice[$f])):
+                ?>
+                <div style="text-align: center;">
+                    <div style="font-weight: 600; font-size: 0.9em; color: <?= $info['color'] ?>; margin-bottom: 8px;"><?= $info['label'] ?></div>
+                    <a href="../<?= htmlspecialchars($invoice[$f]) ?>" target="_blank">
+                        <img src="../<?= htmlspecialchars($invoice[$f]) ?>" alt="<?= $info['label'] ?>"
+                             style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid #ddd; object-fit: contain;">
+                    </a>
+                </div>
+                <?php endif; endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- Release Photos Section (mandatory for invoice release) -->
+        <?php if ($invoice['status'] === 'draft'): ?>
+        <div id="releasePhotosSection" class="details-section" style="background: #fef9e7; border: 2px solid #f39c12; border-radius: 8px; padding: 20px; margin-top: 30px;">
+            <h3 style="color: #7d6608; margin-top: 0;">
+                Release Photos <span style="color: #e74c3c;">(Mandatory)</span>
+            </h3>
+            <p style="color: #666; margin-bottom: 15px;">
+                Upload all 3 photos before the invoice can be released for approval.
+            </p>
+
+            <?php if (!empty($photo_errors)): ?>
+            <div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 12px; border-radius: 4px; margin-bottom: 15px;">
+                <strong>Errors:</strong>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    <?php foreach ($photo_errors as $err): ?>
+                        <li><?= htmlspecialchars($err) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php endif; ?>
+
+            <!-- Current Photos Preview -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px;">
+                <?php
+                $photoFields = [
+                    'photo_complete_mc' => ['label' => 'Complete MC', 'icon' => '&#9881;', 'color' => '#3498db'],
+                    'photo_packaging_items' => ['label' => 'Packaging Items', 'icon' => '&#128230;', 'color' => '#27ae60'],
+                    'photo_box_materials' => ['label' => 'BOX with Materials', 'icon' => '&#128206;', 'color' => '#e67e22']
+                ];
+                foreach ($photoFields as $field => $info):
+                    $hasPhoto = !empty($invoice[$field]);
+                ?>
+                <div style="border: 2px solid <?= $hasPhoto ? '#27ae60' : '#dc3545' ?>; border-radius: 8px; padding: 12px; text-align: center; background: <?= $hasPhoto ? '#f0fff0' : '#fff5f5' ?>;">
+                    <div style="font-size: 0.9em; font-weight: 700; color: <?= $info['color'] ?>; margin-bottom: 8px;">
+                        <span style="font-size: 1.3em;"><?= $info['icon'] ?></span> <?= $info['label'] ?>
+                    </div>
+                    <?php if ($hasPhoto): ?>
+                        <a href="../<?= htmlspecialchars($invoice[$field]) ?>" target="_blank">
+                            <img src="../<?= htmlspecialchars($invoice[$field]) ?>" alt="<?= $info['label'] ?>"
+                                 style="max-width: 100%; max-height: 180px; border-radius: 6px; border: 1px solid #ddd; object-fit: contain; cursor: pointer;">
+                        </a>
+                        <div style="margin-top: 8px;">
+                            <span style="color: #27ae60; font-weight: 600; font-size: 0.85em;">&#10003; Uploaded</span>
+                            <form method="post" style="display: inline; margin-left: 8px;">
+                                <input type="hidden" name="action" value="remove_release_photo">
+                                <input type="hidden" name="photo_field" value="<?= $field ?>">
+                                <button type="submit" onclick="return confirm('Remove this photo?')"
+                                        style="background: none; border: none; color: #dc3545; cursor: pointer; font-size: 0.8em; text-decoration: underline;">Remove</button>
+                            </form>
+                        </div>
+                    <?php else: ?>
+                        <div style="height: 180px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 6px; border: 2px dashed #dee2e6;">
+                            <span style="color: #adb5bd; font-size: 0.9em;">No photo uploaded</span>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            <span style="color: #dc3545; font-weight: 600; font-size: 0.85em;">&#10007; Required</span>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- Upload Form -->
+            <form method="post" enctype="multipart/form-data" style="background: white; padding: 18px; border-radius: 8px; border: 1px solid #eee;">
+                <input type="hidden" name="action" value="save_release_photos">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                    <?php foreach ($photoFields as $field => $info): ?>
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.9em; color: <?= $info['color'] ?>;">
+                            <?= $info['label'] ?> <?= empty($invoice[$field]) ? '<span style="color: #e74c3c;">*</span>' : '<span style="color:#27ae60;">(Replace)</span>' ?>
+                        </label>
+                        <input type="file" name="<?= $field ?>" accept="image/*"
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 0.88em;"
+                               <?= empty($invoice[$field]) ? '' : '' ?>>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                    <small style="color: #888;">Accepted: JPG, PNG, GIF, WebP (Max 10MB each)</small>
+                    <button type="submit" class="btn btn-success" style="padding: 10px 24px;">Upload Photos</button>
+                </div>
+            </form>
+
+            <?php if ($photosOk): ?>
+            <div style="margin-top: 15px; padding: 12px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; color: #155724;">
+                <strong>&#10003; All Release Photos Complete</strong> — Invoice is ready for release (photos requirement met).
+            </div>
+            <?php else: ?>
+            <div style="margin-top: 15px; padding: 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; color: #856404;">
+                <strong>&#9888; Photos Incomplete</strong> — All 3 photos must be uploaded before invoice can be released.
+            </div>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
 
