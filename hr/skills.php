@@ -81,6 +81,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_employee_skill'])
             $error = "Error: " . $e->getMessage();
         }
     }
+    $redirectUrl = "skills.php?tab=employee_skills";
+    if (!empty($_POST['_filter_emp'])) $redirectUrl .= "&filter_emp=" . (int)$_POST['_filter_emp'];
+    header("Location: $redirectUrl&msg=" . urlencode($message ?: $error) . "&msgType=" . ($message ? 'success' : 'error'));
+    exit;
+}
+
+// Handle editing employee skill
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_employee_skill'])) {
+    $esId = intval($_POST['es_id']);
+    $level = $_POST['proficiency_level'];
+    $years = floatval($_POST['years_experience']);
+    $certified = isset($_POST['certified']) ? 1 : 0;
+    $certName = trim($_POST['certification_name']);
+    $notes = trim($_POST['notes']);
+
+    if ($esId) {
+        try {
+            $pdo->prepare("
+                UPDATE employee_skills SET
+                    proficiency_level = ?, years_experience = ?,
+                    certified = ?, certification_name = ?, notes = ?,
+                    updated_at = NOW()
+                WHERE id = ?
+            ")->execute([$level, $years, $certified, $certName, $notes, $esId]);
+            $message = "Skill updated successfully!";
+        } catch (PDOException $e) {
+            $error = "Error: " . $e->getMessage();
+        }
+    }
+    $redirectUrl = "skills.php?tab=employee_skills";
+    if (!empty($_POST['_filter_emp'])) $redirectUrl .= "&filter_emp=" . (int)$_POST['_filter_emp'];
+    header("Location: $redirectUrl&msg=" . urlencode($message ?: $error) . "&msgType=" . ($message ? 'success' : 'error'));
+    exit;
 }
 
 // Handle delete
@@ -91,7 +124,10 @@ if (isset($_GET['delete_skill']) && is_numeric($_GET['delete_skill'])) {
 
 if (isset($_GET['delete_emp_skill']) && is_numeric($_GET['delete_emp_skill'])) {
     $pdo->prepare("DELETE FROM employee_skills WHERE id = ?")->execute([$_GET['delete_emp_skill']]);
-    $message = "Employee skill removed";
+    $redirectUrl = "skills.php?tab=employee_skills";
+    if (!empty($_GET['filter_emp'])) $redirectUrl .= "&filter_emp=" . (int)$_GET['filter_emp'];
+    header("Location: $redirectUrl&msg=" . urlencode("Employee skill removed") . "&msgType=success");
+    exit;
 }
 
 // Fetch data
@@ -112,16 +148,54 @@ $employees = $pdo->query("
     ORDER BY first_name, last_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch employee skills with details
-$employeeSkills = $pdo->query("
-    SELECT es.*, e.emp_id, e.first_name, e.last_name, e.department,
-           sm.skill_name, sc.category_name
-    FROM employee_skills es
-    JOIN employees e ON es.employee_id = e.id
-    JOIN skills_master sm ON es.skill_id = sm.id
-    LEFT JOIN skill_categories sc ON sm.category_id = sc.id
-    ORDER BY e.first_name, e.last_name, sc.category_name, sm.skill_name
-")->fetchAll(PDO::FETCH_ASSOC);
+// Employee filter
+$filterEmp = isset($_GET['filter_emp']) && $_GET['filter_emp'] !== '' ? (int)$_GET['filter_emp'] : null;
+
+// Fetch employee skills with details (filtered if filter_emp set)
+if ($filterEmp) {
+    $esStmt = $pdo->prepare("
+        SELECT es.*, e.emp_id, e.first_name, e.last_name, e.department,
+               sm.skill_name, sc.category_name
+        FROM employee_skills es
+        JOIN employees e ON es.employee_id = e.id
+        JOIN skills_master sm ON es.skill_id = sm.id
+        LEFT JOIN skill_categories sc ON sm.category_id = sc.id
+        WHERE es.employee_id = ?
+        ORDER BY sc.category_name, sm.skill_name
+    ");
+    $esStmt->execute([$filterEmp]);
+    $employeeSkills = $esStmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $employeeSkills = $pdo->query("
+        SELECT es.*, e.emp_id, e.first_name, e.last_name, e.department,
+               sm.skill_name, sc.category_name
+        FROM employee_skills es
+        JOIN employees e ON es.employee_id = e.id
+        JOIN skills_master sm ON es.skill_id = sm.id
+        LEFT JOIN skill_categories sc ON sm.category_id = sc.id
+        ORDER BY e.first_name, e.last_name, sc.category_name, sm.skill_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Redirect-based messages
+if (isset($_GET['msg']) && $_GET['msg']) {
+    if ($_GET['msgType'] === 'success') $message = $_GET['msg'];
+    else $error = $_GET['msg'];
+}
+
+// Edit mode: fetch the skill record being edited
+$editEmpSkill = null;
+if (isset($_GET['edit_es']) && is_numeric($_GET['edit_es'])) {
+    $editStmt = $pdo->prepare("
+        SELECT es.*, e.first_name, e.last_name, e.emp_id, sm.skill_name
+        FROM employee_skills es
+        JOIN employees e ON es.employee_id = e.id
+        JOIN skills_master sm ON es.skill_id = sm.id
+        WHERE es.id = ?
+    ");
+    $editStmt->execute([(int)$_GET['edit_es']]);
+    $editEmpSkill = $editStmt->fetch(PDO::FETCH_ASSOC);
+}
 
 // Get skill summary by employee
 $skillSummary = $pdo->query("
@@ -354,7 +428,7 @@ showModal();
         <div class="summary-cards">
             <div class="summary-card">
                 <div class="number"><?= count($employeeSkills) ?></div>
-                <div class="label">Total Skills Assigned</div>
+                <div class="label"><?= $filterEmp ? 'Skills Assigned' : 'Total Skills Assigned' ?></div>
             </div>
             <div class="summary-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
                 <div class="number"><?= count(array_filter($employeeSkills, fn($s) => $s['proficiency_level'] === 'Expert')) ?></div>
@@ -366,17 +440,98 @@ showModal();
             </div>
         </div>
 
+        <!-- Employee Filter -->
+        <div style="background: #f8f9fa; padding: 12px 18px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <label style="font-weight: 600; color: #495057; white-space: nowrap;">Filter by Employee:</label>
+            <form method="get" style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                <input type="hidden" name="tab" value="employee_skills">
+                <select name="filter_emp" onchange="this.form.submit()" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; min-width: 280px; font-size: 0.95em;">
+                    <option value="">-- All Employees --</option>
+                    <?php foreach ($employees as $emp): ?>
+                        <option value="<?= $emp['id'] ?>" <?= $filterEmp == $emp['id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?> (<?= $emp['emp_id'] ?>) - <?= htmlspecialchars($emp['department'] ?: 'N/A') ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if ($filterEmp): ?>
+                    <a href="?tab=employee_skills" class="btn btn-secondary btn-sm" style="white-space: nowrap;">Clear Filter</a>
+                <?php endif; ?>
+            </form>
+            <?php if ($filterEmp):
+                $filteredEmpName = '';
+                foreach ($employees as $emp) {
+                    if ($emp['id'] == $filterEmp) { $filteredEmpName = $emp['first_name'] . ' ' . $emp['last_name']; break; }
+                }
+            ?>
+                <span style="background: #3498db; color: white; padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600;">
+                    Showing: <?= htmlspecialchars($filteredEmpName) ?>
+                </span>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($editEmpSkill): ?>
+        <!-- Edit Employee Skill Form -->
+        <div class="form-section" style="border: 2px solid #3498db; background: #eaf4fd;">
+            <h3 style="color: #2c3e50;">Edit Skill: <?= htmlspecialchars($editEmpSkill['first_name'] . ' ' . $editEmpSkill['last_name']) ?> - <?= htmlspecialchars($editEmpSkill['skill_name']) ?></h3>
+            <form method="post">
+                <input type="hidden" name="es_id" value="<?= $editEmpSkill['id'] ?>">
+                <input type="hidden" name="_filter_emp" value="<?= $filterEmp ?>">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Employee</label>
+                        <input type="text" value="<?= htmlspecialchars($editEmpSkill['first_name'] . ' ' . $editEmpSkill['last_name'] . ' (' . $editEmpSkill['emp_id'] . ')') ?>" disabled style="background: #e9ecef;">
+                    </div>
+                    <div class="form-group">
+                        <label>Skill</label>
+                        <input type="text" value="<?= htmlspecialchars($editEmpSkill['skill_name']) ?>" disabled style="background: #e9ecef;">
+                    </div>
+                    <div class="form-group">
+                        <label>Proficiency Level *</label>
+                        <select name="proficiency_level">
+                            <?php foreach (['Beginner', 'Intermediate', 'Advanced', 'Expert'] as $lvl): ?>
+                                <option value="<?= $lvl ?>" <?= $editEmpSkill['proficiency_level'] === $lvl ? 'selected' : '' ?>><?= $lvl ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group" style="min-width: 120px;">
+                        <label>Years Exp.</label>
+                        <input type="number" name="years_experience" step="0.5" min="0" value="<?= $editEmpSkill['years_experience'] ?>">
+                    </div>
+                </div>
+                <div class="form-row" style="margin-top: 10px;">
+                    <div class="form-group" style="min-width: 100px; flex: 0;">
+                        <label>
+                            <input type="checkbox" name="certified" value="1" <?= $editEmpSkill['certified'] ? 'checked' : '' ?>> Certified
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>Certification Name</label>
+                        <input type="text" name="certification_name" value="<?= htmlspecialchars($editEmpSkill['certification_name'] ?? '') ?>" placeholder="e.g., AWS Solutions Architect">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <input type="text" name="notes" value="<?= htmlspecialchars($editEmpSkill['notes'] ?? '') ?>" placeholder="Additional notes...">
+                    </div>
+                    <div class="form-group" style="flex: 0; display: flex; gap: 8px;">
+                        <button type="submit" name="edit_employee_skill" class="btn btn-success">Update</button>
+                        <a href="?tab=employee_skills<?= $filterEmp ? '&filter_emp=' . $filterEmp : '' ?>" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <?php else: ?>
         <!-- Add Employee Skill Form -->
         <div class="form-section">
-            <h3>Add/Update Employee Skill</h3>
+            <h3>Add Employee Skill</h3>
             <form method="post">
+                <input type="hidden" name="_filter_emp" value="<?= $filterEmp ?>">
                 <div class="form-row">
                     <div class="form-group">
                         <label>Employee *</label>
                         <select name="employee_id" required>
                             <option value="">-- Select Employee --</option>
                             <?php foreach ($employees as $emp): ?>
-                            <option value="<?= $emp['id'] ?>">
+                            <option value="<?= $emp['id'] ?>" <?= $filterEmp == $emp['id'] ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name']) ?> (<?= $emp['emp_id'] ?>)
                             </option>
                             <?php endforeach; ?>
@@ -434,33 +589,44 @@ showModal();
                 </div>
             </form>
         </div>
+        <?php endif; ?>
 
         <!-- Employee Skills Table -->
+        <div style="overflow-x: auto;">
         <table class="employee-skill-table">
             <thead>
                 <tr>
-                    <th>Employee</th>
-                    <th>Department</th>
+                    <?php if (!$filterEmp): ?><th>Employee</th><th>Department</th><?php endif; ?>
                     <th>Skill</th>
                     <th>Category</th>
                     <th>Proficiency</th>
                     <th>Experience</th>
-                    <th>Actions</th>
+                    <th>Certification</th>
+                    <th>Notes</th>
+                    <th style="min-width: 140px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($employeeSkills as $es): ?>
+                <?php if (empty($employeeSkills)): ?>
                 <tr>
+                    <td colspan="<?= $filterEmp ? '7' : '9' ?>" style="text-align: center; padding: 30px; color: #999;">
+                        <?= $filterEmp ? 'No skills assigned to this employee yet.' : 'No employee skills found.' ?>
+                    </td>
+                </tr>
+                <?php else: ?>
+                <?php foreach ($employeeSkills as $es): ?>
+                <tr <?= ($editEmpSkill && $editEmpSkill['id'] == $es['id']) ? 'style="background: #eaf4fd;"' : '' ?>>
+                    <?php if (!$filterEmp): ?>
                     <td>
-                        <strong><?= htmlspecialchars($es['first_name'] . ' ' . $es['last_name']) ?></strong><br>
-                        <small style="color: #666;"><?= htmlspecialchars($es['emp_id']) ?></small>
+                        <a href="?tab=employee_skills&filter_emp=<?= $es['employee_id'] ?>" style="text-decoration: none;">
+                            <strong><?= htmlspecialchars($es['first_name'] . ' ' . $es['last_name']) ?></strong><br>
+                            <small style="color: #666;"><?= htmlspecialchars($es['emp_id']) ?></small>
+                        </a>
                     </td>
                     <td><?= htmlspecialchars($es['department'] ?: '-') ?></td>
+                    <?php endif; ?>
                     <td>
                         <?= htmlspecialchars($es['skill_name']) ?>
-                        <?php if ($es['certified']): ?>
-                        <span class="certified-badge">Certified</span>
-                        <?php endif; ?>
                     </td>
                     <td><?= htmlspecialchars($es['category_name'] ?: '-') ?></td>
                     <td>
@@ -470,14 +636,31 @@ showModal();
                     </td>
                     <td><?= $es['years_experience'] ?> yrs</td>
                     <td>
-                        <a href="?tab=employee_skills&delete_emp_skill=<?= $es['id'] ?>"
-                           class="btn btn-danger btn-sm"
-                           onclick="return confirm('Remove this skill?')">Remove</a>
+                        <?php if ($es['certified']): ?>
+                            <span class="certified-badge">Certified</span>
+                            <?php if ($es['certification_name']): ?>
+                                <br><small style="color: #666;"><?= htmlspecialchars($es['certification_name']) ?></small>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span style="color: #ccc;">-</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="font-size: 0.85em; color: #666;"><?= htmlspecialchars($es['notes'] ?: '-') ?></td>
+                    <td>
+                        <div style="display: flex; gap: 5px;">
+                            <a href="?tab=employee_skills<?= $filterEmp ? '&filter_emp=' . $filterEmp : '' ?>&edit_es=<?= $es['id'] ?>"
+                               class="btn btn-sm" style="background: #3498db; color: white; padding: 4px 10px; border-radius: 4px; text-decoration: none; font-size: 0.8em;">Edit</a>
+                            <a href="?tab=employee_skills<?= $filterEmp ? '&filter_emp=' . $filterEmp : '' ?>&delete_emp_skill=<?= $es['id'] ?>"
+                               class="btn btn-danger btn-sm"
+                               onclick="return confirm('Remove this skill?')" style="padding: 4px 10px; font-size: 0.8em;">Remove</a>
+                        </div>
                     </td>
                 </tr>
                 <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
+        </div>
 
         <?php elseif ($tab === 'skills_master'): ?>
         <!-- Skills Master Tab -->
