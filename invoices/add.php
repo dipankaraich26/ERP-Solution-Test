@@ -110,6 +110,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $invoice_date
         ]);
 
+        // Fire auto-task event
+        include_once "../includes/auto_task_engine.php";
+        fireAutoTaskEvent($pdo, 'invoice', 'created', [
+            'reference' => $invoice_no, 'customer_id' => $soData['customer_id'],
+            'module' => 'Invoice', 'event' => 'created'
+        ]);
+
         setModal("Success", "Invoice $invoice_no created successfully");
         header("Location: index.php");
         exit;

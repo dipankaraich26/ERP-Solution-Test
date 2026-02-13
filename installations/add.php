@@ -181,6 +181,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             $pdo->commit();
+
+            // Fire auto-task event
+            include_once "../includes/auto_task_engine.php";
+            fireAutoTaskEvent($pdo, 'installation', 'created', [
+                'reference' => $installation_no, 'record_id' => $installation_id,
+                'customer_id' => $customer_id, 'module' => 'Installation', 'event' => 'created'
+            ]);
+
             setModal("Success", "Installation $installation_no created successfully");
             header("Location: view.php?id=$installation_id");
             exit;

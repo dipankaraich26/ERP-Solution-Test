@@ -82,6 +82,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         $pdo->commit();
+
+        // Fire auto-task event
+        include_once "../includes/auto_task_engine.php";
+        fireAutoTaskEvent($pdo, 'purchase_order', 'created', [
+            'reference' => $po_no, 'module' => 'Purchase Order', 'event' => 'created'
+        ]);
+
         setModal("Success", "Purchase Order $po_no created successfully!");
         header("Location: index.php");
         exit;

@@ -58,6 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
             }
 
+            // Fire auto-task event for admin-configured rules
+            include_once "../includes/auto_task_engine.php";
+            fireAutoTaskEvent($pdo, 'work_order', 'released', [
+                'reference' => $woInfo['wo_no'] ?? '', 'record_id' => $id,
+                'module' => 'Work Order', 'event' => 'released'
+            ]);
+
             $success = "Work Order released successfully!";
         } catch (PDOException $e) {
             $error = "Failed to release: " . $e->getMessage();
@@ -80,6 +87,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'completed' WHERE id = ?");
             $updateStmt->execute([$id]);
             syncWoStatusToPlan($pdo, (int)$id, 'completed');
+
+            // Fire auto-task event
+            $woRef = $pdo->prepare("SELECT wo_no, part_no FROM work_orders WHERE id = ?");
+            $woRef->execute([$id]);
+            $woData = $woRef->fetch(PDO::FETCH_ASSOC);
+            if ($woData) {
+                include_once "../includes/auto_task_engine.php";
+                fireAutoTaskEvent($pdo, 'work_order', 'completed', [
+                    'reference' => $woData['wo_no'], 'record_id' => $id,
+                    'module' => 'Work Order', 'event' => 'completed'
+                ]);
+            }
+
             $success = "Work Order completed!";
         } catch (PDOException $e) {
             $error = "Failed to complete: " . $e->getMessage();

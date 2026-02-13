@@ -92,6 +92,12 @@ try {
 
     $pdo->commit();
 
+    // Fire auto-task event
+    include_once __DIR__ . '/../includes/auto_task_engine.php';
+    fireAutoTaskEvent($pdo, 'sales_order', 'released', [
+        'reference' => $so_no, 'module' => 'Sales Order', 'event' => 'released'
+    ]);
+
     // Auto-close any procurement plans where all linked SOs are now released
     require_once __DIR__ . '/../includes/procurement_helper.php';
     $closedPlans = autoClosePlansForReleasedSO($pdo, $so_no);

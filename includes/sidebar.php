@@ -425,6 +425,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/admin/wo_approvers.php" class="<?= $currentDir === 'admin' && $current === 'wo_approvers.php' ? 'active' : '' ?>">WO Approvers</a>
             <a href="/admin/po_inspection_approvers.php" class="<?= $currentDir === 'admin' && in_array($current, ['po_inspection_approvers.php', 'setup_po_inspection.php']) ? 'active' : '' ?>">PO Inspection Approvers</a>
             <a href="/admin/so_approvers.php" class="<?= $currentDir === 'admin' && $current === 'so_approvers.php' ? 'active' : '' ?>">SO Release Approvers</a>
+            <a href="/admin/auto_task_rules.php" class="<?= $currentDir === 'admin' && $current === 'auto_task_rules.php' ? 'active' : '' ?>">Auto-Task Rules</a>
         </div>
     </div>
 

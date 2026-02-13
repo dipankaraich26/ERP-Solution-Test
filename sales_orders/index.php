@@ -130,6 +130,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['create_so'])) {
 
         $pdo->commit();
 
+        // Fire auto-task event
+        include_once "../includes/auto_task_engine.php";
+        fireAutoTaskEvent($pdo, 'sales_order', 'created', [
+            'reference' => $so_no, 'record_id' => $pdo->lastInsertId(),
+            'customer_id' => $customer_id, 'module' => 'Sales Order', 'event' => 'created'
+        ]);
+
         if (!empty($stockIssues)) {
             setModal("Warning", "Sales Order created but stock is insufficient for: " . implode(", ", $stockIssues));
         }
