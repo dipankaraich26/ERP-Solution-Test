@@ -598,12 +598,18 @@ include "includes/sidebar.php";
         }
         .dashboard-header h1 {
             margin: 0;
-            color: #2c3e50;
+            color: var(--text, #2c3e50);
             font-size: 1.8em;
         }
+        .dashboard-header .header-subtitle {
+            color: var(--muted-text, #7f8c8d);
+        }
         .dashboard-header .date-info {
-            color: #7f8c8d;
+            color: var(--text, #2c3e50);
             font-size: 0.95em;
+        }
+        .dashboard-header .date-info small {
+            color: var(--muted-text, #7f8c8d);
         }
 
         /* KPI Cards Row */
@@ -658,17 +664,17 @@ include "includes/sidebar.php";
             margin-bottom: 25px;
         }
         .dashboard-section {
-            background: white;
+            background: var(--card, white);
             border-radius: 12px;
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
         }
         .section-title {
             font-size: 1.1em;
-            color: #2c3e50;
+            color: var(--text, #2c3e50);
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #eee;
+            border-bottom: 2px solid var(--border, #eee);
             display: flex;
             align-items: center;
             gap: 10px;
@@ -685,7 +691,7 @@ include "includes/sidebar.php";
             margin-bottom: 25px;
         }
         .module-card {
-            background: white;
+            background: var(--card, white);
             border-radius: 12px;
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
@@ -700,7 +706,7 @@ include "includes/sidebar.php";
 
         .module-card h3 {
             margin: 0 0 15px 0;
-            color: #2c3e50;
+            color: var(--text, #2c3e50);
             font-size: 1em;
             display: flex;
             align-items: center;
@@ -714,17 +720,17 @@ include "includes/sidebar.php";
         .module-stat {
             text-align: center;
             padding: 10px;
-            background: #f8f9fa;
+            background: var(--bg, #f8f9fa);
             border-radius: 8px;
         }
         .module-stat .stat-value {
             font-size: 1.4em;
             font-weight: bold;
-            color: #2c3e50;
+            color: var(--text, #2c3e50);
         }
         .module-stat .stat-label {
             font-size: 0.75em;
-            color: #7f8c8d;
+            color: var(--muted-text, #7f8c8d);
             margin-top: 3px;
         }
 
@@ -737,7 +743,7 @@ include "includes/sidebar.php";
             align-items: center;
             gap: 15px;
             padding: 12px 15px;
-            background: white;
+            background: var(--card, white);
             border-radius: 8px;
             margin-bottom: 10px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05);
@@ -754,8 +760,8 @@ include "includes/sidebar.php";
         .alert-item.info { border-left: 4px solid #3498db; }
         .alert-item.success { border-left: 4px solid #27ae60; }
         .alert-icon { font-size: 1.5em; }
-        .alert-message { flex: 1; color: #2c3e50; }
-        .alert-arrow { color: #bdc3c7; }
+        .alert-message { flex: 1; color: var(--text, #2c3e50); }
+        .alert-arrow { color: var(--muted-text, #bdc3c7); }
 
         /* Top Performers Tables */
         .performers-table {
@@ -765,15 +771,16 @@ include "includes/sidebar.php";
         .performers-table th, .performers-table td {
             padding: 10px;
             text-align: left;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--border, #eee);
+            color: var(--text, #2c3e50);
         }
         .performers-table th {
             font-weight: 600;
-            color: #7f8c8d;
+            color: var(--muted-text, #7f8c8d);
             font-size: 0.85em;
         }
         .performers-table tr:hover {
-            background: #f8f9fa;
+            background: var(--bg, #f8f9fa);
         }
         .rank-badge {
             display: inline-block;
@@ -788,7 +795,7 @@ include "includes/sidebar.php";
         .rank-1 { background: #ffd700; color: #000; }
         .rank-2 { background: #c0c0c0; color: #000; }
         .rank-3 { background: #cd7f32; color: #fff; }
-        .rank-4, .rank-5 { background: #e0e0e0; color: #666; }
+        .rank-4, .rank-5 { background: #e0e0e0; color: var(--muted-text, #666); }
 
         /* Chart Container */
         .chart-container {
@@ -810,15 +817,30 @@ include "includes/sidebar.php";
         .quick-stat .value {
             font-size: 1.5em;
             font-weight: bold;
-            color: #2c3e50;
+            color: var(--text, #2c3e50);
         }
         .quick-stat .label {
             font-size: 0.8em;
-            color: #7f8c8d;
+            color: var(--muted-text, #7f8c8d);
         }
 
         /* Responsive */
         /* Print PDF Button */
+        .btn-print-pdf {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95em;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
         .btn-print-pdf:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.5);
@@ -850,10 +872,10 @@ include "includes/sidebar.php";
     <div class="dashboard-header">
         <div>
             <h1>Executive Dashboard</h1>
-            <span style="color: #7f8c8d;">Chairman's Business Overview</span>
+            <span class="header-subtitle">Chairman's Business Overview</span>
         </div>
         <div style="display: flex; align-items: center; gap: 20px;">
-            <a href="ceo_dashboard_print.php" class="btn-print-pdf" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 0.9em; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.3s;">
+            <a href="ceo_dashboard_print.php" class="btn-print-pdf">
                 <span style="font-size: 1.2em;">📄</span> Print PDF
             </a>
             <div class="date-info">
@@ -898,7 +920,7 @@ include "includes/sidebar.php";
     <!-- Alerts Section -->
     <?php if (!empty($alerts)): ?>
     <div class="alerts-container">
-        <h3 style="margin-bottom: 15px; color: #2c3e50;">Action Required</h3>
+        <h3 style="margin-bottom: 15px; color: var(--text, #2c3e50);">Action Required</h3>
         <?php foreach ($alerts as $alert): ?>
             <a href="<?= $alert['link'] ?>" class="alert-item <?= $alert['type'] ?>">
                 <span class="alert-icon"><?= $alert['icon'] ?></span>
@@ -1170,7 +1192,7 @@ include "includes/sidebar.php";
             <h3><span>⭐</span> Google Reviews</h3>
             <div style="display: flex; align-items: center; gap: 20px; padding: 10px 0;">
                 <div style="text-align: center;">
-                    <div style="font-size: 2.5em; font-weight: bold; color: #2c3e50;">
+                    <div style="font-size: 2.5em; font-weight: bold; color: var(--text, #2c3e50);">
                         <?= number_format($googleReviews['rating'], 1) ?>
                     </div>
                     <div style="color: #fbbc04; font-size: 1.4em; letter-spacing: 2px;">
@@ -1185,10 +1207,10 @@ include "includes/sidebar.php";
                     </div>
                 </div>
                 <div style="flex: 1;">
-                    <div style="font-size: 1.1em; color: #2c3e50; font-weight: 600;">
+                    <div style="font-size: 1.1em; color: var(--text, #2c3e50); font-weight: 600;">
                         <?= number_format($googleReviews['count']) ?> Reviews
                     </div>
-                    <div style="font-size: 0.8em; color: #666; margin-top: 5px;">
+                    <div style="font-size: 0.8em; color: var(--muted-text, #666); margin-top: 5px;">
                         on Google
                     </div>
                     <?php if ($googleReviews['url']): ?>
@@ -1200,7 +1222,7 @@ include "includes/sidebar.php";
                 </div>
             </div>
             <?php if ($googleReviews['updated_at']): ?>
-            <div style="font-size: 0.75em; color: #999; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+            <div style="font-size: 0.75em; color: var(--muted-text, #999); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border, #eee);">
                 Last updated: <?= date('d M Y', strtotime($googleReviews['updated_at'])) ?>
             </div>
             <?php endif; ?>
@@ -1208,7 +1230,7 @@ include "includes/sidebar.php";
         <?php else: ?>
         <div class="module-card" style="border-left-color: #fbbc04;">
             <h3><span>⭐</span> Google Reviews</h3>
-            <div style="padding: 15px 0; color: #666; text-align: center;">
+            <div style="padding: 15px 0; color: var(--muted-text, #666); text-align: center;">
                 <p style="margin: 0 0 10px 0;">No Google Reviews data configured</p>
                 <a href="/admin/settings.php#google-reviews" class="btn btn-secondary" style="font-size: 0.85em;">
                     Configure Now
@@ -1240,8 +1262,8 @@ include "includes/sidebar.php";
                 $color = $marketColors[$market['market_classification']] ?? '#7f8c8d';
                 $percentage = $marketTotalValue > 0 ? round(($market['converted_value'] / $marketTotalValue) * 100, 1) : 0;
             ?>
-            <div style="background: white; border-radius: 10px; padding: 15px; border-left: 4px solid <?= $color ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
-                <div style="font-weight: 600; color: #2c3e50; font-size: 0.95em; margin-bottom: 10px;">
+            <div style="background: var(--card, white); border-radius: 10px; padding: 15px; border-left: 4px solid <?= $color ?>; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+                <div style="font-weight: 600; color: var(--text, #2c3e50); font-size: 0.95em; margin-bottom: 10px;">
                     <?= htmlspecialchars($market['market_classification']) ?>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-end;">
@@ -1249,27 +1271,27 @@ include "includes/sidebar.php";
                         <div style="font-size: 1.4em; font-weight: bold; color: <?= $color ?>;">
                             ₹<?= number_format($market['converted_value'] / 100000, 1) ?>L
                         </div>
-                        <div style="font-size: 0.75em; color: #7f8c8d;">Actual Sales</div>
+                        <div style="font-size: 0.75em; color: var(--muted-text, #7f8c8d);">Actual Sales</div>
                     </div>
                     <div style="text-align: right;">
-                        <div style="font-size: 1.1em; font-weight: 600; color: #2c3e50;">
+                        <div style="font-size: 1.1em; font-weight: 600; color: var(--text, #2c3e50);">
                             <?= $market['total_leads'] ?>
                         </div>
-                        <div style="font-size: 0.75em; color: #7f8c8d;">Leads</div>
+                        <div style="font-size: 0.75em; color: var(--muted-text, #7f8c8d);">Leads</div>
                     </div>
                 </div>
-                <div style="margin-top: 10px; background: #f0f0f0; border-radius: 4px; height: 6px; overflow: hidden;">
+                <div style="margin-top: 10px; background: var(--border, #f0f0f0); border-radius: 4px; height: 6px; overflow: hidden;">
                     <div style="width: <?= $percentage ?>%; height: 100%; background: <?= $color ?>; border-radius: 4px;"></div>
                 </div>
-                <div style="font-size: 0.7em; color: #999; margin-top: 5px; text-align: right;">
+                <div style="font-size: 0.7em; color: var(--muted-text, #999); margin-top: 5px; text-align: right;">
                     <?= $percentage ?>% of total sales
                 </div>
             </div>
             <?php endforeach; ?>
         </div>
-        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div style="color: #7f8c8d; font-size: 0.9em;">
-                Total: <strong style="color: #2c3e50;"><?= $marketTotalLeads ?> Leads</strong>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border, #eee); display: flex; justify-content: space-between; align-items: center;">
+            <div style="color: var(--muted-text, #7f8c8d); font-size: 0.9em;">
+                Total: <strong style="color: var(--text, #2c3e50);"><?= $marketTotalLeads ?> Leads</strong>
             </div>
             <div style="font-size: 1.2em; font-weight: bold; color: #27ae60;">
                 Total Sales: ₹<?= number_format($marketTotalValue, 0) ?>
@@ -1314,7 +1336,7 @@ include "includes/sidebar.php";
                     </tr>
                     <?php endforeach; ?>
                     <?php if (empty($topCustomersList)): ?>
-                    <tr><td colspan="3" style="text-align: center; color: #999;">No data available</td></tr>
+                    <tr><td colspan="3" style="text-align: center; color: var(--muted-text, #999);">No data available</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -1348,7 +1370,7 @@ include "includes/sidebar.php";
                     </tr>
                     <?php endforeach; ?>
                     <?php if (empty($topProductsList)): ?>
-                    <tr><td colspan="4" style="text-align: center; color: #999;">No data available</td></tr>
+                    <tr><td colspan="4" style="text-align: center; color: var(--muted-text, #999);">No data available</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -1366,7 +1388,7 @@ include "includes/sidebar.php";
                         <span>Customer Satisfaction</span>
                         <span><strong><?= $openComplaints < 5 ? 'Excellent' : ($openComplaints < 15 ? 'Good' : 'Needs Attention') ?></strong></span>
                     </div>
-                    <div style="background: #eee; border-radius: 10px; height: 10px; overflow: hidden;">
+                    <div style="background: var(--border, #eee); border-radius: 10px; height: 10px; overflow: hidden;">
                         <div style="background: <?= $openComplaints < 5 ? '#27ae60' : ($openComplaints < 15 ? '#f39c12' : '#e74c3c') ?>; height: 100%; width: <?= max(20, 100 - ($openComplaints * 5)) ?>%;"></div>
                     </div>
                 </div>
@@ -1376,7 +1398,7 @@ include "includes/sidebar.php";
                         <span>Inventory Health</span>
                         <span><strong><?= $lowStockItems == 0 ? 'Optimal' : ($lowStockItems < 10 ? 'Moderate' : 'Critical') ?></strong></span>
                     </div>
-                    <div style="background: #eee; border-radius: 10px; height: 10px; overflow: hidden;">
+                    <div style="background: var(--border, #eee); border-radius: 10px; height: 10px; overflow: hidden;">
                         <div style="background: <?= $lowStockItems == 0 ? '#27ae60' : ($lowStockItems < 10 ? '#f39c12' : '#e74c3c') ?>; height: 100%; width: <?= max(20, 100 - ($lowStockItems * 3)) ?>%;"></div>
                     </div>
                 </div>
@@ -1386,7 +1408,7 @@ include "includes/sidebar.php";
                         <span>Sales Pipeline</span>
                         <span><strong><?= $hotLeads > 5 ? 'Strong' : ($hotLeads > 0 ? 'Moderate' : 'Weak') ?></strong></span>
                     </div>
-                    <div style="background: #eee; border-radius: 10px; height: 10px; overflow: hidden;">
+                    <div style="background: var(--border, #eee); border-radius: 10px; height: 10px; overflow: hidden;">
                         <div style="background: <?= $hotLeads > 5 ? '#27ae60' : ($hotLeads > 0 ? '#f39c12' : '#e74c3c') ?>; height: 100%; width: <?= min(100, $hotLeads * 10 + 30) ?>%;"></div>
                     </div>
                 </div>
@@ -1396,7 +1418,7 @@ include "includes/sidebar.php";
                         <span>Workforce Availability</span>
                         <span><strong><?= $attendanceRate ?>%</strong></span>
                     </div>
-                    <div style="background: #eee; border-radius: 10px; height: 10px; overflow: hidden;">
+                    <div style="background: var(--border, #eee); border-radius: 10px; height: 10px; overflow: hidden;">
                         <div style="background: <?= $attendanceRate >= 90 ? '#27ae60' : ($attendanceRate >= 70 ? '#f39c12' : '#e74c3c') ?>; height: 100%; width: <?= $attendanceRate ?>%;"></div>
                     </div>
                 </div>
