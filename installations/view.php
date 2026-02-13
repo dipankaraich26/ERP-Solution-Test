@@ -50,12 +50,45 @@ $attachments = $attachStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch products installed
 $prodStmt = $pdo->prepare("
-    SELECT * FROM installation_products
-    WHERE installation_id = ?
-    ORDER BY id
+    SELECT ip.*, pm.part_name as master_part_name
+    FROM installation_products ip
+    LEFT JOIN part_master pm ON ip.part_no = pm.part_no
+    WHERE ip.installation_id = ?
+    ORDER BY ip.id
 ");
 $prodStmt->execute([$id]);
 $products = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch linked invoice details
+$invoiceData = null;
+$invoiceItems = [];
+if (!empty($installation['invoice_id'])) {
+    try {
+        $invStmt = $pdo->prepare("SELECT * FROM invoice_master WHERE id = ?");
+        $invStmt->execute([$installation['invoice_id']]);
+        $invoiceData = $invStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($invoiceData && !empty($invoiceData['so_no'])) {
+            $chainStmt = $pdo->prepare("
+                SELECT q.id as quote_id FROM sales_orders so
+                LEFT JOIN quote_master q ON q.id = so.linked_quote_id
+                WHERE so.so_no = ? LIMIT 1
+            ");
+            $chainStmt->execute([$invoiceData['so_no']]);
+            $chain = $chainStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($chain && $chain['quote_id']) {
+                $itemStmt = $pdo->prepare("
+                    SELECT qi.* FROM quote_items qi WHERE qi.quote_id = ? ORDER BY qi.id
+                ");
+                $itemStmt->execute([$chain['quote_id']]);
+                $invoiceItems = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
+    } catch (Exception $e) {
+        // invoice tables might not exist
+    }
+}
 
 // Handle file upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -285,6 +318,55 @@ showModal();
             flex-wrap: wrap;
             align-items: flex-end;
         }
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .products-table th, .products-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+        }
+        .products-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #666;
+            font-size: 0.8em;
+            text-transform: uppercase;
+        }
+        .products-table tr:hover {
+            background: #f8f9fa;
+        }
+        .products-table .number {
+            text-align: right;
+        }
+        .invoice-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        .invoice-link:hover {
+            background: #bbdefb;
+        }
+        .warranty-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+        .warranty-active { background: #e8f5e9; color: #388e3c; }
+        .warranty-expired { background: #ffebee; color: #d32f2f; }
     </style>
 </head>
 <body>
@@ -442,6 +524,134 @@ showModal();
                 <div class="value"><?= htmlspecialchars($installation['site_contact_phone'] ?: '-') ?></div>
             </div>
         </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Products Installed -->
+    <div class="detail-card">
+        <h3>Products Installed</h3>
+        <?php if (empty($products)): ?>
+            <p style="color: #666; font-style: italic;">No products recorded for this installation</p>
+        <?php else: ?>
+            <table class="products-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Part No</th>
+                        <th>Product Name</th>
+                        <th>Serial Number</th>
+                        <th class="number">Qty</th>
+                        <th>Warranty</th>
+                        <th>Warranty End</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($products as $i => $prod): ?>
+                    <tr>
+                        <td><?= $i + 1 ?></td>
+                        <td><?= htmlspecialchars($prod['part_no'] ?: '-') ?></td>
+                        <td><?= htmlspecialchars($prod['product_name'] ?: ($prod['master_part_name'] ?: '-')) ?></td>
+                        <td><?= htmlspecialchars($prod['serial_number'] ?: '-') ?></td>
+                        <td class="number"><?= (int)$prod['quantity'] ?></td>
+                        <td><?= $prod['warranty_months'] ? $prod['warranty_months'] . ' months' : '-' ?></td>
+                        <td>
+                            <?php if ($prod['warranty_end_date']): ?>
+                                <?= date('d M Y', strtotime($prod['warranty_end_date'])) ?>
+                                <?php
+                                $isExpired = strtotime($prod['warranty_end_date']) < time();
+                                ?>
+                                <span class="warranty-badge <?= $isExpired ? 'warranty-expired' : 'warranty-active' ?>">
+                                    <?= $isExpired ? 'Expired' : 'Active' ?>
+                                </span>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
+                        <td><?= htmlspecialchars($prod['notes'] ?: '-') ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+
+    <!-- Invoice Details -->
+    <?php if ($invoiceData): ?>
+    <div class="detail-card">
+        <h3>Invoice Details</h3>
+        <div class="detail-grid">
+            <div class="detail-item">
+                <label>Invoice No</label>
+                <div class="value">
+                    <a href="/invoices/view.php?id=<?= (int)$invoiceData['id'] ?>" class="invoice-link">
+                        <?= htmlspecialchars($invoiceData['invoice_no']) ?>
+                    </a>
+                </div>
+            </div>
+            <div class="detail-item">
+                <label>Invoice Date</label>
+                <div class="value"><?= !empty($invoiceData['invoice_date']) ? date('d M Y', strtotime($invoiceData['invoice_date'])) : '-' ?></div>
+            </div>
+            <div class="detail-item">
+                <label>Sales Order</label>
+                <div class="value"><?= htmlspecialchars($invoiceData['so_no'] ?: '-') ?></div>
+            </div>
+            <div class="detail-item">
+                <label>Status</label>
+                <div class="value">
+                    <span class="status-badge status-<?= $invoiceData['status'] === 'released' ? 'completed' : 'scheduled' ?>">
+                        <?= ucfirst($invoiceData['status'] ?? 'Draft') ?>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <?php if (!empty($invoiceItems)): ?>
+        <h4 style="margin: 20px 0 5px; color: #2c3e50; font-size: 0.95em;">Invoice Line Items</h4>
+        <table class="products-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Part No</th>
+                    <th>Part Name</th>
+                    <th>Description</th>
+                    <th>HSN</th>
+                    <th class="number">Qty</th>
+                    <th>Unit</th>
+                    <th class="number">Rate</th>
+                    <th class="number">Taxable Amt</th>
+                    <th class="number">Total Amt</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                $invTotal = 0;
+                foreach ($invoiceItems as $j => $item):
+                    $invTotal += $item['total_amount'] ?? 0;
+                ?>
+                <tr>
+                    <td><?= $j + 1 ?></td>
+                    <td><?= htmlspecialchars($item['part_no'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($item['part_name'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($item['description'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($item['hsn_code'] ?? '') ?></td>
+                    <td class="number"><?= number_format($item['qty'] ?? 0, 2) ?></td>
+                    <td><?= htmlspecialchars($item['unit'] ?? '') ?></td>
+                    <td class="number"><?= number_format($item['rate'] ?? 0, 2) ?></td>
+                    <td class="number"><?= number_format($item['taxable_amount'] ?? 0, 2) ?></td>
+                    <td class="number"><?= number_format($item['total_amount'] ?? 0, 2) ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+            <tfoot>
+                <tr style="font-weight: bold; border-top: 2px solid #ddd;">
+                    <td colspan="9" style="text-align: right;">Grand Total:</td>
+                    <td class="number"><?= number_format($invTotal, 2) ?></td>
+                </tr>
+            </tfoot>
+        </table>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 
