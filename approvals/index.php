@@ -39,7 +39,7 @@ try {
     ");
 }
 
-// Handle approve/reject actions
+// Handle approve/reject actions (still restricted to assigned approver)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
     $action = $_POST['action'] ?? '';
     $type = $_POST['type'] ?? '';
@@ -47,7 +47,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
     $remarks = trim($_POST['remarks'] ?? '');
 
     if ($approval_id && in_array($action, ['approve', 'reject'])) {
-        // Determine table and related updates based on type
         $allowed = false;
 
         if ($type === 'po_inspection') {
@@ -115,68 +114,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
 
 // Filter
 $tab = $_GET['tab'] ?? 'all';
+$viewMode = $_GET['view'] ?? 'all'; // 'all' = all approvals, 'mine' = only my approvals
 
-// Fetch pending approvals for this approver
+// Fetch ALL approvals (no approver filter) — show approver name on each card
 $poInspections = [];
 $woClosings = [];
 $soReleases = [];
 
-if ($myEmployeeId) {
-    // PO Incoming Inspections
-    try {
-        $poInspections = $pdo->prepare("
-            SELECT a.*, pic.checklist_no, pic.overall_result, pic.inspector_name, pic.inspection_date,
-                   MAX(s.supplier_name) as supplier_name, u.full_name as requested_by_name
-            FROM po_inspection_approvals a
-            LEFT JOIN po_inspection_checklists pic ON a.checklist_id = pic.id
-            LEFT JOIN purchase_orders po ON po.po_no = a.po_no
-            LEFT JOIN suppliers s ON s.id = po.supplier_id
-            LEFT JOIN users u ON u.id = a.requested_by
-            WHERE a.approver_id = ?
-            GROUP BY a.id
-            ORDER BY a.status = 'Pending' DESC, a.id DESC
-        ");
-        $poInspections->execute([$myEmployeeId]);
-        $poInspections = $poInspections->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $poInspections = []; $poError = $e->getMessage(); }
+// PO Incoming Inspections
+try {
+    $poSql = "
+        SELECT a.*, pic.checklist_no, pic.overall_result, pic.inspector_name, pic.inspection_date,
+               MAX(s.supplier_name) as supplier_name, u.full_name as requested_by_name,
+               CONCAT(ae.first_name, ' ', ae.last_name) as approver_name, ae.emp_id as approver_emp_id
+        FROM po_inspection_approvals a
+        LEFT JOIN po_inspection_checklists pic ON a.checklist_id = pic.id
+        LEFT JOIN purchase_orders po ON po.po_no = a.po_no
+        LEFT JOIN suppliers s ON s.id = po.supplier_id
+        LEFT JOIN users u ON u.id = a.requested_by
+        LEFT JOIN employees ae ON ae.id = a.approver_id
+    ";
+    if ($viewMode === 'mine' && $myEmployeeId) {
+        $poSql .= " WHERE a.approver_id = ?";
+    }
+    $poSql .= " GROUP BY a.id ORDER BY a.status = 'Pending' DESC, a.id DESC";
+    $poStmt = $pdo->prepare($poSql);
+    $poStmt->execute($viewMode === 'mine' && $myEmployeeId ? [$myEmployeeId] : []);
+    $poInspections = $poStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { $poInspections = []; $poError = $e->getMessage(); }
 
-    // WO Closing Approvals
-    try {
-        $woClosings = $pdo->prepare("
-            SELECT a.*, qc.checklist_no, qc.overall_result, qc.inspector_name,
-                   w.wo_no, w.part_no, pm.part_name, w.qty,
-                   u.full_name as requested_by_name
-            FROM wo_closing_approvals a
-            LEFT JOIN wo_quality_checklists qc ON a.checklist_id = qc.id
-            LEFT JOIN work_orders w ON a.work_order_id = w.id
-            LEFT JOIN part_master pm ON w.part_no = pm.part_no
-            LEFT JOIN users u ON u.id = a.requested_by
-            WHERE a.approver_id = ?
-            GROUP BY a.id
-            ORDER BY a.status = 'Pending' DESC, a.id DESC
-        ");
-        $woClosings->execute([$myEmployeeId]);
-        $woClosings = $woClosings->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $woClosings = []; $woError = $e->getMessage(); }
+// WO Closing Approvals
+try {
+    $woSql = "
+        SELECT a.*, qc.checklist_no, qc.overall_result, qc.inspector_name,
+               w.wo_no, w.part_no, pm.part_name, w.qty,
+               u.full_name as requested_by_name,
+               CONCAT(ae.first_name, ' ', ae.last_name) as approver_name, ae.emp_id as approver_emp_id
+        FROM wo_closing_approvals a
+        LEFT JOIN wo_quality_checklists qc ON a.checklist_id = qc.id
+        LEFT JOIN work_orders w ON a.work_order_id = w.id
+        LEFT JOIN part_master pm ON w.part_no = pm.part_no
+        LEFT JOIN users u ON u.id = a.requested_by
+        LEFT JOIN employees ae ON ae.id = a.approver_id
+    ";
+    if ($viewMode === 'mine' && $myEmployeeId) {
+        $woSql .= " WHERE a.approver_id = ?";
+    }
+    $woSql .= " GROUP BY a.id ORDER BY a.status = 'Pending' DESC, a.id DESC";
+    $woStmt = $pdo->prepare($woSql);
+    $woStmt->execute($viewMode === 'mine' && $myEmployeeId ? [$myEmployeeId] : []);
+    $woClosings = $woStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { $woClosings = []; $woError = $e->getMessage(); }
 
-    // SO Release Approvals
-    try {
-        $soReleases = $pdo->prepare("
-            SELECT a.*,
-                   c.company_name, c.customer_name,
-                   u.full_name as requested_by_name
-            FROM so_release_approvals a
-            LEFT JOIN sales_orders so2 ON so2.so_no = a.so_no
-            LEFT JOIN customers c ON c.id = so2.customer_id
-            LEFT JOIN users u ON u.id = a.requested_by
-            WHERE a.approver_id = ?
-            GROUP BY a.id
-            ORDER BY a.status = 'Pending' DESC, a.id DESC
-        ");
-        $soReleases->execute([$myEmployeeId]);
-        $soReleases = $soReleases->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $soReleases = []; $soError = $e->getMessage(); }
-}
+// SO Release Approvals
+try {
+    $soSql = "
+        SELECT a.*,
+               c.company_name, c.customer_name,
+               u.full_name as requested_by_name,
+               CONCAT(ae.first_name, ' ', ae.last_name) as approver_name, ae.emp_id as approver_emp_id
+        FROM so_release_approvals a
+        LEFT JOIN sales_orders so2 ON so2.so_no = a.so_no
+        LEFT JOIN customers c ON c.id = so2.customer_id
+        LEFT JOIN users u ON u.id = a.requested_by
+        LEFT JOIN employees ae ON ae.id = a.approver_id
+    ";
+    if ($viewMode === 'mine' && $myEmployeeId) {
+        $soSql .= " WHERE a.approver_id = ?";
+    }
+    $soSql .= " GROUP BY a.id ORDER BY a.status = 'Pending' DESC, a.id DESC";
+    $soStmt = $pdo->prepare($soSql);
+    $soStmt->execute($viewMode === 'mine' && $myEmployeeId ? [$myEmployeeId] : []);
+    $soReleases = $soStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { $soReleases = []; $soError = $e->getMessage(); }
 
 // Counts
 $pendingPO = count(array_filter($poInspections, fn($r) => $r['status'] === 'Pending'));
@@ -184,17 +194,30 @@ $pendingWO = count(array_filter($woClosings, fn($r) => $r['status'] === 'Pending
 $pendingSO = count(array_filter($soReleases, fn($r) => $r['status'] === 'Pending'));
 $totalPending = $pendingPO + $pendingWO + $pendingSO;
 
+// My pending counts
+$myPendingPO = $myEmployeeId ? count(array_filter($poInspections, fn($r) => $r['status'] === 'Pending' && (int)$r['approver_id'] === (int)$myEmployeeId)) : 0;
+$myPendingWO = $myEmployeeId ? count(array_filter($woClosings, fn($r) => $r['status'] === 'Pending' && (int)$r['approver_id'] === (int)$myEmployeeId)) : 0;
+$myPendingSO = $myEmployeeId ? count(array_filter($soReleases, fn($r) => $r['status'] === 'Pending' && (int)$r['approver_id'] === (int)$myEmployeeId)) : 0;
+$myTotalPending = $myPendingPO + $myPendingWO + $myPendingSO;
+
 include "../includes/sidebar.php";
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>My Approvals</title>
+    <title>Approvals</title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
         .page-header h1 { margin: 0; color: #2c3e50; }
+
+        .view-toggle { display: flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid #d1d5db; }
+        .view-toggle a { padding: 8px 18px; text-decoration: none; font-size: 0.9em; font-weight: 600; color: #555; background: white; transition: all 0.2s; white-space: nowrap; }
+        .view-toggle a:hover { background: #f3f4f6; }
+        .view-toggle a.active { background: #667eea; color: white; }
+        .view-toggle a .count { background: rgba(255,255,255,0.3); padding: 1px 7px; border-radius: 10px; font-size: 0.85em; margin-left: 4px; }
+        .view-toggle a.active .count { background: rgba(255,255,255,0.3); }
 
         .stats-row { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
         .stat-card { flex: 1; min-width: 140px; padding: 18px 20px; border-radius: 10px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; text-decoration: none; color: inherit; }
@@ -213,12 +236,17 @@ include "../includes/sidebar.php";
         .approval-card.pending { border-left: 4px solid #f59e0b; }
         .approval-card.approved { border-left: 4px solid #10b981; opacity: 0.7; }
         .approval-card.rejected { border-left: 4px solid #ef4444; opacity: 0.7; }
+        .approval-card.is-mine { box-shadow: 0 0 0 2px #667eea33; }
 
         .approval-info { flex: 1; min-width: 250px; }
         .approval-info .ref-no { font-weight: 700; font-size: 1.1em; color: #2c3e50; }
         .approval-info .ref-no a { color: #667eea; text-decoration: none; }
         .approval-info .ref-no a:hover { text-decoration: underline; }
         .approval-info .meta { color: #666; font-size: 0.9em; margin-top: 5px; line-height: 1.6; }
+
+        .approver-tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.82em; font-weight: 600; }
+        .approver-tag.mine { background: #dbeafe; color: #1e40af; }
+        .approver-tag.other { background: #f3f4f6; color: #6b7280; }
 
         .approval-actions { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
         .approval-actions form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -242,6 +270,10 @@ include "../includes/sidebar.php";
         body.dark .stat-card .stat-label { color: #bdc3c7; }
         body.dark .approval-info .ref-no { color: #ecf0f1; }
         body.dark .approval-info .meta { color: #bdc3c7; }
+        body.dark .view-toggle a { background: #34495e; color: #bdc3c7; border-color: #4a5568; }
+        body.dark .view-toggle a.active { background: #667eea; color: white; }
+        body.dark .approver-tag.other { background: #34495e; color: #bdc3c7; }
+        body.dark .approver-tag.mine { background: #1e3a5f; color: #93c5fd; }
     </style>
 </head>
 <body>
@@ -249,8 +281,18 @@ include "../includes/sidebar.php";
 <div class="content">
     <div class="page-header">
         <div>
-            <h1>My Approvals</h1>
-            <p style="color: #666; margin: 5px 0 0;">Pending approvals assigned to you</p>
+            <h1>Approvals</h1>
+            <p style="color: #666; margin: 5px 0 0;">All approval requests across the system</p>
+        </div>
+        <div class="view-toggle">
+            <a href="?tab=<?= $tab ?>&view=all" class="<?= $viewMode === 'all' ? 'active' : '' ?>">
+                All Approvals <span class="count"><?= $totalPending ?></span>
+            </a>
+            <?php if ($myEmployeeId): ?>
+            <a href="?tab=<?= $tab ?>&view=mine" class="<?= $viewMode === 'mine' ? 'active' : '' ?>">
+                Assigned to Me <span class="count"><?= $myTotalPending ?></span>
+            </a>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -264,25 +306,23 @@ include "../includes/sidebar.php";
 
     <!-- Stats -->
     <div class="stats-row">
-        <a href="?tab=all" class="stat-card <?= $tab === 'all' ? 'active-tab' : '' ?>">
+        <a href="?tab=all&view=<?= $viewMode ?>" class="stat-card <?= $tab === 'all' ? 'active-tab' : '' ?>">
             <div class="stat-value" style="color: <?= $totalPending > 0 ? '#e74c3c' : '#27ae60' ?>;"><?= $totalPending ?></div>
             <div class="stat-label">All Pending</div>
         </a>
-        <a href="?tab=po" class="stat-card <?= $tab === 'po' ? 'active-tab' : '' ?>">
+        <a href="?tab=po&view=<?= $viewMode ?>" class="stat-card <?= $tab === 'po' ? 'active-tab' : '' ?>">
             <div class="stat-value" style="color: #3498db;"><?= $pendingPO ?></div>
             <div class="stat-label">Incoming Inspections</div>
         </a>
-        <a href="?tab=wo" class="stat-card <?= $tab === 'wo' ? 'active-tab' : '' ?>">
+        <a href="?tab=wo&view=<?= $viewMode ?>" class="stat-card <?= $tab === 'wo' ? 'active-tab' : '' ?>">
             <div class="stat-value" style="color: #8e44ad;"><?= $pendingWO ?></div>
             <div class="stat-label">Work Orders</div>
         </a>
-        <a href="?tab=so" class="stat-card <?= $tab === 'so' ? 'active-tab' : '' ?>">
+        <a href="?tab=so&view=<?= $viewMode ?>" class="stat-card <?= $tab === 'so' ? 'active-tab' : '' ?>">
             <div class="stat-value" style="color: #e67e22;"><?= $pendingSO ?></div>
             <div class="stat-label">Sales Orders</div>
         </a>
     </div>
-
-    <?php if ($myEmployeeId): ?>
 
     <?php
     // Show any query errors so issues aren't silently hidden
@@ -309,8 +349,10 @@ include "../includes/sidebar.php";
         $filteredPO = $tab === 'po' ? $poInspections : array_filter($poInspections, fn($r) => $r['status'] === 'Pending');
         if (empty($filteredPO)): ?>
             <div class="empty-state">No <?= $tab === 'po' ? '' : 'pending ' ?>incoming inspection approvals</div>
-        <?php else: foreach ($filteredPO as $item): ?>
-            <div class="approval-card <?= strtolower($item['status']) ?>">
+        <?php else: foreach ($filteredPO as $item):
+            $isMine = $myEmployeeId && (int)$item['approver_id'] === (int)$myEmployeeId;
+        ?>
+            <div class="approval-card <?= strtolower($item['status']) ?> <?= $isMine ? 'is-mine' : '' ?>">
                 <div class="approval-info">
                     <div class="ref-no">
                         <a href="/stock_entry/inspection_checklist.php?po_no=<?= urlencode($item['po_no']) ?>"><?= htmlspecialchars($item['checklist_no'] ?? 'N/A') ?></a>
@@ -325,10 +367,11 @@ include "../includes/sidebar.php";
                         <?php if ($item['inspector_name']): ?> | Inspector: <?= htmlspecialchars($item['inspector_name']) ?><?php endif; ?>
                         <br>Requested by: <?= htmlspecialchars($item['requested_by_name'] ?? '-') ?>
                         | <?= date('d M Y H:i', strtotime($item['requested_at'])) ?>
+                        | Approver: <span class="approver-tag <?= $isMine ? 'mine' : 'other' ?>"><?= htmlspecialchars($item['approver_name'] ?? '-') ?><?= $isMine ? ' (You)' : '' ?></span>
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending'): ?>
+                <?php if ($item['status'] === 'Pending' && $isMine): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="po_inspection">
@@ -337,6 +380,10 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm" onclick="return confirm('Approve this inspection?')">Approve</button>
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this inspection?')">Reject</button>
                     </form>
+                </div>
+                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
+                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
+                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -356,8 +403,10 @@ include "../includes/sidebar.php";
         $filteredWO = $tab === 'wo' ? $woClosings : array_filter($woClosings, fn($r) => $r['status'] === 'Pending');
         if (empty($filteredWO)): ?>
             <div class="empty-state">No <?= $tab === 'wo' ? '' : 'pending ' ?>work order approvals</div>
-        <?php else: foreach ($filteredWO as $item): ?>
-            <div class="approval-card <?= strtolower($item['status']) ?>">
+        <?php else: foreach ($filteredWO as $item):
+            $isMine = $myEmployeeId && (int)$item['approver_id'] === (int)$myEmployeeId;
+        ?>
+            <div class="approval-card <?= strtolower($item['status']) ?> <?= $isMine ? 'is-mine' : '' ?>">
                 <div class="approval-info">
                     <div class="ref-no">
                         <a href="/work_orders/quality_checklist.php?id=<?= $item['work_order_id'] ?>"><?= htmlspecialchars($item['checklist_no'] ?? 'N/A') ?></a>
@@ -373,10 +422,11 @@ include "../includes/sidebar.php";
                         <?php if ($item['inspector_name']): ?> | Inspector: <?= htmlspecialchars($item['inspector_name']) ?><?php endif; ?>
                         <br>Requested by: <?= htmlspecialchars($item['requested_by_name'] ?? '-') ?>
                         | <?= date('d M Y H:i', strtotime($item['requested_at'])) ?>
+                        | Approver: <span class="approver-tag <?= $isMine ? 'mine' : 'other' ?>"><?= htmlspecialchars($item['approver_name'] ?? '-') ?><?= $isMine ? ' (You)' : '' ?></span>
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending'): ?>
+                <?php if ($item['status'] === 'Pending' && $isMine): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="wo_closing">
@@ -385,6 +435,10 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm" onclick="return confirm('Approve this WO closing?')">Approve</button>
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this WO closing?')">Reject</button>
                     </form>
+                </div>
+                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
+                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
+                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -404,8 +458,10 @@ include "../includes/sidebar.php";
         $filteredSO = $tab === 'so' ? $soReleases : array_filter($soReleases, fn($r) => $r['status'] === 'Pending');
         if (empty($filteredSO)): ?>
             <div class="empty-state">No <?= $tab === 'so' ? '' : 'pending ' ?>sales order approvals</div>
-        <?php else: foreach ($filteredSO as $item): ?>
-            <div class="approval-card <?= strtolower($item['status']) ?>">
+        <?php else: foreach ($filteredSO as $item):
+            $isMine = $myEmployeeId && (int)$item['approver_id'] === (int)$myEmployeeId;
+        ?>
+            <div class="approval-card <?= strtolower($item['status']) ?> <?= $isMine ? 'is-mine' : '' ?>">
                 <div class="approval-info">
                     <div class="ref-no">
                         <a href="/sales_orders/view.php?so_no=<?= urlencode($item['so_no']) ?>"><?= htmlspecialchars($item['so_no']) ?></a>
@@ -415,10 +471,11 @@ include "../includes/sidebar.php";
                         Customer: <strong><?= htmlspecialchars($item['company_name'] ?? $item['customer_name'] ?? '-') ?></strong>
                         <br>Requested by: <?= htmlspecialchars($item['requested_by_name'] ?? '-') ?>
                         | <?= date('d M Y H:i', strtotime($item['requested_at'])) ?>
+                        | Approver: <span class="approver-tag <?= $isMine ? 'mine' : 'other' ?>"><?= htmlspecialchars($item['approver_name'] ?? '-') ?><?= $isMine ? ' (You)' : '' ?></span>
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending'): ?>
+                <?php if ($item['status'] === 'Pending' && $isMine): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="so_release">
@@ -428,13 +485,16 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this SO release?')">Reject</button>
                     </form>
                 </div>
+                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
+                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
+                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
+                </div>
                 <?php endif; ?>
             </div>
         <?php endforeach; endif; ?>
     </div>
     <?php endif; ?>
 
-    <?php endif; ?>
 </div>
 
 </body>
