@@ -219,6 +219,67 @@ $showApprovals = $_isAdmin || _canView('approvals');
     background: #2c3e50;
     border-left-color: #3498db;
 }
+
+/* User Info & Logout at bottom */
+.sidebar-user-section {
+    margin-top: auto;
+    border-top: 1px solid #34495e;
+    padding: 12px;
+    position: sticky;
+    bottom: 0;
+    background: #2c3e50;
+}
+.sidebar-user-info {
+    margin-bottom: 8px;
+}
+.sidebar-user-name {
+    color: #ecf0f1;
+    font-weight: 600;
+    font-size: 0.85em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sidebar-user-role {
+    color: #95a5a6;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.sidebar-logout-btn {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: #e74c3c;
+    color: #fff !important;
+    text-align: center;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.85em;
+    transition: background 0.2s;
+    box-sizing: border-box;
+}
+.sidebar-logout-btn:hover {
+    background: #c0392b;
+}
+.sidebar-login-btn {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: #27ae60;
+    color: #fff !important;
+    text-align: center;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.85em;
+    transition: background 0.2s;
+    box-sizing: border-box;
+}
+.sidebar-login-btn:hover {
+    background: #219a52;
+}
 </style>
 
 <div class="sidebar">
@@ -597,6 +658,21 @@ $showApprovals = $_isAdmin || _canView('approvals');
             <a href="/customer_portal/dockets.php" class="<?= $currentDir === 'customer_portal' && $current === 'dockets.php' ? 'active' : '' ?>">Docket Details</a>
             <a href="/customer_portal/eway_bills.php" class="<?= $currentDir === 'customer_portal' && $current === 'eway_bills.php' ? 'active' : '' ?>">E-Way Bills</a>
         </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- User Info & Logout -->
+    <?php if (function_exists('isLoggedIn') && isLoggedIn()): ?>
+    <div class="sidebar-user-section">
+        <div class="sidebar-user-info">
+            <div class="sidebar-user-name"><?= htmlspecialchars(function_exists('getUserName') ? getUserName() : 'User') ?></div>
+            <div class="sidebar-user-role"><?= htmlspecialchars(ucfirst(function_exists('getUserRole') ? getUserRole() : '')) ?></div>
+        </div>
+        <a href="/logout.php" class="sidebar-logout-btn">Logout</a>
+    </div>
+    <?php else: ?>
+    <div class="sidebar-user-section">
+        <a href="/login.php" class="sidebar-login-btn">Login</a>
     </div>
     <?php endif; ?>
 
