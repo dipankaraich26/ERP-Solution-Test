@@ -126,18 +126,19 @@ if ($myEmployeeId) {
     try {
         $poInspections = $pdo->prepare("
             SELECT a.*, pic.checklist_no, pic.overall_result, pic.inspector_name, pic.inspection_date,
-                   s.supplier_name, u.full_name as requested_by_name
+                   MAX(s.supplier_name) as supplier_name, u.full_name as requested_by_name
             FROM po_inspection_approvals a
             LEFT JOIN po_inspection_checklists pic ON a.checklist_id = pic.id
             LEFT JOIN purchase_orders po ON po.po_no = a.po_no
             LEFT JOIN suppliers s ON s.id = po.supplier_id
             LEFT JOIN users u ON u.id = a.requested_by
             WHERE a.approver_id = ?
+            GROUP BY a.id
             ORDER BY a.status = 'Pending' DESC, a.id DESC
         ");
         $poInspections->execute([$myEmployeeId]);
         $poInspections = $poInspections->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $poInspections = []; }
+    } catch (Exception $e) { $poInspections = []; $poError = $e->getMessage(); }
 
     // WO Closing Approvals
     try {
@@ -151,11 +152,12 @@ if ($myEmployeeId) {
             LEFT JOIN part_master pm ON w.part_no = pm.part_no
             LEFT JOIN users u ON u.id = a.requested_by
             WHERE a.approver_id = ?
+            GROUP BY a.id
             ORDER BY a.status = 'Pending' DESC, a.id DESC
         ");
         $woClosings->execute([$myEmployeeId]);
         $woClosings = $woClosings->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $woClosings = []; }
+    } catch (Exception $e) { $woClosings = []; $woError = $e->getMessage(); }
 
     // SO Release Approvals
     try {
@@ -173,7 +175,7 @@ if ($myEmployeeId) {
         ");
         $soReleases->execute([$myEmployeeId]);
         $soReleases = $soReleases->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $soReleases = []; }
+    } catch (Exception $e) { $soReleases = []; $soError = $e->getMessage(); }
 }
 
 // Counts
@@ -281,6 +283,19 @@ include "../includes/sidebar.php";
     </div>
 
     <?php if ($myEmployeeId): ?>
+
+    <?php
+    // Show any query errors so issues aren't silently hidden
+    $queryErrors = [];
+    if (!empty($poError)) $queryErrors[] = "PO Inspections: " . $poError;
+    if (!empty($woError)) $queryErrors[] = "WO Closings: " . $woError;
+    if (!empty($soError)) $queryErrors[] = "SO Releases: " . $soError;
+    if (!empty($queryErrors)): ?>
+    <div style="background: #fee2e2; border: 1px solid #ef4444; color: #991b1b; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <strong>Query Error:</strong> Some approvals could not be loaded.<br>
+        <?= implode('<br>', array_map('htmlspecialchars', $queryErrors)) ?>
+    </div>
+    <?php endif; ?>
 
     <!-- PO Incoming Inspections -->
     <?php if ($tab === 'all' || $tab === 'po'): ?>
