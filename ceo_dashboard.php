@@ -587,11 +587,14 @@ include "includes/sidebar.php";
     <style>
         .ceo-dashboard {
             padding: 20px;
+            padding-top: calc(48px + 20px);
         }
         .dashboard-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
             margin-bottom: 25px;
             padding-bottom: 15px;
             border-bottom: 2px solid #e74c3c;
@@ -604,9 +607,16 @@ include "includes/sidebar.php";
         .dashboard-header .header-subtitle {
             color: var(--muted-text, #7f8c8d);
         }
+        .dashboard-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-shrink: 0;
+        }
         .dashboard-header .date-info {
             color: var(--text, #2c3e50);
             font-size: 0.95em;
+            text-align: right;
         }
         .dashboard-header .date-info small {
             color: var(--muted-text, #7f8c8d);
@@ -860,7 +870,11 @@ include "includes/sidebar.php";
             }
             .dashboard-header {
                 flex-direction: column;
-                gap: 15px;
+                align-items: flex-start;
+            }
+            .dashboard-header-actions {
+                width: 100%;
+                justify-content: space-between;
             }
         }
     </style>
@@ -874,9 +888,9 @@ include "includes/sidebar.php";
             <h1>Executive Dashboard</h1>
             <span class="header-subtitle">Chairman's Business Overview</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 20px;">
+        <div class="dashboard-header-actions">
             <a href="ceo_dashboard_print.php" class="btn-print-pdf">
-                <span style="font-size: 1.2em;">📄</span> Print PDF
+                📄 Print PDF
             </a>
             <div class="date-info">
                 <strong><?= date('l, d F Y') ?></strong><br>
