@@ -210,6 +210,11 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
         Executive Dashboard
     </a>
 
+    <!-- My Approvals -->
+    <a href="/approvals/index.php" class="<?= $currentDir === 'approvals' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; font-weight: bold; display: block; padding: 10px 12px; margin: 5px 8px; border-radius: 8px; text-align: center; text-decoration: none;">
+        My Approvals
+    </a>
+
     <!-- Sales -->
     <div class="sidebar-group <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers', 'installations']) ? 'open' : '' ?>">
         <div class="sidebar-group-header <?= in_array($currentDir, ['crm', 'quotes', 'proforma', 'customer_po', 'sales_orders', 'invoices', 'customers', 'installations']) ? 'active' : '' ?>">
@@ -419,6 +424,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/admin/attendance_settings.php" class="<?= $currentDir === 'admin' && $current === 'attendance_settings.php' ? 'active' : '' ?>">Attendance Settings</a>
             <a href="/admin/wo_approvers.php" class="<?= $currentDir === 'admin' && $current === 'wo_approvers.php' ? 'active' : '' ?>">WO Approvers</a>
             <a href="/admin/po_inspection_approvers.php" class="<?= $currentDir === 'admin' && in_array($current, ['po_inspection_approvers.php', 'setup_po_inspection.php']) ? 'active' : '' ?>">PO Inspection Approvers</a>
+            <a href="/admin/so_approvers.php" class="<?= $currentDir === 'admin' && $current === 'so_approvers.php' ? 'active' : '' ?>">SO Release Approvers</a>
         </div>
     </div>
 

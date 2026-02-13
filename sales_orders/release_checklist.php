@@ -67,6 +67,56 @@ try {
     $checklistItems = $pdo->query("SELECT * FROM so_checklist_items WHERE is_active = 1 ORDER BY sort_order")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
+// SO Approval tables auto-create
+try {
+    $pdo->query("SELECT 1 FROM so_release_approvals LIMIT 1");
+} catch (PDOException $e) {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS so_release_approvals (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            so_no VARCHAR(50) NOT NULL,
+            requested_by INT DEFAULT NULL,
+            approver_id INT NOT NULL,
+            status ENUM('Pending','Approved','Rejected') DEFAULT 'Pending',
+            remarks TEXT,
+            requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            approved_at DATETIME DEFAULT NULL
+        )
+    ");
+}
+try {
+    $pdo->query("SELECT 1 FROM so_approvers LIMIT 1");
+} catch (PDOException $e) {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS so_approvers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL UNIQUE,
+            is_active TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+}
+
+// Fetch SO approvers
+$soApprovers = $pdo->query("
+    SELECT e.id, e.emp_id, e.first_name, e.last_name, e.designation, e.department
+    FROM so_approvers a
+    JOIN employees e ON a.employee_id = e.id
+    WHERE a.is_active = 1
+    ORDER BY e.first_name, e.last_name
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch existing approval
+$existingApprovalStmt = $pdo->prepare("
+    SELECT a.*, e.first_name, e.last_name, e.emp_id as approver_emp_id
+    FROM so_release_approvals a
+    JOIN employees e ON a.approver_id = e.id
+    WHERE a.so_no = ?
+    ORDER BY a.id DESC LIMIT 1
+");
+$existingApprovalStmt->execute([$so_no]);
+$soApproval = $existingApprovalStmt->fetch(PDO::FETCH_ASSOC);
+
 $errors = [];
 $success = '';
 
@@ -229,6 +279,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("SELECT * FROM so_release_attachments WHERE so_no = ? ORDER BY uploaded_at DESC");
             $stmt->execute([$so_no]);
             $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+    }
+
+    // Handle approval request
+    if ($action === 'request_approval' && !empty($_POST['approver_id'])) {
+        $approverId = (int)$_POST['approver_id'];
+        // Verify checklist is completed
+        $stmt = $pdo->prepare("SELECT checklist_completed FROM so_release_checklist WHERE so_no = ?");
+        $stmt->execute([$so_no]);
+        $cl = $stmt->fetch();
+        if (!$cl || !$cl['checklist_completed']) {
+            $errors[] = "Complete the checklist before requesting approval.";
+        } else {
+            try {
+                $pdo->prepare("
+                    INSERT INTO so_release_approvals (so_no, requested_by, approver_id, status)
+                    VALUES (?, ?, ?, 'Pending')
+                ")->execute([$so_no, $_SESSION['user_id'] ?? null, $approverId]);
+                $success = "Approval request sent successfully!";
+
+                // Refresh approval data
+                $existingApprovalStmt->execute([$so_no]);
+                $soApproval = $existingApprovalStmt->fetch(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                $errors[] = "Failed to request approval: " . $e->getMessage();
+            }
         }
     }
 }
@@ -965,6 +1041,110 @@ include "../includes/sidebar.php";
             </div>
         </div>
 
+        <!-- Release Approval Section -->
+        <?php if ($checklist && $checklist['checklist_completed']): ?>
+        <div class="checklist-section">
+            <h3>
+                <span class="section-icon" style="background: #fce4ec;">&#128274;</span>
+                Release Approval
+            </h3>
+
+            <?php if ($soApproval): ?>
+                <!-- Show approval status -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+                        <div style="font-size: 0.85em; color: #666;">Approval Status</div>
+                        <div style="font-weight: 600; margin-top: 4px;">
+                            <span class="status-badge status-<?= strtolower($soApproval['status']) ?>" style="padding: 4px 12px; border-radius: 12px; font-size: 0.9em;">
+                                <?= $soApproval['status'] ?>
+                            </span>
+                        </div>
+                    </div>
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+                        <div style="font-size: 0.85em; color: #666;">Approver</div>
+                        <div style="font-weight: 600; margin-top: 4px;">
+                            <?= htmlspecialchars($soApproval['first_name'] . ' ' . $soApproval['last_name']) ?>
+                            (<?= htmlspecialchars($soApproval['approver_emp_id']) ?>)
+                        </div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+                        <div style="font-size: 0.85em; color: #666;">Requested At</div>
+                        <div style="font-weight: 600; margin-top: 4px;"><?= date('d-M-Y H:i', strtotime($soApproval['requested_at'])) ?></div>
+                    </div>
+                    <?php if ($soApproval['approved_at']): ?>
+                    <div style="padding: 12px; background: #f8f9fa; border-radius: 6px;">
+                        <div style="font-size: 0.85em; color: #666;"><?= $soApproval['status'] === 'Approved' ? 'Approved At' : 'Rejected At' ?></div>
+                        <div style="font-weight: 600; margin-top: 4px;"><?= date('d-M-Y H:i', strtotime($soApproval['approved_at'])) ?></div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php if ($soApproval['remarks']): ?>
+                <div style="padding: 12px; background: #f8f9fa; border-radius: 6px; margin-top: 12px;">
+                    <div style="font-size: 0.85em; color: #666;">Remarks</div>
+                    <div style="font-weight: 500; margin-top: 4px;"><?= htmlspecialchars($soApproval['remarks']) ?></div>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($soApproval['status'] === 'Approved'): ?>
+                <div style="margin-top: 15px; background: #d1fae5; padding: 15px; border-radius: 8px; color: #065f46;">
+                    <strong>Approved!</strong> This Sales Order can now be released.
+                </div>
+                <?php elseif ($soApproval['status'] === 'Rejected'): ?>
+                <div style="margin-top: 15px; background: #fee2e2; padding: 15px; border-radius: 8px; color: #991b1b;">
+                    <strong>Rejected.</strong> Address the issues and request approval again.
+                </div>
+                <!-- Allow re-request -->
+                <?php if (!empty($soApprovers)): ?>
+                <form method="POST" style="margin-top: 15px; display: flex; gap: 10px; align-items: end; flex-wrap: wrap;">
+                    <input type="hidden" name="action" value="request_approval">
+                    <div style="flex: 1; min-width: 200px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;">Select Approver</label>
+                        <select name="approver_id" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                            <option value="">-- Select Approver --</option>
+                            <?php foreach ($soApprovers as $app): ?>
+                                <option value="<?= $app['id'] ?>"><?= htmlspecialchars($app['first_name'] . ' ' . $app['last_name']) ?> (<?= htmlspecialchars($app['emp_id']) ?>)<?php if ($app['designation']): ?> - <?= htmlspecialchars($app['designation']) ?><?php endif; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Re-request Approval</button>
+                </form>
+                <?php endif; ?>
+                <?php elseif ($soApproval['status'] === 'Pending'): ?>
+                <div style="margin-top: 15px; background: #fff3cd; padding: 15px; border-radius: 8px; color: #856404;">
+                    <strong>Waiting for approval</strong> from <?= htmlspecialchars($soApproval['first_name'] . ' ' . $soApproval['last_name']) ?>.
+                    The approver can approve/reject from the <a href="/approvals/index.php">My Approvals</a> page.
+                </div>
+                <?php endif; ?>
+
+            <?php else: ?>
+                <!-- No approval yet - show request form -->
+                <?php if (empty($soApprovers)): ?>
+                    <div style="background: #fee2e2; padding: 15px; border-radius: 6px; color: #991b1b;">
+                        No SO approvers configured. Please ask an administrator to add SO approvers in
+                        <a href="/admin/so_approvers.php">SO Approvers Settings</a>.
+                    </div>
+                <?php else: ?>
+                    <p style="color: #666; margin-bottom: 15px;">Checklist is complete. Select an approver to request release approval.</p>
+                    <form method="POST" style="display: flex; gap: 10px; align-items: end; flex-wrap: wrap;">
+                        <input type="hidden" name="action" value="request_approval">
+                        <div style="flex: 1; min-width: 250px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;">Select Approver</label>
+                            <select name="approver_id" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                                <option value="">-- Select Approver --</option>
+                                <?php foreach ($soApprovers as $app): ?>
+                                    <option value="<?= $app['id'] ?>"><?= htmlspecialchars($app['first_name'] . ' ' . $app['last_name']) ?> (<?= htmlspecialchars($app['emp_id']) ?>)<?php if ($app['designation']): ?> - <?= htmlspecialchars($app['designation']) ?><?php endif; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="padding: 10px 25px;">Request Approval</button>
+                    </form>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <!-- Action Bar -->
         <div class="action-bar">
             <div class="completion-status">
@@ -988,11 +1168,15 @@ include "../includes/sidebar.php";
 
             <div>
                 <a href="view.php?so_no=<?= urlencode($so_no) ?>" class="btn btn-secondary">Back to Order</a>
-                <?php if ($checklist && $checklist['checklist_completed']): ?>
+                <?php if ($checklist && $checklist['checklist_completed'] && $soApproval && $soApproval['status'] === 'Approved'): ?>
                     <a href="release.php?so_no=<?= urlencode($so_no) ?>" class="btn btn-success"
                        onclick="return confirm('Release this Sales Order?\n\nInventory will be deducted.')">
                         Proceed to Release
                     </a>
+                <?php elseif ($checklist && $checklist['checklist_completed']): ?>
+                    <button class="btn" style="background: #ccc; cursor: not-allowed;" disabled>
+                        Approval Required
+                    </button>
                 <?php else: ?>
                     <button class="btn" style="background: #ccc; cursor: not-allowed;" disabled>
                         Complete Checklist First

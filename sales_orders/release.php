@@ -23,6 +23,21 @@ try {
     // Table might not exist, allow release without checklist for backward compatibility
 }
 
+// Check if SO release approval is granted
+try {
+    $stmt = $pdo->prepare("SELECT status FROM so_release_approvals WHERE so_no = ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$so_no]);
+    $soApproval = $stmt->fetch();
+
+    if (!$soApproval || $soApproval['status'] !== 'Approved') {
+        setModal("Error", "Release approval is required before releasing this Sales Order. Please request approval from the release checklist page.");
+        header("Location: release_checklist.php?so_no=" . urlencode($so_no));
+        exit;
+    }
+} catch (PDOException $e) {
+    // Table might not exist, allow release without approval for backward compatibility
+}
+
 $pdo->beginTransaction();
 
 try {
