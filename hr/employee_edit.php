@@ -92,7 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 reporting_to = ?, work_location = ?,
                 aadhar_no = ?, pan_no = ?, uan_no = ?, pf_no = ?, esi_no = ?,
                 bank_name = ?, bank_account = ?, bank_ifsc = ?, bank_branch = ?,
- \
+                basic_salary = ?, hra = ?, conveyance = ?, medical_allowance = ?,
+                special_allowance = ?, other_allowance = ?, performance_allowance = ?, food_allowance = ?,
                 photo_path = ?, notes = ?, status = ?
             WHERE id = ?
         ");
