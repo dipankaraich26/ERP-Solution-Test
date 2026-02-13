@@ -39,8 +39,8 @@ try {
     ");
 }
 
-// Handle approve/reject actions (still restricted to assigned approver)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
+// Handle approve/reject actions — any logged-in user can approve/reject
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $type = $_POST['type'] ?? '';
     $approval_id = (int)($_POST['approval_id'] ?? 0);
@@ -50,8 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
         $allowed = false;
 
         if ($type === 'po_inspection') {
-            $row = $pdo->prepare("SELECT * FROM po_inspection_approvals WHERE id = ? AND approver_id = ? AND status = 'Pending'");
-            $row->execute([$approval_id, $myEmployeeId]);
+            $row = $pdo->prepare("SELECT * FROM po_inspection_approvals WHERE id = ? AND status = 'Pending'");
+            $row->execute([$approval_id]);
             $record = $row->fetch();
             if ($record) {
                 $allowed = true;
@@ -69,8 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
                 }
             }
         } elseif ($type === 'wo_closing') {
-            $row = $pdo->prepare("SELECT * FROM wo_closing_approvals WHERE id = ? AND approver_id = ? AND status = 'Pending'");
-            $row->execute([$approval_id, $myEmployeeId]);
+            $row = $pdo->prepare("SELECT * FROM wo_closing_approvals WHERE id = ? AND status = 'Pending'");
+            $row->execute([$approval_id]);
             $record = $row->fetch();
             if ($record) {
                 $allowed = true;
@@ -88,8 +88,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
                 }
             }
         } elseif ($type === 'so_release') {
-            $row = $pdo->prepare("SELECT * FROM so_release_approvals WHERE id = ? AND approver_id = ? AND status = 'Pending'");
-            $row->execute([$approval_id, $myEmployeeId]);
+            $row = $pdo->prepare("SELECT * FROM so_release_approvals WHERE id = ? AND status = 'Pending'");
+            $row->execute([$approval_id]);
             $record = $row->fetch();
             if ($record) {
                 $allowed = true;
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $myEmployeeId) {
         }
 
         if (!$allowed) {
-            setModal("Error", "You are not authorized to perform this action.");
+            setModal("Error", "Approval not found or already processed.");
         }
 
         header("Location: index.php");
@@ -371,7 +371,7 @@ include "../includes/sidebar.php";
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending' && $isMine): ?>
+                <?php if ($item['status'] === 'Pending'): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="po_inspection">
@@ -380,10 +380,6 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm" onclick="return confirm('Approve this inspection?')">Approve</button>
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this inspection?')">Reject</button>
                     </form>
-                </div>
-                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
-                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
-                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -426,7 +422,7 @@ include "../includes/sidebar.php";
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending' && $isMine): ?>
+                <?php if ($item['status'] === 'Pending'): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="wo_closing">
@@ -435,10 +431,6 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm" onclick="return confirm('Approve this WO closing?')">Approve</button>
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this WO closing?')">Reject</button>
                     </form>
-                </div>
-                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
-                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
-                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -475,7 +467,7 @@ include "../includes/sidebar.php";
                         <?php if ($item['remarks']): ?><br>Remarks: <?= htmlspecialchars($item['remarks']) ?><?php endif; ?>
                     </div>
                 </div>
-                <?php if ($item['status'] === 'Pending' && $isMine): ?>
+                <?php if ($item['status'] === 'Pending'): ?>
                 <div class="approval-actions">
                     <form method="post">
                         <input type="hidden" name="type" value="so_release">
@@ -484,10 +476,6 @@ include "../includes/sidebar.php";
                         <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm" onclick="return confirm('Approve this SO release?')">Approve</button>
                         <button type="submit" name="action" value="reject" class="btn btn-sm" style="background:#ef4444;color:white;" onclick="return confirm('Reject this SO release?')">Reject</button>
                     </form>
-                </div>
-                <?php elseif ($item['status'] === 'Pending' && !$isMine): ?>
-                <div style="color: #9ca3af; font-size: 0.85em; font-style: italic; padding: 8px 0;">
-                    Waiting for <?= htmlspecialchars($item['approver_name'] ?? 'approver') ?>
                 </div>
                 <?php endif; ?>
             </div>
