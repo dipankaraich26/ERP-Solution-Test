@@ -124,6 +124,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: org_structure.php?tab=roles&msg=" . urlencode($msg) . "&msgType=$msgType");
         exit;
     }
+
+    // --- Update Reporting To (single employee) ---
+    if (isset($_POST['update_reporting'])) {
+        $empId = (int)$_POST['emp_id'];
+        $newMgr = $_POST['reporting_to'] !== '' ? (int)$_POST['reporting_to'] : null;
+        $dept = $_GET['dept'] ?? '';
+
+        // Prevent self-reporting
+        if ($newMgr === $empId) {
+            $msg = "An employee cannot report to themselves.";
+            $msgType = 'error';
+        } else {
+            // Prevent circular: walk up from newMgr, make sure we don't hit empId
+            $circular = false;
+            if ($newMgr) {
+                $check = $newMgr;
+                $visited = [];
+                while ($check) {
+                    if ($check === $empId) { $circular = true; break; }
+                    if (in_array($check, $visited)) break;
+                    $visited[] = $check;
+                    $cStmt = $pdo->prepare("SELECT reporting_to FROM employees WHERE id = ?");
+                    $cStmt->execute([$check]);
+                    $row = $cStmt->fetch(PDO::FETCH_ASSOC);
+                    $check = ($row && $row['reporting_to']) ? (int)$row['reporting_to'] : null;
+                }
+            }
+            if ($circular) {
+                $msg = "Cannot assign: this would create a circular reporting chain.";
+                $msgType = 'error';
+            } else {
+                $pdo->prepare("UPDATE employees SET reporting_to = ? WHERE id = ?")->execute([$newMgr, $empId]);
+                $msg = "Reporting hierarchy updated.";
+                $msgType = 'success';
+            }
+        }
+        $redirect = "org_structure.php?tab=org_chart&mode=edit";
+        if ($dept) $redirect .= "&dept=" . urlencode($dept);
+        header("Location: $redirect&msg=" . urlencode($msg) . "&msgType=$msgType");
+        exit;
+    }
+
+    // --- Bulk Update Reporting To ---
+    if (isset($_POST['bulk_update_reporting'])) {
+        $updates = $_POST['reporting'] ?? [];
+        $changed = 0;
+        $dept = $_GET['dept'] ?? '';
+
+        foreach ($updates as $empId => $newMgr) {
+            $empId = (int)$empId;
+            $newMgr = $newMgr !== '' ? (int)$newMgr : null;
+
+            // Get current value
+            $curStmt = $pdo->prepare("SELECT reporting_to FROM employees WHERE id = ?");
+            $curStmt->execute([$empId]);
+            $current = $curStmt->fetchColumn();
+            $current = $current ? (int)$current : null;
+
+            if ($current !== $newMgr && $newMgr !== $empId) {
+                $pdo->prepare("UPDATE employees SET reporting_to = ? WHERE id = ?")->execute([$newMgr, $empId]);
+                $changed++;
+            }
+        }
+        $msg = $changed > 0 ? "$changed reporting relationship" . ($changed > 1 ? 's' : '') . " updated." : "No changes made.";
+        $msgType = $changed > 0 ? 'success' : '';
+        $redirect = "org_structure.php?tab=org_chart";
+        if ($dept) $redirect .= "&dept=" . urlencode($dept);
+        header("Location: $redirect&msg=" . urlencode($msg) . "&msgType=$msgType");
+        exit;
+    }
 }
 
 // ==========================================
@@ -189,6 +259,7 @@ if ($tab === 'roles' && isset($_GET['edit'])) {
 
 // Dept filter for org chart
 $filterDept = $_GET['dept'] ?? '';
+$editMode = isset($_GET['mode']) && $_GET['mode'] === 'edit';
 
 // ==========================================
 // Build Org Tree
@@ -469,6 +540,11 @@ include "../includes/sidebar.php";
         body.dark .emp-mini-card .mini-name { color: #ecf0f1; }
         body.dark .tab { color: #bdc3c7; }
         body.dark .tab.active { color: #667eea; }
+
+        /* Edit hierarchy dark mode */
+        body.dark .hierarchy-row td { color: #ecf0f1; }
+        body.dark .hierarchy-row select { background: #34495e; color: #ecf0f1; border-color: #4a6278; }
+        body.dark table thead tr { background: #1e1b4b !important; }
     </style>
 </head>
 <body>
@@ -487,6 +563,37 @@ if (toggle) {
 
 function toggleAccordion(el) {
     el.closest('.dept-accordion').classList.toggle('open');
+}
+
+// Highlight changed rows in hierarchy edit mode
+let changedRows = 0;
+function highlightChanged(sel, originalVal) {
+    const row = sel.closest('tr');
+    const newVal = sel.value === '' ? 0 : parseInt(sel.value);
+    if (newVal !== originalVal) {
+        row.style.background = '#fef3c7';
+        sel.style.borderColor = '#f59e0b';
+        sel.style.fontWeight = '600';
+    } else {
+        row.style.background = '';
+        sel.style.borderColor = '#d1d5db';
+        sel.style.fontWeight = '';
+    }
+    // Count changes
+    const allSelects = document.querySelectorAll('select[name^="reporting["]');
+    changedRows = 0;
+    allSelects.forEach(s => {
+        if (s.style.fontWeight === '600') changedRows++;
+    });
+    const badge = document.getElementById('changedCount');
+    if (badge) {
+        if (changedRows > 0) {
+            badge.style.display = 'inline';
+            badge.textContent = changedRows + ' change' + (changedRows > 1 ? 's' : '');
+        } else {
+            badge.style.display = 'none';
+        }
+    }
 }
 </script>
 
@@ -525,69 +632,230 @@ function toggleAccordion(el) {
     <!-- ===================== TAB 1: ORG CHART ===================== -->
     <?php if ($tab === 'org_chart'): ?>
 
-        <div class="filter-bar">
-            <label>Filter by Department:</label>
-            <form method="get" style="display: flex; gap: 10px; align-items: center;">
-                <input type="hidden" name="tab" value="org_chart">
-                <select name="dept" onchange="this.form.submit()">
-                    <option value="">-- All Departments --</option>
-                    <?php foreach ($departments as $d): ?>
-                        <option value="<?= htmlspecialchars($d) ?>" <?= $filterDept === $d ? 'selected' : '' ?>><?= htmlspecialchars($d) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <?php if ($filterDept): ?>
-                    <a href="?tab=org_chart" class="btn btn-secondary btn-sm">Clear</a>
+        <div class="filter-bar" style="justify-content: space-between;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label>Filter by Department:</label>
+                <form method="get" style="display: flex; gap: 10px; align-items: center;">
+                    <input type="hidden" name="tab" value="org_chart">
+                    <?php if ($editMode): ?><input type="hidden" name="mode" value="edit"><?php endif; ?>
+                    <select name="dept" onchange="this.form.submit()">
+                        <option value="">-- All Departments --</option>
+                        <?php foreach ($departments as $d): ?>
+                            <option value="<?= htmlspecialchars($d) ?>" <?= $filterDept === $d ? 'selected' : '' ?>><?= htmlspecialchars($d) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if ($filterDept): ?>
+                        <a href="?tab=org_chart<?= $editMode ? '&mode=edit' : '' ?>" class="btn btn-secondary btn-sm">Clear</a>
+                    <?php endif; ?>
+                </form>
+            </div>
+            <div>
+                <?php if ($editMode): ?>
+                    <a href="?tab=org_chart<?= $filterDept ? '&dept=' . urlencode($filterDept) : '' ?>" class="btn btn-secondary" style="gap: 6px;">
+                        &#10005; Exit Edit Mode
+                    </a>
+                <?php else: ?>
+                    <a href="?tab=org_chart&mode=edit<?= $filterDept ? '&dept=' . urlencode($filterDept) : '' ?>" class="btn btn-primary" style="gap: 6px;">
+                        &#9998; Edit Hierarchy
+                    </a>
                 <?php endif; ?>
-            </form>
+            </div>
         </div>
 
-        <?php if (empty($orgTree)): ?>
-            <div class="empty-state">
-                <div class="icon">&#128101;</div>
-                <p>No hierarchy data found. Set the "Reporting To" field on employees to build the org chart.</p>
-            </div>
-        <?php else: ?>
-            <div class="tree-wrap">
-                <div class="org-tree">
-                    <?php
-                    function renderTree($nodes, $deptColorMap) {
-                        if (empty($nodes)) return;
-                        echo '<ul>';
-                        foreach ($nodes as $node) {
-                            $dept = $node['department'] ?: 'Unassigned';
-                            $color = $deptColorMap[$dept] ?? '#7f8c8d';
-                            $initials = strtoupper(substr($node['first_name'],0,1) . substr($node['last_name'],0,1));
-                            $childCount = count($node['children'] ?? []);
-
-                            echo '<li>';
-                            echo '<a href="/hr/employee_view.php?id=' . $node['id'] . '" class="org-node" style="border-top-color: ' . $color . ';">';
-
-                            if ($node['photo_path'] && file_exists(__DIR__ . '/../' . $node['photo_path'])) {
-                                echo '<img src="/' . htmlspecialchars($node['photo_path']) . '" class="node-photo" alt="">';
-                            } else {
-                                echo '<div class="node-initials" style="background: ' . $color . ';">' . $initials . '</div>';
-                            }
-
-                            echo '<div class="node-name">' . htmlspecialchars($node['first_name'] . ' ' . $node['last_name']) . '</div>';
-                            echo '<div class="node-desig">' . htmlspecialchars($node['designation'] ?: 'N/A') . '</div>';
-                            echo '<div class="node-dept" style="background: ' . $color . ';">' . htmlspecialchars($dept) . '</div>';
-
-                            if ($childCount > 0) {
-                                echo '<div class="node-count">' . $childCount . ' report' . ($childCount > 1 ? 's' : '') . '</div>';
-                            }
-
-                            echo '</a>';
-
-                            if (!empty($node['children'])) {
-                                renderTree($node['children'], $deptColorMap);
-                            }
-                            echo '</li>';
-                        }
-                        echo '</ul>';
-                    }
-                    renderTree($orgTree, $deptColorMap);
-                    ?>
+        <?php if (!$editMode): ?>
+            <?php if (empty($orgTree)): ?>
+                <div class="empty-state">
+                    <div class="icon">&#128101;</div>
+                    <p>No hierarchy data found. Click "Edit Hierarchy" to assign reporting relationships.</p>
                 </div>
+            <?php else: ?>
+                <div class="tree-wrap">
+                    <div class="org-tree">
+                        <?php
+                        function renderTree($nodes, $deptColorMap) {
+                            if (empty($nodes)) return;
+                            echo '<ul>';
+                            foreach ($nodes as $node) {
+                                $dept = $node['department'] ?: 'Unassigned';
+                                $color = $deptColorMap[$dept] ?? '#7f8c8d';
+                                $initials = strtoupper(substr($node['first_name'],0,1) . substr($node['last_name'],0,1));
+                                $childCount = count($node['children'] ?? []);
+
+                                echo '<li>';
+                                echo '<a href="/hr/employee_view.php?id=' . $node['id'] . '" class="org-node" style="border-top-color: ' . $color . ';">';
+
+                                if ($node['photo_path'] && file_exists(__DIR__ . '/../' . $node['photo_path'])) {
+                                    echo '<img src="/' . htmlspecialchars($node['photo_path']) . '" class="node-photo" alt="">';
+                                } else {
+                                    echo '<div class="node-initials" style="background: ' . $color . ';">' . $initials . '</div>';
+                                }
+
+                                echo '<div class="node-name">' . htmlspecialchars($node['first_name'] . ' ' . $node['last_name']) . '</div>';
+                                echo '<div class="node-desig">' . htmlspecialchars($node['designation'] ?: 'N/A') . '</div>';
+                                echo '<div class="node-dept" style="background: ' . $color . ';">' . htmlspecialchars($dept) . '</div>';
+
+                                if ($childCount > 0) {
+                                    echo '<div class="node-count">' . $childCount . ' report' . ($childCount > 1 ? 's' : '') . '</div>';
+                                }
+
+                                echo '</a>';
+
+                                if (!empty($node['children'])) {
+                                    renderTree($node['children'], $deptColorMap);
+                                }
+                                echo '</li>';
+                            }
+                            echo '</ul>';
+                        }
+                        renderTree($orgTree, $deptColorMap);
+                        ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+        <?php else: ?>
+            <!-- ======= EDIT HIERARCHY MODE ======= -->
+            <div class="form-section" style="border: 2px solid #667eea; background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="margin: 0; color: #4c1d95;">Manage Reporting Hierarchy</h3>
+                    <div style="font-size: 0.85em; color: #6b7280;">
+                        Set "Reports To" for each employee. Changes auto-reflect in the org chart.
+                    </div>
+                </div>
+
+                <?php
+                // Determine which employees to show
+                $editEmps = $filterDept
+                    ? array_filter($allEmps, fn($e) => $e['department'] === $filterDept)
+                    : $allEmps;
+
+                // Group by department for easier scanning
+                $editByDept = [];
+                foreach ($editEmps as $e) {
+                    $d = $e['department'] ?: 'Unassigned';
+                    $editByDept[$d][] = $e;
+                }
+                ksort($editByDept);
+                ?>
+
+                <form method="post" action="?tab=org_chart<?= $filterDept ? '&dept=' . urlencode($filterDept) : '' ?>">
+                    <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.92em;">
+                        <thead>
+                            <tr style="background: #4c1d95; color: white;">
+                                <th style="padding: 10px 12px; text-align: left; border-radius: 6px 0 0 0;">Employee</th>
+                                <th style="padding: 10px 12px; text-align: left;">Department</th>
+                                <th style="padding: 10px 12px; text-align: left;">Designation</th>
+                                <th style="padding: 10px 12px; text-align: left;">Current Reports To</th>
+                                <th style="padding: 10px 12px; text-align: left; border-radius: 0 6px 0 0;">New Reports To</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($editByDept as $deptName => $deptEmps):
+                                $dColor = $deptColorMap[$deptName] ?? '#7f8c8d';
+                            ?>
+                                <tr>
+                                    <td colspan="5" style="padding: 8px 12px; background: <?= $dColor ?>22; font-weight: 700; color: <?= $dColor ?>; border-bottom: 2px solid <?= $dColor ?>;">
+                                        <?= htmlspecialchars($deptName) ?> (<?= count($deptEmps) ?>)
+                                    </td>
+                                </tr>
+                                <?php foreach ($deptEmps as $e):
+                                    $currentMgr = null;
+                                    if ($e['reporting_to'] && isset($empById[$e['reporting_to']])) {
+                                        $m = $empById[$e['reporting_to']];
+                                        $currentMgr = $m['first_name'] . ' ' . $m['last_name'] . ' (' . $m['emp_id'] . ')';
+                                    }
+                                ?>
+                                <tr style="border-bottom: 1px solid #e5e7eb;" class="hierarchy-row">
+                                    <td style="padding: 8px 12px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <?php
+                                                $initials = strtoupper(substr($e['first_name'],0,1) . substr($e['last_name'],0,1));
+                                            ?>
+                                            <?php if ($e['photo_path'] && file_exists(__DIR__ . '/../' . $e['photo_path'])): ?>
+                                                <img src="/<?= htmlspecialchars($e['photo_path']) ?>" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                                            <?php else: ?>
+                                                <div style="width: 32px; height: 32px; border-radius: 50%; background: <?= $dColor ?>; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8em; flex-shrink: 0;"><?= $initials ?></div>
+                                            <?php endif; ?>
+                                            <div>
+                                                <strong><?= htmlspecialchars($e['first_name'] . ' ' . $e['last_name']) ?></strong>
+                                                <div style="font-size: 0.8em; color: #888;"><?= htmlspecialchars($e['emp_id']) ?></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="padding: 8px 12px; color: #555;"><?= htmlspecialchars($e['department'] ?: '-') ?></td>
+                                    <td style="padding: 8px 12px; color: #555;"><?= htmlspecialchars($e['designation'] ?: '-') ?></td>
+                                    <td style="padding: 8px 12px;">
+                                        <?php if ($currentMgr): ?>
+                                            <span style="color: #2563eb; font-weight: 500;"><?= htmlspecialchars($currentMgr) ?></span>
+                                        <?php else: ?>
+                                            <span style="color: #d1d5db;">-- No Manager (Top Level) --</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 8px 12px;">
+                                        <select name="reporting[<?= $e['id'] ?>]"
+                                                style="width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.92em; background: white;"
+                                                onchange="highlightChanged(this, <?= (int)($e['reporting_to'] ?: 0) ?>)">
+                                            <option value="">-- None (Top Level) --</option>
+                                            <?php foreach ($allEmps as $mgr):
+                                                if ($mgr['id'] == $e['id']) continue;
+                                            ?>
+                                                <option value="<?= $mgr['id'] ?>" <?= (int)$e['reporting_to'] === (int)$mgr['id'] ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($mgr['first_name'] . ' ' . $mgr['last_name']) ?> (<?= $mgr['emp_id'] ?>) - <?= htmlspecialchars($mgr['department'] ?: 'N/A') ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    </div>
+
+                    <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.85em; color: #6b7280;">
+                            <span id="changedCount" style="background: #667eea; color: white; padding: 2px 8px; border-radius: 10px; font-weight: 600; display: none;">0 changes</span>
+                            Only modified rows will be saved.
+                        </span>
+                        <div style="display: flex; gap: 10px;">
+                            <a href="?tab=org_chart<?= $filterDept ? '&dept=' . urlencode($filterDept) : '' ?>" class="btn btn-secondary">Cancel</a>
+                            <button type="submit" name="bulk_update_reporting" class="btn btn-success" style="padding: 10px 24px; font-size: 1em;">
+                                Save Hierarchy
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Quick assign individual (for single changes) -->
+            <div class="form-section" style="margin-top: 15px;">
+                <h3 style="margin-bottom: 12px;">Quick Assign (Single Employee)</h3>
+                <form method="post" action="?tab=org_chart&mode=edit<?= $filterDept ? '&dept=' . urlencode($filterDept) : '' ?>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Employee *</label>
+                            <select name="emp_id" required style="padding: 8px 12px;">
+                                <option value="">-- Select Employee --</option>
+                                <?php foreach ($allEmps as $e): ?>
+                                    <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['first_name'] . ' ' . $e['last_name']) ?> (<?= $e['emp_id'] ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Reports To</label>
+                            <select name="reporting_to" style="padding: 8px 12px;">
+                                <option value="">-- None (Top Level) --</option>
+                                <?php foreach ($allEmps as $e): ?>
+                                    <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['first_name'] . ' ' . $e['last_name']) ?> (<?= $e['emp_id'] ?>) - <?= htmlspecialchars($e['department'] ?: 'N/A') ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 0; align-self: flex-end;">
+                            <button type="submit" name="update_reporting" class="btn btn-primary">Assign</button>
+                        </div>
+                    </div>
+                </form>
             </div>
         <?php endif; ?>
 
