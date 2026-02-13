@@ -287,6 +287,7 @@ $currentDir = basename(dirname($_SERVER['PHP_SELF']));
             <a href="/hr/employees.php" class="<?= $currentDir === 'hr' && in_array($current, ['employees.php', 'employee_add.php', 'employee_view.php', 'employee_edit.php', 'employee_import.php']) ? 'active' : '' ?>">Employees</a>
             <a href="/hr/employee_documents.php" class="<?= $currentDir === 'hr' && $current === 'employee_documents.php' ? 'active' : '' ?>">Employee Documents</a>
             <a href="/hr/skills.php" class="<?= $currentDir === 'hr' && $current === 'skills.php' ? 'active' : '' ?>">Skills</a>
+            <a href="/hr/org_structure.php" class="<?= $currentDir === 'hr' && $current === 'org_structure.php' ? 'active' : '' ?>">Org Structure</a>
             <a href="/hr/attendance.php" class="<?= $currentDir === 'hr' && in_array($current, ['attendance.php', 'attendance_mark.php', 'holidays.php']) ? 'active' : '' ?>">Attendance</a>
             <a href="/hr/leaves.php" class="<?= $currentDir === 'hr' && in_array($current, ['leaves.php', 'leave_apply.php', 'leave_view.php', 'leave_balance.php', 'leave_types.php']) ? 'active' : '' ?>">Leave Management</a>
             <a href="/hr/payroll.php" class="<?= $currentDir === 'hr' && in_array($current, ['payroll.php', 'payroll_generate.php', 'payroll_view.php', 'payroll_edit.php']) ? 'active' : '' ?>">Payroll</a>
