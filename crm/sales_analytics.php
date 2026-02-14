@@ -4,6 +4,50 @@ include "../includes/auth.php";
 requireLogin();
 requirePermission('crm');
 
+// Ensure monthly_sales_revenue table exists
+try {
+    $pdo->query("SELECT 1 FROM monthly_sales_revenue LIMIT 1");
+} catch (Exception $e) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS monthly_sales_revenue (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        revenue_month DATE NOT NULL COMMENT 'First day of month e.g. 2026-02-01',
+        amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+        notes VARCHAR(255) DEFAULT NULL,
+        entered_by INT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY idx_month (revenue_month)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+// Handle revenue entry save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_revenue') {
+    $months = $_POST['rev_month'] ?? [];
+    $amounts = $_POST['rev_amount'] ?? [];
+    $notes = $_POST['rev_notes'] ?? [];
+
+    $upsert = $pdo->prepare("
+        INSERT INTO monthly_sales_revenue (revenue_month, amount, notes, entered_by)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE amount = VALUES(amount), notes = VALUES(notes), entered_by = VALUES(entered_by)
+    ");
+    $userId = $_SESSION['user_id'] ?? 1;
+    $saved = 0;
+    for ($k = 0; $k < count($months); $k++) {
+        $m = trim($months[$k] ?? '');
+        $a = (float)($amounts[$k] ?? 0);
+        $n = trim($notes[$k] ?? '');
+        if ($m && $a > 0) {
+            $upsert->execute([$m . '-01', $a, $n ?: null, $userId]);
+            $saved++;
+        }
+    }
+    header("Location: sales_analytics.php?saved=$saved");
+    exit;
+}
+
+$revSavedMsg = isset($_GET['saved']) ? (int)$_GET['saved'] : -1;
+
 // Date ranges
 $today = date('Y-m-d');
 $thisMonthStart = date('Y-m-01');
@@ -323,6 +367,48 @@ try {
     $highestPipeline = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) { $highestPipeline = []; }
 
+// === MANUAL REVENUE ENTRIES ===
+$manualRevenue = [];
+try {
+    $stmt = $pdo->prepare("
+        SELECT revenue_month, amount, notes,
+               CONCAT(e.first_name, ' ', e.last_name) as entered_by_name
+        FROM monthly_sales_revenue msr
+        LEFT JOIN employees e ON msr.entered_by = e.id
+        WHERE revenue_month >= ?
+        ORDER BY revenue_month DESC
+    ");
+    $stmt->execute([date('Y-m-01', strtotime('-11 months'))]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $key = date('Y-m', strtotime($r['revenue_month']));
+        $manualRevenue[$key] = $r;
+    }
+} catch (Exception $e) { $manualRevenue = []; }
+
+// Build 12-month list for the entry form
+$revenueEntryMonths = [];
+for ($i = 0; $i <= 11; $i++) {
+    $mKey = date('Y-m', strtotime("-$i months"));
+    $mLabel = date('F Y', strtotime("-$i months"));
+    $existing = $manualRevenue[$mKey] ?? null;
+    $revenueEntryMonths[] = [
+        'key' => $mKey,
+        'label' => $mLabel,
+        'amount' => $existing ? (float)$existing['amount'] : '',
+        'notes' => $existing['notes'] ?? '',
+        'entered_by' => $existing['entered_by_name'] ?? '',
+    ];
+}
+
+// Calculate manual revenue total YTD
+$manualRevenueYTD = 0;
+foreach ($manualRevenue as $mKey => $mr) {
+    if (strtotime($mr['revenue_month']) >= strtotime($thisYearStart)) {
+        $manualRevenueYTD += (float)$mr['amount'];
+    }
+}
+
 // Helper: format currency
 function formatINR($val) {
     if ($val >= 10000000) return number_format($val / 10000000, 2) . ' Cr';
@@ -452,10 +538,32 @@ include "../includes/sidebar.php";
         /* Scrollable table wrapper */
         .table-scroll { overflow-x: auto; }
 
-        /* Responsive */
+        /* Revenue Entry */
+        .rev-entry-row {
+            display: grid; grid-template-columns: 160px 1fr 1fr 60px; gap: 10px;
+            align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border, #f0f0f0);
+        }
+        .rev-entry-row.header { font-weight: 600; color: var(--muted-text, #7f8c8d); font-size: 0.8em; text-transform: uppercase; border-bottom: 2px solid var(--border, #eee); padding-bottom: 10px; }
+        .rev-entry-row .month-label { font-weight: 500; color: var(--text, #2c3e50); font-size: 0.9em; }
+        .rev-entry-row input[type="number"], .rev-entry-row input[type="text"] {
+            width: 100%; padding: 8px 10px; border: 1px solid var(--border, #ddd); border-radius: 6px;
+            font-size: 0.9em; background: var(--bg, #fff); color: var(--text, #2c3e50);
+            box-sizing: border-box;
+        }
+        .rev-entry-row input:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 2px rgba(52,152,219,0.15); }
+        .rev-entry-row .existing { font-size: 0.75em; color: var(--muted-text, #999); }
+        .rev-save-btn {
+            display: inline-flex; align-items: center; gap: 8px; padding: 10px 28px;
+            background: #27ae60; color: white; border: none; border-radius: 8px;
+            font-weight: 600; font-size: 0.95em; cursor: pointer; transition: background 0.2s;
+        }
+        .rev-save-btn:hover { background: #219a52; }
+        .saved-msg { display: inline-block; padding: 8px 16px; background: #e8f5e9; color: #388e3c; border-radius: 6px; font-size: 0.9em; font-weight: 500; margin-left: 10px; }
+
         @media (max-width: 768px) {
             .kpi-row { grid-template-columns: 1fr 1fr; }
             .proj-row { grid-template-columns: 1fr; }
+            .rev-entry-row { grid-template-columns: 120px 1fr; }
         }
     </style>
 </head>
@@ -621,6 +729,57 @@ include "../includes/sidebar.php";
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <!-- Manual Revenue Entry -->
+    <div class="section-card">
+        <div class="section-title"><span class="icon">💰</span> Monthly Sales Revenue (Manual Entry)</div>
+        <?php if ($revSavedMsg >= 0): ?>
+            <div class="saved-msg" style="margin-bottom: 15px;"><?= $revSavedMsg ?> month(s) saved successfully</div>
+        <?php endif; ?>
+        <p style="color: var(--muted-text, #7f8c8d); font-size: 0.85em; margin: 0 0 15px 0;">
+            Enter actual sales revenue for each month. This is independent of invoice-based revenue calculations above.
+        </p>
+        <form method="post">
+            <input type="hidden" name="action" value="save_revenue">
+            <div class="rev-entry-row header">
+                <div>Month</div>
+                <div>Revenue Amount (₹)</div>
+                <div>Notes</div>
+                <div></div>
+            </div>
+            <?php foreach ($revenueEntryMonths as $rem): ?>
+            <div class="rev-entry-row">
+                <div class="month-label">
+                    <?= $rem['label'] ?>
+                    <input type="hidden" name="rev_month[]" value="<?= $rem['key'] ?>">
+                </div>
+                <div>
+                    <input type="number" name="rev_amount[]" step="0.01" min="0"
+                           value="<?= $rem['amount'] !== '' ? $rem['amount'] : '' ?>"
+                           placeholder="0.00">
+                </div>
+                <div>
+                    <input type="text" name="rev_notes[]"
+                           value="<?= htmlspecialchars($rem['notes']) ?>"
+                           placeholder="Optional notes">
+                </div>
+                <div>
+                    <?php if ($rem['entered_by']): ?>
+                        <span class="existing" title="Entered by <?= htmlspecialchars($rem['entered_by']) ?>">✓</span>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endforeach; ?>
+            <div style="margin-top: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <button type="submit" class="rev-save-btn">Save Revenue Data</button>
+                <?php if ($manualRevenueYTD > 0): ?>
+                    <div style="color: var(--text, #2c3e50); font-size: 0.9em;">
+                        Manual YTD Total: <strong style="color: #27ae60;">₹<?= number_format($manualRevenueYTD, 0) ?></strong>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </form>
     </div>
 
     <!-- Salesperson Performance -->
