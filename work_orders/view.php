@@ -8,11 +8,11 @@ if (!$id) {
     die("Invalid Work Order ID");
 }
 
-// Auto-add release_image column if missing
+// Auto-add closing_image column if missing
 try {
-    $colCheck = $pdo->query("SHOW COLUMNS FROM work_orders LIKE 'release_image'");
+    $colCheck = $pdo->query("SHOW COLUMNS FROM work_orders LIKE 'closing_image'");
     if ($colCheck->rowCount() === 0) {
-        $pdo->exec("ALTER TABLE work_orders ADD COLUMN release_image VARCHAR(255) DEFAULT NULL AFTER status");
+        $pdo->exec("ALTER TABLE work_orders ADD COLUMN closing_image VARCHAR(255) DEFAULT NULL AFTER status");
     }
 } catch (Exception $e) { /* ignore */ }
 
@@ -37,32 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'release') {
-        // Validate mandatory release image
-        if (empty($_FILES['release_image']) || $_FILES['release_image']['error'] !== UPLOAD_ERR_OK) {
-            $error = "A picture of the task is mandatory to release the Work Order. Please upload an image.";
-        } else {
-            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            $fileType = mime_content_type($_FILES['release_image']['tmp_name']);
-            if (!in_array($fileType, $allowedTypes)) {
-                $error = "Invalid file type. Please upload a JPG, PNG, GIF, or WEBP image.";
-            } elseif ($_FILES['release_image']['size'] > 10 * 1024 * 1024) {
-                $error = "Image size must be less than 10MB.";
-            }
-        }
-
-        if (empty($error)) {
         try {
-            // Save uploaded image
-            $ext = pathinfo($_FILES['release_image']['name'], PATHINFO_EXTENSION);
-            $fileName = 'wo_' . $id . '_' . time() . '.' . $ext;
-            $uploadDir = __DIR__ . '/../uploads/work_orders/';
-            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
-            move_uploaded_file($_FILES['release_image']['tmp_name'], $uploadDir . $fileName);
-
             // Release approves the WO for production — no inventory is deducted here.
             // Stock is only checked and deducted at close time.
-            $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released', release_image = ? WHERE id = ?");
-            $updateStmt->execute([$fileName, $id]);
+            $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
+            $updateStmt->execute([$id]);
             syncWoStatusToPlan($pdo, (int)$id, 'released');
 
             // Auto-create task for assigned engineer
@@ -98,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } catch (PDOException $e) {
             $error = "Failed to release: " . $e->getMessage();
         }
-        } // end if empty($error)
     }
 
     if ($action === 'start') {
@@ -148,7 +126,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'close') {
+        // Validate mandatory closing image
+        if (empty($_FILES['closing_image']) || $_FILES['closing_image']['error'] !== UPLOAD_ERR_OK) {
+            $error = "A picture of the completed task is mandatory to close the Work Order. Please upload an image.";
+        } else {
+            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            $fileType = mime_content_type($_FILES['closing_image']['tmp_name']);
+            if (!in_array($fileType, $allowedTypes)) {
+                $error = "Invalid file type. Please upload a JPG, PNG, GIF, or WEBP image.";
+            } elseif ($_FILES['closing_image']['size'] > 10 * 1024 * 1024) {
+                $error = "Image size must be less than 10MB.";
+            }
+        }
+
         // Must be in qc_approval status
+        if (empty($error)) {
         $statusCheck = $pdo->prepare("SELECT status FROM work_orders WHERE id = ?");
         $statusCheck->execute([$id]);
         $currentStatus = $statusCheck->fetchColumn();
@@ -269,8 +261,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'WO: ' . $woData['wo_no']
                     ]);
 
-                    $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'closed' WHERE id = ?");
-                    $updateStmt->execute([$id]);
+                    // Save closing image
+                    $ext = pathinfo($_FILES['closing_image']['name'], PATHINFO_EXTENSION);
+                    $closingFileName = 'wo_close_' . $id . '_' . time() . '.' . $ext;
+                    $uploadDir = __DIR__ . '/../uploads/work_orders/';
+                    if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
+                    move_uploaded_file($_FILES['closing_image']['tmp_name'], $uploadDir . $closingFileName);
+
+                    $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'closed', closing_image = ? WHERE id = ?");
+                    $updateStmt->execute([$closingFileName, $id]);
 
                     $pdo->commit();
 
@@ -294,6 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
         }
+        } // end if empty($error) - closing image validated
     }
 
     if ($action === 'create_task') {
@@ -416,7 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 /* --- Fetch Work Order Header --- */
 $woStmt = $pdo->prepare("
-    SELECT w.wo_no, w.part_no, w.qty, w.status, w.release_image, w.assigned_to, w.bom_id, w.plan_id, w.created_at,
+    SELECT w.wo_no, w.part_no, w.qty, w.status, w.closing_image, w.assigned_to, w.bom_id, w.plan_id, w.created_at,
            COALESCE(p.part_name, w.part_no) as part_name,
            b.id AS bom_master_id, b.bom_no, b.description,
            e.emp_id, e.first_name, e.last_name, e.department, e.designation
@@ -689,9 +689,13 @@ if (toggle) {
         <?php endif; ?>
 
         <?php if (in_array($wo['status'], ['open', 'created'])): ?>
-            <button type="button" class="btn" style="background: #10b981; color: white;" onclick="openReleaseModal()">
-                Release WO
-            </button>
+            <form method="post" style="display: inline;">
+                <input type="hidden" name="action" value="release">
+                <button type="submit" class="btn" style="background: #10b981; color: white;"
+                        onclick="return confirm('Release this Work Order?');">
+                    Release WO
+                </button>
+            </form>
             <form method="post" style="display: inline;">
                 <input type="hidden" name="action" value="cancel">
                 <button type="submit" class="btn" style="background: #ef4444; color: white;"
@@ -747,13 +751,9 @@ if (toggle) {
         <?php elseif (in_array($wo['status'], ['completed', 'qc_approval'])): ?>
             <!-- Completed/QC Approval: Show close button if approved -->
             <?php if ($canClose): ?>
-                <form method="post" style="display: inline;">
-                    <input type="hidden" name="action" value="close">
-                    <button type="submit" class="btn" style="background: #6b7280; color: white;"
-                            onclick="return confirm('Close this Work Order? This will update inventory.');">
-                        Close WO
-                    </button>
-                </form>
+                <button type="button" class="btn" style="background: #6b7280; color: white;" onclick="openCloseModal()">
+                    Close WO
+                </button>
             <?php else: ?>
                 <span style="color: #0891b2; font-weight: 500;">Complete Quality Check & Approval below to proceed</span>
             <?php endif; ?>
@@ -839,11 +839,11 @@ if (toggle) {
     </div>
     <?php endif; ?>
 
-    <?php if (!empty($wo['release_image'])): ?>
+    <?php if (!empty($wo['closing_image'])): ?>
     <div style="padding: 15px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 25px;">
-        <label style="color: #6b7280; font-size: 0.85em; display: block; margin-bottom: 8px;">Release Task Picture</label>
-        <a href="../uploads/work_orders/<?= htmlspecialchars($wo['release_image']) ?>" target="_blank">
-            <img src="../uploads/work_orders/<?= htmlspecialchars($wo['release_image']) ?>" alt="Release Task Picture"
+        <label style="color: #6b7280; font-size: 0.85em; display: block; margin-bottom: 8px;">Closing Task Picture</label>
+        <a href="../uploads/work_orders/<?= htmlspecialchars($wo['closing_image']) ?>" target="_blank">
+            <img src="../uploads/work_orders/<?= htmlspecialchars($wo['closing_image']) ?>" alt="Closing Task Picture"
                  style="max-width: 400px; max-height: 300px; border-radius: 8px; border: 1px solid #e5e7eb; cursor: pointer;">
         </a>
     </div>
@@ -928,13 +928,9 @@ if (toggle) {
             </div>
             <div>
                 <?php if ($canClose): ?>
-                    <form method="post" style="display: inline;">
-                        <input type="hidden" name="action" value="close">
-                        <button type="submit" class="btn btn-primary"
-                                onclick="return confirm('Close this Work Order? This will update inventory.');">
-                            Close WO
-                        </button>
-                    </form>
+                    <button type="button" class="btn btn-primary" onclick="openCloseModal()">
+                        Close WO
+                    </button>
                 <?php else: ?>
                     <span style="color: #9ca3af; font-size: 0.85em;">Complete Steps 1 & 2 first</span>
                 <?php endif; ?>
@@ -1103,39 +1099,39 @@ document.getElementById('editModal').addEventListener('click', function(e) {
 });
 </script>
 
-<!-- Release WO Modal (with mandatory image) -->
-<div id="releaseModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+<!-- Close WO Modal (with mandatory image) -->
+<div id="closeModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
     <div style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h3 style="margin: 0;">Release Work Order</h3>
-            <button onclick="closeReleaseModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+            <h3 style="margin: 0;">Close Work Order</h3>
+            <button onclick="closeCloseModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
         </div>
 
-        <form method="post" enctype="multipart/form-data" id="releaseForm">
-            <input type="hidden" name="action" value="release">
+        <form method="post" enctype="multipart/form-data" id="closeForm">
+            <input type="hidden" name="action" value="close">
 
             <div style="margin-bottom: 20px;">
                 <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
-                    Upload Picture of Task <span style="color: #ef4444;">*</span>
+                    Upload Picture of Completed Task <span style="color: #ef4444;">*</span>
                 </label>
                 <p style="font-size: 0.85em; color: #6b7280; margin: 0 0 10px 0;">
-                    A photo of the task/material is mandatory before releasing the Work Order.
+                    A photo of the completed task/finished product is mandatory before closing the Work Order.
                 </p>
-                <input type="file" name="release_image" id="releaseImageInput" accept="image/*" capture="environment" required
+                <input type="file" name="closing_image" id="closingImageInput" accept="image/*" capture="environment" required
                        style="width: 100%; padding: 10px; border: 2px dashed #d1d5db; border-radius: 6px; font-size: 14px; cursor: pointer;"
-                       onchange="previewReleaseImage(this)">
+                       onchange="previewClosingImage(this)">
             </div>
 
             <!-- Image Preview -->
-            <div id="releaseImagePreview" style="display: none; margin-bottom: 20px; text-align: center;">
-                <img id="releasePreviewImg" src="" alt="Preview" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e5e7eb;">
+            <div id="closingImagePreview" style="display: none; margin-bottom: 20px; text-align: center;">
+                <img id="closingPreviewImg" src="" alt="Preview" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e5e7eb;">
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
-                <button type="button" onclick="closeReleaseModal()" class="btn btn-secondary">Cancel</button>
-                <button type="submit" class="btn" style="background: #10b981; color: white;" id="releaseSubmitBtn"
-                        onclick="return validateReleaseForm();">
-                    Release WO
+                <button type="button" onclick="closeCloseModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn" style="background: #6b7280; color: white;" id="closeSubmitBtn"
+                        onclick="return validateCloseForm();">
+                    Close WO
                 </button>
             </div>
         </form>
@@ -1143,42 +1139,42 @@ document.getElementById('editModal').addEventListener('click', function(e) {
 </div>
 
 <script>
-function openReleaseModal() {
-    document.getElementById('releaseModal').style.display = 'flex';
+function openCloseModal() {
+    document.getElementById('closeModal').style.display = 'flex';
 }
 
-function closeReleaseModal() {
-    document.getElementById('releaseModal').style.display = 'none';
-    document.getElementById('releaseImageInput').value = '';
-    document.getElementById('releaseImagePreview').style.display = 'none';
+function closeCloseModal() {
+    document.getElementById('closeModal').style.display = 'none';
+    document.getElementById('closingImageInput').value = '';
+    document.getElementById('closingImagePreview').style.display = 'none';
 }
 
-document.getElementById('releaseModal').addEventListener('click', function(e) {
+document.getElementById('closeModal').addEventListener('click', function(e) {
     if (e.target === this) {
-        closeReleaseModal();
+        closeCloseModal();
     }
 });
 
-function previewReleaseImage(input) {
+function previewClosingImage(input) {
     if (input.files && input.files[0]) {
         var reader = new FileReader();
         reader.onload = function(e) {
-            document.getElementById('releasePreviewImg').src = e.target.result;
-            document.getElementById('releaseImagePreview').style.display = 'block';
+            document.getElementById('closingPreviewImg').src = e.target.result;
+            document.getElementById('closingImagePreview').style.display = 'block';
         };
         reader.readAsDataURL(input.files[0]);
     } else {
-        document.getElementById('releaseImagePreview').style.display = 'none';
+        document.getElementById('closingImagePreview').style.display = 'none';
     }
 }
 
-function validateReleaseForm() {
-    var fileInput = document.getElementById('releaseImageInput');
+function validateCloseForm() {
+    var fileInput = document.getElementById('closingImageInput');
     if (!fileInput.files || fileInput.files.length === 0) {
-        alert('Please upload a picture of the task before releasing the Work Order.');
+        alert('Please upload a picture of the completed task before closing the Work Order.');
         return false;
     }
-    return confirm('Release this Work Order?');
+    return confirm('Close this Work Order? This will update inventory.');
 }
 </script>
 
