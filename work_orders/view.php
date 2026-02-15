@@ -8,6 +8,14 @@ if (!$id) {
     die("Invalid Work Order ID");
 }
 
+// Auto-add release_image column if missing
+try {
+    $colCheck = $pdo->query("SHOW COLUMNS FROM work_orders LIKE 'release_image'");
+    if ($colCheck->rowCount() === 0) {
+        $pdo->exec("ALTER TABLE work_orders ADD COLUMN release_image VARCHAR(255) DEFAULT NULL AFTER status");
+    }
+} catch (Exception $e) { /* ignore */ }
+
 $success = '';
 $error = '';
 
