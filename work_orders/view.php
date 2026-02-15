@@ -29,11 +29,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($action === 'release') {
+        // Validate mandatory release image
+        if (empty($_FILES['release_image']) || $_FILES['release_image']['error'] !== UPLOAD_ERR_OK) {
+            $error = "A picture of the task is mandatory to release the Work Order. Please upload an image.";
+        } else {
+            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            $fileType = mime_content_type($_FILES['release_image']['tmp_name']);
+            if (!in_array($fileType, $allowedTypes)) {
+                $error = "Invalid file type. Please upload a JPG, PNG, GIF, or WEBP image.";
+            } elseif ($_FILES['release_image']['size'] > 10 * 1024 * 1024) {
+                $error = "Image size must be less than 10MB.";
+            }
+        }
+
+        if (empty($error)) {
         try {
+            // Save uploaded image
+            $ext = pathinfo($_FILES['release_image']['name'], PATHINFO_EXTENSION);
+            $fileName = 'wo_' . $id . '_' . time() . '.' . $ext;
+            $uploadDir = __DIR__ . '/../uploads/work_orders/';
+            if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
+            move_uploaded_file($_FILES['release_image']['tmp_name'], $uploadDir . $fileName);
+
             // Release approves the WO for production — no inventory is deducted here.
             // Stock is only checked and deducted at close time.
-            $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released' WHERE id = ?");
-            $updateStmt->execute([$id]);
+            $updateStmt = $pdo->prepare("UPDATE work_orders SET status = 'released', release_image = ? WHERE id = ?");
+            $updateStmt->execute([$fileName, $id]);
             syncWoStatusToPlan($pdo, (int)$id, 'released');
 
             // Auto-create task for assigned engineer
@@ -69,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } catch (PDOException $e) {
             $error = "Failed to release: " . $e->getMessage();
         }
+        } // end if empty($error)
     }
 
     if ($action === 'start') {
@@ -386,7 +408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 /* --- Fetch Work Order Header --- */
 $woStmt = $pdo->prepare("
-    SELECT w.wo_no, w.part_no, w.qty, w.status, w.assigned_to, w.bom_id, w.plan_id, w.created_at,
+    SELECT w.wo_no, w.part_no, w.qty, w.status, w.release_image, w.assigned_to, w.bom_id, w.plan_id, w.created_at,
            COALESCE(p.part_name, w.part_no) as part_name,
            b.id AS bom_master_id, b.bom_no, b.description,
            e.emp_id, e.first_name, e.last_name, e.department, e.designation
@@ -659,13 +681,9 @@ if (toggle) {
         <?php endif; ?>
 
         <?php if (in_array($wo['status'], ['open', 'created'])): ?>
-            <form method="post" style="display: inline;">
-                <input type="hidden" name="action" value="release">
-                <button type="submit" class="btn" style="background: #10b981; color: white;"
-                        onclick="return confirm('Release this Work Order?');">
-                    Release WO
-                </button>
-            </form>
+            <button type="button" class="btn" style="background: #10b981; color: white;" onclick="openReleaseModal()">
+                Release WO
+            </button>
             <form method="post" style="display: inline;">
                 <input type="hidden" name="action" value="cancel">
                 <button type="submit" class="btn" style="background: #ef4444; color: white;"
@@ -810,6 +828,16 @@ if (toggle) {
     <div style="padding: 15px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 25px;">
         <label style="color: #6b7280; font-size: 0.85em; display: block; margin-bottom: 5px;">Description</label>
         <p style="margin: 0; white-space: pre-wrap;"><?= htmlspecialchars($wo['description']) ?></p>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($wo['release_image'])): ?>
+    <div style="padding: 15px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 25px;">
+        <label style="color: #6b7280; font-size: 0.85em; display: block; margin-bottom: 8px;">Release Task Picture</label>
+        <a href="../uploads/work_orders/<?= htmlspecialchars($wo['release_image']) ?>" target="_blank">
+            <img src="../uploads/work_orders/<?= htmlspecialchars($wo['release_image']) ?>" alt="Release Task Picture"
+                 style="max-width: 400px; max-height: 300px; border-radius: 8px; border: 1px solid #e5e7eb; cursor: pointer;">
+        </a>
     </div>
     <?php endif; ?>
 
@@ -1065,6 +1093,85 @@ document.getElementById('editModal').addEventListener('click', function(e) {
         closeEditModal();
     }
 });
+</script>
+
+<!-- Release WO Modal (with mandatory image) -->
+<div id="releaseModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="margin: 0;">Release Work Order</h3>
+            <button onclick="closeReleaseModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">&times;</button>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" id="releaseForm">
+            <input type="hidden" name="action" value="release">
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+                    Upload Picture of Task <span style="color: #ef4444;">*</span>
+                </label>
+                <p style="font-size: 0.85em; color: #6b7280; margin: 0 0 10px 0;">
+                    A photo of the task/material is mandatory before releasing the Work Order.
+                </p>
+                <input type="file" name="release_image" id="releaseImageInput" accept="image/*" capture="environment" required
+                       style="width: 100%; padding: 10px; border: 2px dashed #d1d5db; border-radius: 6px; font-size: 14px; cursor: pointer;"
+                       onchange="previewReleaseImage(this)">
+            </div>
+
+            <!-- Image Preview -->
+            <div id="releaseImagePreview" style="display: none; margin-bottom: 20px; text-align: center;">
+                <img id="releasePreviewImg" src="" alt="Preview" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e5e7eb;">
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+                <button type="button" onclick="closeReleaseModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn" style="background: #10b981; color: white;" id="releaseSubmitBtn"
+                        onclick="return validateReleaseForm();">
+                    Release WO
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openReleaseModal() {
+    document.getElementById('releaseModal').style.display = 'flex';
+}
+
+function closeReleaseModal() {
+    document.getElementById('releaseModal').style.display = 'none';
+    document.getElementById('releaseImageInput').value = '';
+    document.getElementById('releaseImagePreview').style.display = 'none';
+}
+
+document.getElementById('releaseModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeReleaseModal();
+    }
+});
+
+function previewReleaseImage(input) {
+    if (input.files && input.files[0]) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('releasePreviewImg').src = e.target.result;
+            document.getElementById('releaseImagePreview').style.display = 'block';
+        };
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        document.getElementById('releaseImagePreview').style.display = 'none';
+    }
+}
+
+function validateReleaseForm() {
+    var fileInput = document.getElementById('releaseImageInput');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Please upload a picture of the task before releasing the Work Order.');
+        return false;
+    }
+    return confirm('Release this Work Order?');
+}
 </script>
 
 <script>
