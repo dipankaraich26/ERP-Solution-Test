@@ -322,6 +322,11 @@ $showApprovals = $_isAdmin || _canView('approvals');
         Executive Dashboard
     </a>
 
+    <!-- AI Analytics & Decision Support -->
+    <a href="/analytics/index.php" class="<?= $currentDir === 'analytics' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; font-weight: bold; display: block; padding: 10px 12px; margin: 5px 8px; border-radius: 8px; text-align: center; text-decoration: none;">
+        AI Analytics
+    </a>
+
     <!-- My Approvals -->
     <?php if ($showApprovals): ?>
     <a href="/approvals/index.php" class="<?= $currentDir === 'approvals' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; font-weight: bold; display: block; padding: 10px 12px; margin: 5px 8px; border-radius: 8px; text-align: center; text-decoration: none;">
