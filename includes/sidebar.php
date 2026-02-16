@@ -34,6 +34,7 @@ $showAccounts = $_isAdmin || _canView('accounts');
 $showAdmin = $_isAdmin || _canView('admin_settings') || _canView('admin_users') || _canView('admin_locations');
 $showPortal = $_isAdmin || _canView('customer_portal');
 $showApprovals = $_isAdmin || _canView('approvals');
+$showStrategy = $_isAdmin || _canView('strategy');
 ?>
 
 <!-- PWA Meta Tags -->
@@ -326,6 +327,24 @@ $showApprovals = $_isAdmin || _canView('approvals');
     <a href="/analytics/index.php" class="<?= $currentDir === 'analytics' ? 'active' : '' ?>" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; font-weight: bold; display: block; padding: 10px 12px; margin: 5px 8px; border-radius: 8px; text-align: center; text-decoration: none;">
         AI Analytics
     </a>
+
+    <!-- Sales Strategy Hub -->
+    <?php if ($showStrategy): ?>
+    <div class="sidebar-group <?= $currentDir === 'strategy' ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= $currentDir === 'strategy' ? 'active' : '' ?>">
+            <a href="/strategy/index.php" class="module-link">Sales Strategy</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">&#9654;</span>
+        </div>
+        <div class="sidebar-group-items">
+            <a href="/strategy/index.php" class="<?= $currentDir === 'strategy' && $current === 'index.php' ? 'active' : '' ?>">Strategy Dashboard</a>
+            <a href="/strategy/dormant_customers.php" class="<?= $currentDir === 'strategy' && $current === 'dormant_customers.php' ? 'active' : '' ?>">Dormant Customers</a>
+            <a href="/strategy/lead_tracker.php" class="<?= $currentDir === 'strategy' && $current === 'lead_tracker.php' ? 'active' : '' ?>">Hot Lead Tracker</a>
+            <a href="/strategy/product_analysis.php" class="<?= $currentDir === 'strategy' && $current === 'product_analysis.php' ? 'active' : '' ?>">Product Analysis</a>
+            <a href="/strategy/data_quality.php" class="<?= $currentDir === 'strategy' && $current === 'data_quality.php' ? 'active' : '' ?>">Data Quality</a>
+            <a href="/strategy/geographic.php" class="<?= $currentDir === 'strategy' && $current === 'geographic.php' ? 'active' : '' ?>">Geographic Analysis</a>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- My Approvals -->
     <?php if ($showApprovals): ?>
