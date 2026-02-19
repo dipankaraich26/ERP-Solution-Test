@@ -733,6 +733,14 @@ document.addEventListener('DOMContentLoaded', function() {
             group.classList.remove('open');
         }
     });
+
+    // Scroll sidebar to the active menu item
+    const activeItem = document.querySelector('.sidebar-group-items a.active');
+    if (activeItem) {
+        setTimeout(function() {
+            activeItem.scrollIntoView({ block: 'center', behavior: 'auto' });
+        }, 50);
+    }
 });
 
 // ===== THEME TOGGLE (Light / Mid / Dark) =====
