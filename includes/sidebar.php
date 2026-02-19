@@ -363,6 +363,7 @@ $showStrategy = $_isAdmin || _canView('strategy');
         <div class="sidebar-group-items">
             <?php if (_canView('crm')): ?>
             <a href="/crm/index.php" class="<?= $currentDir === 'crm' && $current === 'index.php' ? 'active' : '' ?>">CRM</a>
+            <a href="/crm/interaction_report.php" class="<?= $currentDir === 'crm' && $current === 'interaction_report.php' ? 'active' : '' ?>">Interaction Report</a>
             <a href="/crm/product_leads.php" class="<?= $currentDir === 'crm' && $current === 'product_leads.php' ? 'active' : '' ?>">Product Leads</a>
             <a href="/crm/sales_analytics.php" class="<?= $currentDir === 'crm' && $current === 'sales_analytics.php' ? 'active' : '' ?>">Sales Analytics</a>
             <?php endif; ?>

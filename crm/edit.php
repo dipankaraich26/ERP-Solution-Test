@@ -372,6 +372,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Follow-up & notes
     $next_followup_date = $_POST['next_followup_date'] ?? '';
+
+    // Server-side enforcement: non-admin cannot change next_followup_date if it was set via interaction
+    if (!$isAdmin && !empty($lead['next_followup_date'])) {
+        try {
+            $fupLockCheck = $pdo->prepare("
+                SELECT id FROM crm_lead_interactions
+                WHERE lead_id = ? AND next_action_date = ?
+                LIMIT 1
+            ");
+            $fupLockCheck->execute([$id, $lead['next_followup_date']]);
+            if ($fupLockCheck->fetch()) {
+                // Force keep the original date - non-admin cannot change it
+                $next_followup_date = $lead['next_followup_date'];
+            }
+        } catch (PDOException $e) {}
+    }
+
     $assigned_user_id = !empty($_POST['assigned_user_id']) ? (int)$_POST['assigned_user_id'] : null;
     $assigned_to = null;
 
@@ -870,11 +887,37 @@ showModal();
             <!-- Follow-up & Assignment -->
             <div class="form-section">
                 <h3>Follow-up & Assignment</h3>
+                <?php
+                // Check if next_followup_date was set via an interaction (non-admin cannot change)
+                $followupLocked = false;
+                if (!$isAdmin && !empty($lead['next_followup_date'])) {
+                    // Check if there's an interaction that set this date
+                    try {
+                        $followupCheckStmt = $pdo->prepare("
+                            SELECT id FROM crm_lead_interactions
+                            WHERE lead_id = ? AND next_action_date = ?
+                            LIMIT 1
+                        ");
+                        $followupCheckStmt->execute([$id, $lead['next_followup_date']]);
+                        if ($followupCheckStmt->fetch()) {
+                            $followupLocked = true;
+                        }
+                    } catch (PDOException $e) {}
+                }
+                ?>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label>Next Follow-up Date</label>
+                        <label>Next Follow-up Date
+                            <?php if ($followupLocked): ?>
+                                <span style="color: #e74c3c; font-size: 0.8em; font-weight: normal;">(Locked - Only admin can change)</span>
+                            <?php endif; ?>
+                        </label>
                         <input type="date" name="next_followup_date"
-                               value="<?= htmlspecialchars($lead['next_followup_date'] ?? '') ?>">
+                               value="<?= htmlspecialchars($lead['next_followup_date'] ?? '') ?>"
+                               <?= $followupLocked ? 'readonly style="background-color: #f5f5f5; color: #666; cursor: not-allowed;"' : '' ?>>
+                        <?php if ($followupLocked): ?>
+                            <small style="color: #e74c3c;">This date was set via an interaction log. Contact admin to change it.</small>
+                        <?php endif; ?>
                     </div>
                     <div class="form-group">
                         <label>Assigned To *</label>
