@@ -125,6 +125,30 @@ $statsStmt->execute($params);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 
 /* =========================
+   LEAD STATUS-WISE SUMMARY
+========================= */
+$leadStatusSummarySql = "
+    SELECT l.lead_status,
+           COUNT(DISTINCT l.id) as total_leads,
+           COUNT(i.id) as total_interactions,
+           SUM(CASE WHEN i.interaction_type = 'call' THEN 1 ELSE 0 END) as calls,
+           SUM(CASE WHEN i.interaction_type = 'email' THEN 1 ELSE 0 END) as emails,
+           SUM(CASE WHEN i.interaction_type = 'meeting' THEN 1 ELSE 0 END) as meetings,
+           SUM(CASE WHEN i.interaction_type = 'site_visit' THEN 1 ELSE 0 END) as site_visits,
+           SUM(CASE WHEN i.interaction_type = 'demo' THEN 1 ELSE 0 END) as demos,
+           SUM(CASE WHEN i.interaction_type = 'quotation_sent' THEN 1 ELSE 0 END) as quotations,
+           ROUND(COUNT(i.id) / NULLIF(COUNT(DISTINCT l.id), 0), 1) as avg_per_lead
+    FROM crm_lead_interactions i
+    JOIN crm_leads l ON l.id = i.lead_id
+    $whereClause
+    GROUP BY l.lead_status
+    ORDER BY FIELD(l.lead_status, 'hot', 'warm', 'cold', 'converted', 'lost')
+";
+$leadStatusSummaryStmt = $pdo->prepare($leadStatusSummarySql);
+$leadStatusSummaryStmt->execute($params);
+$leadStatusSummary = $leadStatusSummaryStmt->fetchAll(PDO::FETCH_ASSOC);
+
+/* =========================
    EMPLOYEE-WISE SUMMARY (for filtered results)
 ========================= */
 $empSummarySql = "
@@ -350,6 +374,93 @@ showModal();
             </div>
         </div>
     </form>
+
+    <!-- Lead Status-wise Summary -->
+    <?php if (!empty($leadStatusSummary)): ?>
+    <div class="section-toggle" onclick="toggleSection('leadStatusSummary')" style="border-left: 4px solid #e74c3c;">
+        <h3>Lead Status-wise Interaction Summary</h3>
+        <span id="leadStatusSummaryArrow">&#9650;</span>
+    </div>
+    <div id="leadStatusSummary">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px;">
+            <?php
+            $statusColors = ['hot' => '#e74c3c', 'warm' => '#f39c12', 'cold' => '#95a5a6', 'converted' => '#27ae60', 'lost' => '#7f8c8d'];
+            foreach ($leadStatusSummary as $ls):
+                $color = $statusColors[$ls['lead_status']] ?? '#34495e';
+            ?>
+            <div style="background: <?= $color ?>; color: white; border-radius: 10px; padding: 15px; text-align: center;">
+                <div style="font-size: 0.8em; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;"><?= ucfirst($ls['lead_status']) ?> Leads</div>
+                <div style="font-size: 2em; font-weight: bold; margin: 5px 0;"><?= $ls['total_leads'] ?></div>
+                <div style="font-size: 0.85em; opacity: 0.9;"><?= $ls['total_interactions'] ?> interactions</div>
+                <div style="font-size: 0.8em; opacity: 0.8;"><?= $ls['avg_per_lead'] ?> avg/lead</div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <div style="overflow-x: auto; margin-bottom: 25px;">
+        <table class="summary-table" border="1" cellpadding="8">
+            <thead>
+                <tr>
+                    <th>Lead Status</th>
+                    <th>Leads</th>
+                    <th>Total Interactions</th>
+                    <th>Calls</th>
+                    <th>Emails</th>
+                    <th>Meetings</th>
+                    <th>Site Visits</th>
+                    <th>Demos</th>
+                    <th>Quotations</th>
+                    <th>Avg/Lead</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php
+                $grandLeads = 0; $grandInt = 0; $grandCalls = 0; $grandEmails = 0;
+                $grandMeetings = 0; $grandSV = 0; $grandDemos = 0; $grandQuot = 0;
+                foreach ($leadStatusSummary as $ls):
+                    $grandLeads += $ls['total_leads'];
+                    $grandInt += $ls['total_interactions'];
+                    $grandCalls += $ls['calls'];
+                    $grandEmails += $ls['emails'];
+                    $grandMeetings += $ls['meetings'];
+                    $grandSV += $ls['site_visits'];
+                    $grandDemos += $ls['demos'];
+                    $grandQuot += $ls['quotations'];
+                ?>
+                <tr>
+                    <td>
+                        <span class="lead-status status-<?= $ls['lead_status'] ?>"><?= ucfirst($ls['lead_status']) ?></span>
+                    </td>
+                    <td><strong><?= $ls['total_leads'] ?></strong></td>
+                    <td><strong><?= $ls['total_interactions'] ?></strong></td>
+                    <td><?= $ls['calls'] ?></td>
+                    <td><?= $ls['emails'] ?></td>
+                    <td><?= $ls['meetings'] ?></td>
+                    <td><?= $ls['site_visits'] ?></td>
+                    <td><?= $ls['demos'] ?></td>
+                    <td><?= $ls['quotations'] ?></td>
+                    <td><strong><?= $ls['avg_per_lead'] ?></strong></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+            <tfoot>
+                <tr style="background: #2c3e50; color: white; font-weight: bold;">
+                    <td style="text-align: left; color: white;">TOTAL</td>
+                    <td><?= $grandLeads ?></td>
+                    <td><?= $grandInt ?></td>
+                    <td><?= $grandCalls ?></td>
+                    <td><?= $grandEmails ?></td>
+                    <td><?= $grandMeetings ?></td>
+                    <td><?= $grandSV ?></td>
+                    <td><?= $grandDemos ?></td>
+                    <td><?= $grandQuot ?></td>
+                    <td><?= $grandLeads > 0 ? round($grandInt / $grandLeads, 1) : 0 ?></td>
+                </tr>
+            </tfoot>
+        </table>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Employee-wise Summary -->
     <?php if (!empty($empSummary)): ?>
