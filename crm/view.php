@@ -181,10 +181,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo->prepare("UPDATE crm_leads SET last_contact_date = ? WHERE id = ?")
             ->execute([date('Y-m-d', strtotime($_POST['interaction_date'])), $id]);
 
-        // If next_action_date is set, also update the lead's next_followup_date
+        // Auto-set next followup date based on lead status if not explicitly provided
         if (!empty($_POST['next_action_date'])) {
             $pdo->prepare("UPDATE crm_leads SET next_followup_date = ? WHERE id = ?")
                 ->execute([$_POST['next_action_date'], $id]);
+        } else {
+            // Auto-calculate next followup: Hot=1 day, Warm=3 days, Cold=5 days
+            $interactionDate = date('Y-m-d', strtotime($_POST['interaction_date']));
+            $leadStatus = strtolower($lead['lead_status']);
+            $daysMap = ['hot' => 1, 'warm' => 3, 'cold' => 5];
+            if (isset($daysMap[$leadStatus])) {
+                $nextDate = date('Y-m-d', strtotime($interactionDate . ' + ' . $daysMap[$leadStatus] . ' days'));
+                $pdo->prepare("UPDATE crm_leads SET next_followup_date = ? WHERE id = ?")
+                    ->execute([$nextDate, $id]);
+            }
         }
 
         setModal("Success", "Interaction logged");

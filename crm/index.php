@@ -18,6 +18,7 @@ $filter_type = $_GET['type'] ?? '';
 $filter_timeline = $_GET['timeline'] ?? '';
 $filter_assigned = $_GET['assigned'] ?? '';
 $filter_followup = $_GET['followup'] ?? '';
+$filter_interaction_due = $_GET['interaction_due'] ?? '';
 $search = $_GET['search'] ?? '';
 
 /* =========================
@@ -75,6 +76,24 @@ if ($filter_followup === 'today') {
 if ($filter_followup === 'overdue') {
     $where[] = "next_followup_date < CURDATE() AND lead_status NOT IN ('converted', 'lost')";
 }
+// Interaction Due filter: leads where last interaction exceeds the schedule
+// Hot=1 day, Warm=3 days, Cold=5 days
+if ($filter_interaction_due === 'all') {
+    $where[] = "lead_status IN ('hot','warm','cold') AND (
+        (lead_status = 'hot' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 1 DAY)))
+        OR (lead_status = 'warm' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 3 DAY)))
+        OR (lead_status = 'cold' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 5 DAY)))
+    )";
+}
+if ($filter_interaction_due === 'hot') {
+    $where[] = "lead_status = 'hot' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 1 DAY))";
+}
+if ($filter_interaction_due === 'warm') {
+    $where[] = "lead_status = 'warm' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 3 DAY))";
+}
+if ($filter_interaction_due === 'cold') {
+    $where[] = "lead_status = 'cold' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 5 DAY))";
+}
 if ($search) {
     $where[] = "(company_name LIKE ? OR contact_person LIKE ? OR phone LIKE ? OR email LIKE ?)";
     $searchTerm = "%$search%";
@@ -123,7 +142,12 @@ $statsStmt = $pdo->prepare("
         SUM(CASE WHEN lead_status = 'converted' THEN 1 ELSE 0 END) as converted,
         SUM(CASE WHEN lead_status = 'lost' THEN 1 ELSE 0 END) as lost,
         SUM(CASE WHEN next_followup_date = CURDATE() THEN 1 ELSE 0 END) as followup_today,
-        SUM(CASE WHEN next_followup_date < CURDATE() AND lead_status NOT IN ('converted', 'lost') THEN 1 ELSE 0 END) as overdue
+        SUM(CASE WHEN next_followup_date < CURDATE() AND lead_status NOT IN ('converted', 'lost') THEN 1 ELSE 0 END) as overdue,
+        SUM(CASE WHEN lead_status IN ('hot','warm','cold') AND (
+            (lead_status = 'hot' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 1 DAY)))
+            OR (lead_status = 'warm' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 3 DAY)))
+            OR (lead_status = 'cold' AND (last_contact_date IS NULL OR last_contact_date < DATE_SUB(CURDATE(), INTERVAL 5 DAY)))
+        ) THEN 1 ELSE 0 END) as interaction_due
     FROM crm_leads $statsWhere
 ");
 $statsStmt->execute($statsParams);
@@ -161,6 +185,22 @@ showModal();
         .stat-lost { background: #7f8c8d; }
         .stat-followup { background: #9b59b6; }
         .stat-overdue { background: #c0392b; }
+        .stat-interaction-due { background: #e67e22; }
+
+        .interaction-due-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            font-weight: bold;
+            background: #e67e22;
+            color: #fff;
+            animation: pulse-badge 2s infinite;
+        }
+        @keyframes pulse-badge {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
 
         /* Clickable stat cards */
         a.stat-card {
@@ -272,6 +312,10 @@ showModal();
             <div class="number"><?= $stats['overdue'] ?? 0 ?></div>
             <div class="label">Overdue</div>
         </a>
+        <a href="index.php?interaction_due=all" class="stat-card stat-interaction-due <?= $filter_interaction_due === 'all' ? 'active' : '' ?>">
+            <div class="number"><?= $stats['interaction_due'] ?? 0 ?></div>
+            <div class="label">Interaction Due</div>
+        </a>
     </div>
 
     <p>
@@ -329,6 +373,26 @@ showModal();
         <a href="index.php" class="btn btn-secondary">Clear</a>
     </form>
 
+    <!-- Interaction Due Schedule Info -->
+    <?php if ($filter_interaction_due): ?>
+    <div style="margin-bottom: 20px; padding: 15px 20px; background: #fef3e2; border: 1px solid #f39c12; border-radius: 8px;">
+        <strong style="color: #e67e22;">Interaction Schedule:</strong>
+        <span style="margin-left: 15px; padding: 4px 10px; background: #e74c3c; color: #fff; border-radius: 4px; font-size: 0.85em;">Hot = Every Day</span>
+        <span style="margin-left: 10px; padding: 4px 10px; background: #f39c12; color: #fff; border-radius: 4px; font-size: 0.85em;">Warm = Every 3 Days</span>
+        <span style="margin-left: 10px; padding: 4px 10px; background: #95a5a6; color: #fff; border-radius: 4px; font-size: 0.85em;">Cold = Every 5 Days</span>
+        <?php if ($filter_interaction_due !== 'all'): ?>
+            <span style="margin-left: 15px;">| Showing: <strong><?= ucfirst($filter_interaction_due) ?></strong> leads only</span>
+        <?php endif; ?>
+        <div style="margin-top: 8px; font-size: 0.85em; color: #666;">
+            <a href="index.php?interaction_due=hot" class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.85em; <?= $filter_interaction_due === 'hot' ? 'background: #e74c3c; color: #fff;' : '' ?>">Hot Due</a>
+            <a href="index.php?interaction_due=warm" class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.85em; <?= $filter_interaction_due === 'warm' ? 'background: #f39c12; color: #fff;' : '' ?>">Warm Due</a>
+            <a href="index.php?interaction_due=cold" class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.85em; <?= $filter_interaction_due === 'cold' ? 'background: #95a5a6; color: #fff;' : '' ?>">Cold Due</a>
+            <a href="index.php?interaction_due=all" class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.85em; <?= $filter_interaction_due === 'all' ? 'background: #e67e22; color: #fff;' : '' ?>">All Due</a>
+            <a href="index.php" class="btn btn-secondary" style="padding: 3px 10px; font-size: 0.85em;">Clear</a>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- Leads Table -->
     <div style="overflow-x: auto;">
     <table border="1" cellpadding="8">
@@ -340,6 +404,7 @@ showModal();
                 <th>Phone</th>
                 <th>Status</th>
                 <th>Buying Timeline</th>
+                <th>Last Contact</th>
                 <th>Next Follow-up</th>
                 <th>Assigned To</th>
                 <th>Reqs</th>
@@ -360,6 +425,25 @@ showModal();
                     } else {
                         $followupClass = 'followup-upcoming';
                     }
+                }
+
+                // Check if interaction is due based on lead status
+                $interactionDue = false;
+                $dueLabel = '';
+                $ls = strtolower($lead['lead_status']);
+                $lastContact = $lead['last_contact_date'] ? strtotime($lead['last_contact_date']) : 0;
+                $todayTs = strtotime(date('Y-m-d'));
+                $daysSinceContact = $lastContact ? floor(($todayTs - $lastContact) / 86400) : 999;
+
+                if ($ls === 'hot' && $daysSinceContact > 1) {
+                    $interactionDue = true;
+                    $dueLabel = 'Due (Daily)';
+                } elseif ($ls === 'warm' && $daysSinceContact > 3) {
+                    $interactionDue = true;
+                    $dueLabel = 'Due (3 Days)';
+                } elseif ($ls === 'cold' && $daysSinceContact > 5) {
+                    $interactionDue = true;
+                    $dueLabel = 'Due (5 Days)';
                 }
             ?>
             <tr>
@@ -388,6 +472,9 @@ showModal();
                     <span class="lead-status status-<?= $lead['lead_status'] ?>">
                         <?= ucfirst($lead['lead_status']) ?>
                     </span>
+                    <?php if ($interactionDue): ?>
+                        <br><span class="interaction-due-badge"><?= $dueLabel ?></span>
+                    <?php endif; ?>
                 </td>
                 <td>
                     <span class="timeline-badge timeline-<?= $lead['buying_timeline'] ?>">
@@ -395,6 +482,16 @@ showModal();
                     </span>
                     <?php if ($lead['budget_range']): ?>
                         <br><small>Budget: <?= htmlspecialchars($lead['budget_range']) ?></small>
+                    <?php endif; ?>
+                </td>
+                <td style="white-space: nowrap;">
+                    <?php if ($lead['last_contact_date']): ?>
+                        <?= date('d M', strtotime($lead['last_contact_date'])) ?>
+                        <br><small style="color: <?= $interactionDue ? '#e74c3c' : '#27ae60' ?>;">
+                            <?= $daysSinceContact ?> day<?= $daysSinceContact !== 1 ? 's' : '' ?> ago
+                        </small>
+                    <?php else: ?>
+                        <span style="color: #e74c3c; font-weight: bold;">Never</span>
                     <?php endif; ?>
                 </td>
                 <td>
@@ -421,7 +518,7 @@ showModal();
 
             <?php if (empty($leads)): ?>
             <tr>
-                <td colspan="10" style="text-align: center; padding: 30px;">
+                <td colspan="11" style="text-align: center; padding: 30px;">
                     No leads found. <a href="add.php">Add your first lead</a>
                 </td>
             </tr>
