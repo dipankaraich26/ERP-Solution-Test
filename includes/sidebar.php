@@ -366,6 +366,7 @@ $showStrategy = $_isAdmin || _canView('strategy');
             <a href="/crm/interaction_report.php" class="<?= $currentDir === 'crm' && $current === 'interaction_report.php' ? 'active' : '' ?>">Interaction Report</a>
             <a href="/crm/product_leads.php" class="<?= $currentDir === 'crm' && $current === 'product_leads.php' ? 'active' : '' ?>">Product Leads</a>
             <a href="/crm/sales_analytics.php" class="<?= $currentDir === 'crm' && $current === 'sales_analytics.php' ? 'active' : '' ?>">Sales Analytics</a>
+            <a href="/crm/sales_scorecard.php" class="<?= $currentDir === 'crm' && $current === 'sales_scorecard.php' ? 'active' : '' ?>">Sales Scorecard</a>
             <?php endif; ?>
             <?php if (_canView('customers')): ?>
             <a href="/customers/index.php" class="<?= $currentDir === 'customers' ? 'active' : '' ?>">Customers</a>
