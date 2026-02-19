@@ -33,16 +33,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Get all Part ID series
+// Get all distinct Part IDs from part_master with counts and category info
 try {
-    $partIdSeries = $pdo->query("
-        SELECT ps.part_id, ps.description, ps.series_prefix, ps.is_active,
-            (SELECT COUNT(*) FROM part_master WHERE part_id = ps.part_id AND status = 'active') as part_count
-        FROM part_id_series ps
-        ORDER BY ps.part_id
+    $partIds = $pdo->query("
+        SELECT part_id,
+            COUNT(*) as part_count,
+            MAX(category) as category
+        FROM part_master
+        WHERE part_id IS NOT NULL AND part_id != ''
+        GROUP BY part_id
+        ORDER BY CAST(part_id AS UNSIGNED), part_id
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    $partIdSeries = [];
+    $partIds = [];
     $error_msg = "Error loading Part IDs: " . $e->getMessage();
 }
 
@@ -61,7 +64,7 @@ try {
 
 // Stats
 try {
-    $totalPartIds = count($partIdSeries);
+    $totalPartIds = count($partIds);
     $configuredIds = $pdo->query("SELECT COUNT(DISTINCT part_id) FROM qc_part_inspection_matrix")->fetchColumn();
     $totalCheckpoints = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints WHERE is_active = 1")->fetchColumn();
 } catch (Exception $e) {
@@ -72,10 +75,11 @@ try {
 $configuredList = [];
 try {
     $configuredList = $pdo->query("
-        SELECT DISTINCT m.part_id, ps.description
+        SELECT DISTINCT m.part_id, MAX(pm.category) as category
         FROM qc_part_inspection_matrix m
-        LEFT JOIN part_id_series ps ON m.part_id = ps.part_id
-        ORDER BY m.part_id
+        LEFT JOIN part_master pm ON m.part_id = pm.part_id
+        GROUP BY m.part_id
+        ORDER BY CAST(m.part_id AS UNSIGNED), m.part_id
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
@@ -128,7 +132,7 @@ include '../includes/sidebar.php';
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
         .matrix-table th, .matrix-table td {
-            padding: 14px 12px;
+            padding: 12px 10px;
             text-align: center;
             border-bottom: 1px solid #eee;
         }
@@ -147,10 +151,11 @@ include '../includes/sidebar.php';
             padding: 5px 14px;
             border-radius: 8px;
             font-weight: 700;
-            font-size: 1em;
+            font-size: 1.05em;
             background: #667eea;
             color: white;
-            letter-spacing: 0.5px;
+            min-width: 35px;
+            text-align: center;
         }
 
         .count-badge {
@@ -174,6 +179,16 @@ include '../includes/sidebar.php';
         }
         .total-badge.configured { background: #d1fae5; color: #065f46; }
         .total-badge.not-configured { background: #fef3c7; color: #92400e; }
+
+        .category-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            font-weight: 600;
+            background: #e8eaf6;
+            color: #3f51b5;
+        }
 
         .alert-success {
             background: #d1fae5; border: 1px solid #10b981; color: #065f46;
@@ -218,7 +233,7 @@ include '../includes/sidebar.php';
     <div class="page-header">
         <div>
             <h1>Part Inspection Matrix</h1>
-            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints per Part ID category</p>
+            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints per Part ID</p>
         </div>
         <div style="display: flex; gap: 10px;">
             <a href="dashboard.php" class="btn btn-secondary">QC Dashboard</a>
@@ -257,18 +272,18 @@ include '../includes/sidebar.php';
     </div>
 
     <!-- Matrix Table -->
-    <?php if (empty($partIdSeries)): ?>
+    <?php if (empty($partIds)): ?>
         <div style="text-align: center; padding: 60px 20px; color: #7f8c8d; background: white; border-radius: 10px;">
             <h3>No Part IDs Found</h3>
-            <p>Set up Part ID Series in <a href="../admin/setup_part_id_series.php">Admin Setup</a> first.</p>
+            <p>Add parts in <a href="../part_master/list.php">Part Master</a> first.</p>
         </div>
     <?php else: ?>
         <table class="matrix-table">
             <thead>
                 <tr>
                     <th>Part ID</th>
-                    <th>Description</th>
-                    <th>Parts</th>
+                    <th>Category</th>
+                    <th style="text-align: center;">Parts</th>
                     <th title="Incoming Inspection">Incoming</th>
                     <th title="Work Order Inspection">Work Order</th>
                     <th title="Sales Order Release">SO Release</th>
@@ -278,21 +293,19 @@ include '../includes/sidebar.php';
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($partIdSeries as $pid):
-                    $incoming = $matrixCounts[$pid['part_id']]['incoming'] ?? 0;
-                    $wo = $matrixCounts[$pid['part_id']]['work_order'] ?? 0;
-                    $so = $matrixCounts[$pid['part_id']]['so_release'] ?? 0;
-                    $final = $matrixCounts[$pid['part_id']]['final_inspection'] ?? 0;
+                <?php foreach ($partIds as $pid):
+                    $id = $pid['part_id'];
+                    $incoming = $matrixCounts[$id]['incoming'] ?? 0;
+                    $wo = $matrixCounts[$id]['work_order'] ?? 0;
+                    $so = $matrixCounts[$id]['so_release'] ?? 0;
+                    $final = $matrixCounts[$id]['final_inspection'] ?? 0;
                     $total = $incoming + $wo + $so + $final;
                 ?>
                 <tr>
-                    <td><span class="part-id-badge"><?= htmlspecialchars($pid['part_id']) ?></span></td>
-                    <td>
-                        <strong><?= htmlspecialchars($pid['description'] ?: '-') ?></strong>
-                        <div style="font-size: 0.8em; color: #999;">Prefix: <?= htmlspecialchars($pid['series_prefix']) ?></div>
-                    </td>
+                    <td><span class="part-id-badge"><?= htmlspecialchars($id) ?></span></td>
+                    <td><span class="category-tag"><?= htmlspecialchars($pid['category'] ?: '-') ?></span></td>
                     <td style="text-align: center;">
-                        <span style="font-weight: 600; color: #3498db;"><?= $pid['part_count'] ?></span>
+                        <strong style="color: #3498db;"><?= $pid['part_count'] ?></strong>
                     </td>
                     <td>
                         <span class="count-badge <?= $incoming > 0 ? 'has-checks' : 'no-checks' ?>"><?= $incoming ?></span>
@@ -312,7 +325,7 @@ include '../includes/sidebar.php';
                         </span>
                     </td>
                     <td>
-                        <a href="inspection_matrix_edit.php?part_id=<?= urlencode($pid['part_id']) ?>" class="btn btn-sm btn-primary">
+                        <a href="inspection_matrix_edit.php?part_id=<?= urlencode($id) ?>" class="btn btn-sm btn-primary">
                             <?= $total > 0 ? 'Edit' : 'Configure' ?>
                         </a>
                     </td>
@@ -336,7 +349,7 @@ include '../includes/sidebar.php';
                     <option value="">Select source Part ID...</option>
                     <?php foreach ($configuredList as $cp): ?>
                         <option value="<?= htmlspecialchars($cp['part_id']) ?>">
-                            <?= htmlspecialchars($cp['part_id']) ?> - <?= htmlspecialchars($cp['description'] ?: 'N/A') ?>
+                            Part ID: <?= htmlspecialchars($cp['part_id']) ?> (<?= htmlspecialchars($cp['category'] ?: 'N/A') ?>)
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -344,11 +357,11 @@ include '../includes/sidebar.php';
             <div style="margin-bottom: 15px;">
                 <label style="display: block; font-weight: 600; margin-bottom: 5px;">Copy to (Targets):</label>
                 <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px;">
-                    <?php foreach ($partIdSeries as $pid): ?>
+                    <?php foreach ($partIds as $pid): ?>
                         <label style="display: flex; align-items: center; padding: 6px 0; cursor: pointer;">
                             <input type="checkbox" name="target_part_ids[]" value="<?= htmlspecialchars($pid['part_id']) ?>" style="margin-right: 10px;">
                             <span class="part-id-badge" style="font-size: 0.85em; padding: 3px 10px;"><?= htmlspecialchars($pid['part_id']) ?></span>
-                            <span style="color: #666; margin-left: 10px; font-size: 0.9em;"><?= htmlspecialchars($pid['description'] ?: '') ?></span>
+                            <span style="color: #666; margin-left: 10px; font-size: 0.9em;"><?= htmlspecialchars($pid['category'] ?: '') ?> (<?= $pid['part_count'] ?> parts)</span>
                         </label>
                     <?php endforeach; ?>
                 </div>

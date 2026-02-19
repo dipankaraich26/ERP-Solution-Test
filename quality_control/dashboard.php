@@ -84,7 +84,7 @@ try {
 // Inspection Matrix stats
 try {
     $stats['matrix_configured'] = $pdo->query("SELECT COUNT(DISTINCT part_id) FROM qc_part_inspection_matrix")->fetchColumn();
-    $stats['matrix_total_ids'] = $pdo->query("SELECT COUNT(*) FROM part_id_series")->fetchColumn();
+    $stats['matrix_total_ids'] = $pdo->query("SELECT COUNT(DISTINCT part_id) FROM part_master WHERE part_id IS NOT NULL AND part_id != ''")->fetchColumn();
     $stats['matrix_checkpoints'] = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints WHERE is_active = 1")->fetchColumn();
 } catch (Exception $e) {
     $stats['matrix_configured'] = 0;

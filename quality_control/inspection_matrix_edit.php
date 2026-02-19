@@ -12,19 +12,21 @@ if (!$part_id) {
 $success_msg = '';
 $error_msg = '';
 
-// Get Part ID info
+// Get Part ID info from part_master
 try {
-    $stmt = $pdo->prepare("SELECT * FROM part_id_series WHERE part_id = ?");
+    $stmt = $pdo->prepare("SELECT part_id, MAX(category) as category, COUNT(*) as part_count FROM part_master WHERE part_id = ? GROUP BY part_id");
     $stmt->execute([$part_id]);
     $pidInfo = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$pidInfo) {
         header('Location: inspection_matrix.php');
         exit;
     }
-    // Count parts under this Part ID
-    $partCount = $pdo->prepare("SELECT COUNT(*) FROM part_master WHERE part_id = ? AND status = 'active'");
-    $partCount->execute([$part_id]);
-    $partCount = $partCount->fetchColumn();
+    $partCount = $pidInfo['part_count'];
+
+    // Get sample part names for reference
+    $sampleParts = $pdo->prepare("SELECT part_no, part_name FROM part_master WHERE part_id = ? AND status = 'active' ORDER BY part_no LIMIT 5");
+    $sampleParts->execute([$part_id]);
+    $sampleParts = $sampleParts->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     header('Location: inspection_matrix.php');
     exit;
@@ -99,7 +101,7 @@ try {
 
 // Configured Part IDs for "copy from"
 try {
-    $configuredParts = $pdo->query("SELECT DISTINCT m.part_id, ps.description FROM qc_part_inspection_matrix m LEFT JOIN part_id_series ps ON m.part_id = ps.part_id ORDER BY m.part_id")->fetchAll(PDO::FETCH_ASSOC);
+    $configuredParts = $pdo->query("SELECT DISTINCT m.part_id, MAX(pm.category) as category FROM qc_part_inspection_matrix m LEFT JOIN part_master pm ON m.part_id = pm.part_id GROUP BY m.part_id ORDER BY CAST(m.part_id AS UNSIGNED), m.part_id")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $configuredParts = [];
 }
@@ -321,20 +323,29 @@ include '../includes/sidebar.php';
     <div class="part-info">
         <div>
             <div class="field-label">Part ID</div>
-            <div class="field-value"><?= htmlspecialchars($pidInfo['part_id']) ?></div>
+            <div class="field-value" style="font-size: 1.3em;"><?= htmlspecialchars($pidInfo['part_id']) ?></div>
         </div>
         <div>
-            <div class="field-label">Description</div>
-            <div class="field-value"><?= htmlspecialchars($pidInfo['description'] ?: '-') ?></div>
+            <div class="field-label">Category</div>
+            <div class="field-value"><?= htmlspecialchars($pidInfo['category'] ?: '-') ?></div>
         </div>
         <div>
-            <div class="field-label">Series Prefix</div>
-            <div class="field-value"><?= htmlspecialchars($pidInfo['series_prefix']) ?></div>
-        </div>
-        <div>
-            <div class="field-label">Active Parts</div>
+            <div class="field-label">Total Parts</div>
             <div class="field-value" style="color: #3498db;"><?= $partCount ?></div>
         </div>
+        <?php if (!empty($sampleParts)): ?>
+        <div style="flex: 1;">
+            <div class="field-label">Sample Parts</div>
+            <div style="font-size: 0.85em; color: #666;">
+                <?php foreach ($sampleParts as $sp): ?>
+                    <span style="display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; margin: 1px 3px;"><?= htmlspecialchars($sp['part_no']) ?></span>
+                <?php endforeach; ?>
+                <?php if ($partCount > 5): ?>
+                    <span style="color: #999;">...+<?= $partCount - 5 ?> more</span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 
     <!-- Copy From Section -->
@@ -349,7 +360,7 @@ include '../includes/sidebar.php';
                     if ($cp['part_id'] === $part_id) continue;
                 ?>
                     <option value="<?= htmlspecialchars($cp['part_id']) ?>">
-                        <?= htmlspecialchars($cp['part_id']) ?> - <?= htmlspecialchars($cp['description'] ?: 'N/A') ?>
+                        Part ID: <?= htmlspecialchars($cp['part_id']) ?> (<?= htmlspecialchars($cp['category'] ?: 'N/A') ?>)
                     </option>
                 <?php endforeach; ?>
             </select>
