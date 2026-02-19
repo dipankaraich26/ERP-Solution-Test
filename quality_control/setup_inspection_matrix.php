@@ -21,16 +21,16 @@ try {
     ");
     $messages[] = "Table 'qc_inspection_checkpoints' created/verified.";
 
-    // 2. Part Inspection Matrix
+    // 2. Part ID Inspection Matrix (maps Part ID categories to checkpoints)
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS qc_part_inspection_matrix (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            part_no VARCHAR(50) NOT NULL,
+            part_id VARCHAR(50) NOT NULL COMMENT 'Part ID category (RAW, FG, WIP, etc.)',
             checkpoint_id INT NOT NULL,
             stage ENUM('incoming','work_order','so_release','final_inspection') NOT NULL,
             is_enabled TINYINT(1) DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_mapping (part_no, checkpoint_id, stage),
+            UNIQUE KEY unique_mapping (part_id, checkpoint_id, stage),
             FOREIGN KEY (checkpoint_id) REFERENCES qc_inspection_checkpoints(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
@@ -131,7 +131,7 @@ include '../includes/sidebar.php';
 
     <div style="background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
         <h2 style="margin-top: 0; color: #1e40af;">Part Inspection Matrix System</h2>
-        <p>This module allows you to configure which inspection checkpoints apply to each part, organized by inspection stage.</p>
+        <p>This module allows you to configure which inspection checkpoints apply to each Part ID category (RAW, FG, WIP, SUB, etc.), organized by inspection stage. All parts under a Part ID will share the same inspection checklist.</p>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 20px;">
             <div style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 6px;">

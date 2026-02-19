@@ -3,8 +3,8 @@ require '../db.php';
 require '../includes/auth.php';
 requireLogin();
 
-$part_no = isset($_GET['part_no']) ? trim($_GET['part_no']) : '';
-if (!$part_no) {
+$part_id = isset($_GET['part_id']) ? trim($_GET['part_id']) : '';
+if (!$part_id) {
     header('Location: inspection_matrix.php');
     exit;
 }
@@ -12,15 +12,19 @@ if (!$part_no) {
 $success_msg = '';
 $error_msg = '';
 
-// Get part info
+// Get Part ID info
 try {
-    $stmt = $pdo->prepare("SELECT * FROM part_master WHERE part_no = ?");
-    $stmt->execute([$part_no]);
-    $part = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$part) {
+    $stmt = $pdo->prepare("SELECT * FROM part_id_series WHERE part_id = ?");
+    $stmt->execute([$part_id]);
+    $pidInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$pidInfo) {
         header('Location: inspection_matrix.php');
         exit;
     }
+    // Count parts under this Part ID
+    $partCount = $pdo->prepare("SELECT COUNT(*) FROM part_master WHERE part_id = ? AND status = 'active'");
+    $partCount->execute([$part_id]);
+    $partCount = $partCount->fetchColumn();
 } catch (Exception $e) {
     header('Location: inspection_matrix.php');
     exit;
@@ -38,23 +42,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'save') {
         try {
             $pdo->beginTransaction();
-            // Delete existing matrix for this part
-            $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_no = ?")->execute([$part_no]);
+            $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_id = ?")->execute([$part_id]);
 
-            // Insert new selections
-            $insertStmt = $pdo->prepare("INSERT INTO qc_part_inspection_matrix (part_no, checkpoint_id, stage) VALUES (?, ?, ?)");
+            $insertStmt = $pdo->prepare("INSERT INTO qc_part_inspection_matrix (part_id, checkpoint_id, stage) VALUES (?, ?, ?)");
             $count = 0;
             foreach ($stages as $stageKey => $stageInfo) {
                 $fieldName = 'checks_' . $stageKey;
                 if (isset($_POST[$fieldName]) && is_array($_POST[$fieldName])) {
                     foreach ($_POST[$fieldName] as $checkpointId) {
-                        $insertStmt->execute([$part_no, (int)$checkpointId, $stageKey]);
+                        $insertStmt->execute([$part_id, (int)$checkpointId, $stageKey]);
                         $count++;
                     }
                 }
             }
             $pdo->commit();
-            $success_msg = "Saved $count checkpoint(s) across all stages for part $part_no.";
+            $success_msg = "Saved $count checkpoint(s) across all stages for Part ID: $part_id.";
         } catch (PDOException $e) {
             $pdo->rollBack();
             $error_msg = "Error saving: " . $e->getMessage();
@@ -62,14 +64,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($_POST['action'] === 'copy_from') {
-        $source = $_POST['source_part'] ?? '';
+        $source = $_POST['source_part_id'] ?? '';
         if ($source) {
             try {
                 $pdo->beginTransaction();
-                $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_no = ?")->execute([$part_no]);
-                $pdo->prepare("INSERT INTO qc_part_inspection_matrix (part_no, checkpoint_id, stage) SELECT ?, checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_no = ?")->execute([$part_no, $source]);
+                $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_id = ?")->execute([$part_id]);
+                $pdo->prepare("INSERT INTO qc_part_inspection_matrix (part_id, checkpoint_id, stage) SELECT ?, checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_id = ?")->execute([$part_id, $source]);
                 $pdo->commit();
-                $success_msg = "Copied inspection matrix from $source to $part_no.";
+                $success_msg = "Copied inspection matrix from $source to $part_id.";
             } catch (PDOException $e) {
                 $pdo->rollBack();
                 $error_msg = "Error copying: " . $e->getMessage();
@@ -85,21 +87,19 @@ try {
     $checkpoints = [];
 }
 
-// Get current matrix for this part
+// Get current matrix for this part_id
 $currentMatrix = [];
 try {
-    $stmt = $pdo->prepare("SELECT checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_no = ?");
-    $stmt->execute([$part_no]);
+    $stmt = $pdo->prepare("SELECT checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_id = ?");
+    $stmt->execute([$part_id]);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $currentMatrix[$row['stage']][$row['checkpoint_id']] = true;
     }
-} catch (Exception $e) {
-    // empty matrix
-}
+} catch (Exception $e) {}
 
-// Get configured parts for "copy from" dropdown
+// Configured Part IDs for "copy from"
 try {
-    $configuredParts = $pdo->query("SELECT DISTINCT m.part_no, p.part_name FROM qc_part_inspection_matrix m LEFT JOIN part_master p ON m.part_no = p.part_no ORDER BY m.part_no")->fetchAll(PDO::FETCH_ASSOC);
+    $configuredParts = $pdo->query("SELECT DISTINCT m.part_id, ps.description FROM qc_part_inspection_matrix m LEFT JOIN part_id_series ps ON m.part_id = ps.part_id ORDER BY m.part_id")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $configuredParts = [];
 }
@@ -117,7 +117,7 @@ include '../includes/sidebar.php';
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Edit Inspection Matrix - <?= htmlspecialchars($part_no) ?></title>
+    <title>Edit Inspection Matrix - <?= htmlspecialchars($part_id) ?></title>
     <link rel="stylesheet" href="../assets/style.css">
     <style>
         .page-header {
@@ -133,17 +133,26 @@ include '../includes/sidebar.php';
         .part-info {
             background: white;
             border-radius: 10px;
-            padding: 20px;
+            padding: 20px 25px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             margin-bottom: 20px;
             display: flex;
-            gap: 30px;
+            gap: 40px;
             flex-wrap: wrap;
             align-items: center;
         }
-        .part-info .field { }
         .part-info .field-label { font-size: 0.8em; color: #7f8c8d; text-transform: uppercase; font-weight: 600; }
         .part-info .field-value { font-size: 1.1em; color: #2c3e50; font-weight: 600; }
+        .part-id-big {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 1.4em;
+            background: #667eea;
+            color: white;
+            letter-spacing: 1px;
+        }
 
         .stage-tabs {
             display: flex;
@@ -207,9 +216,7 @@ include '../includes/sidebar.php';
             margin-bottom: 15px;
         }
 
-        .category-group {
-            margin-bottom: 20px;
-        }
+        .category-group { margin-bottom: 20px; }
         .category-title {
             font-weight: 600;
             color: #475569;
@@ -282,7 +289,7 @@ include '../includes/sidebar.php';
             flex-wrap: wrap;
         }
 
-        body.dark .part-info, body.dark .stage-panel, body.dark .save-bar, body.dark .modal-box { background: #2c3e50; }
+        body.dark .part-info, body.dark .stage-panel, body.dark .save-bar { background: #2c3e50; }
         body.dark .checkpoint-name { color: #ecf0f1; }
         body.dark .checkpoint-row:hover { background: #34495e; }
         body.dark .stage-tab { background: #34495e; color: #aaa; border-color: #4a5568; }
@@ -295,8 +302,8 @@ include '../includes/sidebar.php';
 <div class="content" style="overflow-y: auto; height: 100vh;">
     <div class="page-header">
         <div>
-            <h1>Inspection Matrix - <?= htmlspecialchars($part_no) ?></h1>
-            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints for this part</p>
+            <h1>Inspection Matrix - <span class="part-id-big"><?= htmlspecialchars($part_id) ?></span></h1>
+            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints for this Part ID</p>
         </div>
         <div style="display: flex; gap: 10px;">
             <a href="inspection_matrix.php" class="btn btn-secondary">Back to Matrix</a>
@@ -310,43 +317,43 @@ include '../includes/sidebar.php';
         <div class="alert-error"><?= htmlspecialchars($error_msg) ?></div>
     <?php endif; ?>
 
-    <!-- Part Info -->
+    <!-- Part ID Info -->
     <div class="part-info">
-        <div class="field">
-            <div class="field-label">Part No</div>
-            <div class="field-value"><?= htmlspecialchars($part['part_no']) ?></div>
+        <div>
+            <div class="field-label">Part ID</div>
+            <div class="field-value"><?= htmlspecialchars($pidInfo['part_id']) ?></div>
         </div>
-        <div class="field">
-            <div class="field-label">Part Name</div>
-            <div class="field-value"><?= htmlspecialchars($part['part_name'] ?: '-') ?></div>
+        <div>
+            <div class="field-label">Description</div>
+            <div class="field-value"><?= htmlspecialchars($pidInfo['description'] ?: '-') ?></div>
         </div>
-        <div class="field">
-            <div class="field-label">Category</div>
-            <div class="field-value"><?= htmlspecialchars($part['part_id'] ?: $part['category'] ?: '-') ?></div>
+        <div>
+            <div class="field-label">Series Prefix</div>
+            <div class="field-value"><?= htmlspecialchars($pidInfo['series_prefix']) ?></div>
         </div>
-        <div class="field">
-            <div class="field-label">UOM</div>
-            <div class="field-value"><?= htmlspecialchars($part['uom'] ?: '-') ?></div>
+        <div>
+            <div class="field-label">Active Parts</div>
+            <div class="field-value" style="color: #3498db;"><?= $partCount ?></div>
         </div>
     </div>
 
     <!-- Copy From Section -->
     <?php if (!empty($configuredParts)): ?>
     <div class="copy-section">
-        <span style="font-weight: 600; color: #0369a1;">Copy from another part:</span>
+        <span style="font-weight: 600; color: #0369a1;">Copy from another Part ID:</span>
         <form method="post" style="display: flex; gap: 10px; align-items: center;">
             <input type="hidden" name="action" value="copy_from">
-            <select name="source_part" required style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; min-width: 250px;">
-                <option value="">Select part...</option>
+            <select name="source_part_id" required style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; min-width: 250px;">
+                <option value="">Select Part ID...</option>
                 <?php foreach ($configuredParts as $cp):
-                    if ($cp['part_no'] === $part_no) continue;
+                    if ($cp['part_id'] === $part_id) continue;
                 ?>
-                    <option value="<?= htmlspecialchars($cp['part_no']) ?>">
-                        <?= htmlspecialchars($cp['part_no']) ?> - <?= htmlspecialchars($cp['part_name'] ?: 'N/A') ?>
+                    <option value="<?= htmlspecialchars($cp['part_id']) ?>">
+                        <?= htmlspecialchars($cp['part_id']) ?> - <?= htmlspecialchars($cp['description'] ?: 'N/A') ?>
                     </option>
                 <?php endforeach; ?>
             </select>
-            <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('This will replace current checkpoints with the source part\'s configuration. Continue?')">Copy</button>
+            <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('This will replace current checkpoints. Continue?')">Copy</button>
         </form>
     </div>
     <?php endif; ?>
@@ -418,6 +425,7 @@ include '../includes/sidebar.php';
             <div class="save-bar">
                 <div style="color: #666; font-size: 0.9em;">
                     Total selected: <strong id="totalCount"><?= array_sum(array_map('count', $currentMatrix)) ?></strong> checkpoints across all stages
+                    &nbsp;|&nbsp; Applies to <strong><?= $partCount ?></strong> parts under <strong><?= htmlspecialchars($part_id) ?></strong>
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <a href="inspection_matrix.php" class="btn btn-secondary">Cancel</a>
@@ -430,7 +438,6 @@ include '../includes/sidebar.php';
 
 <script>
 function switchTab(stage) {
-    // Hide all panels and deactivate tabs
     document.querySelectorAll('.stage-panel').forEach(p => {
         p.classList.remove('active');
         p.style.borderColor = '#ddd';
@@ -441,7 +448,6 @@ function switchTab(stage) {
         t.style.borderColor = '#ddd';
     });
 
-    // Activate selected
     var panel = document.getElementById('panel_' + stage);
     var tab = document.querySelector('.stage-tab[data-stage="' + stage + '"]');
     var color = tab.dataset.color;
@@ -468,7 +474,6 @@ function updateCount(stage) {
     document.getElementById('count_' + stage).textContent = checked;
     document.getElementById('selected_' + stage).textContent = checked;
 
-    // Update total
     var total = 0;
     <?php foreach (array_keys($stages) as $sk): ?>
     total += document.querySelectorAll('#panel_<?= $sk ?> input[type="checkbox"]:checked').length;

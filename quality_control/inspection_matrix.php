@@ -8,28 +8,24 @@ $error_msg = '';
 
 // Handle bulk copy
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'bulk_copy') {
-    $source = $_POST['source_part'] ?? '';
-    $targets = $_POST['target_parts'] ?? [];
+    $source = $_POST['source_part_id'] ?? '';
+    $targets = $_POST['target_part_ids'] ?? [];
     if ($source && !empty($targets)) {
         try {
             $pdo->beginTransaction();
-            // Get source matrix
-            $srcStmt = $pdo->prepare("SELECT checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_no = ?");
+            $srcStmt = $pdo->prepare("SELECT checkpoint_id, stage FROM qc_part_inspection_matrix WHERE part_id = ?");
             $srcStmt->execute([$source]);
             $srcRows = $srcStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $insertStmt = $pdo->prepare("INSERT IGNORE INTO qc_part_inspection_matrix (part_no, checkpoint_id, stage) VALUES (?, ?, ?)");
-            $copied = 0;
+            $insertStmt = $pdo->prepare("INSERT IGNORE INTO qc_part_inspection_matrix (part_id, checkpoint_id, stage) VALUES (?, ?, ?)");
             foreach ($targets as $target) {
-                // Clear existing for target
-                $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_no = ?")->execute([$target]);
+                $pdo->prepare("DELETE FROM qc_part_inspection_matrix WHERE part_id = ?")->execute([$target]);
                 foreach ($srcRows as $row) {
                     $insertStmt->execute([$target, $row['checkpoint_id'], $row['stage']]);
-                    $copied++;
                 }
             }
             $pdo->commit();
-            $success_msg = "Copied " . count($srcRows) . " checkpoint(s) to " . count($targets) . " part(s).";
+            $success_msg = "Copied " . count($srcRows) . " checkpoint(s) to " . count($targets) . " Part ID(s).";
         } catch (PDOException $e) {
             $pdo->rollBack();
             $error_msg = "Error copying matrix: " . $e->getMessage();
@@ -37,93 +33,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Pagination
-$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
-$per_page = 25;
-$offset = ($page - 1) * $per_page;
-
-// Filters
-$search = isset($_GET['search']) ? trim($_GET['search']) : '';
-$filter_category = isset($_GET['part_category']) ? $_GET['part_category'] : '';
-$filter_configured = isset($_GET['configured']) ? $_GET['configured'] : '';
-
-$where = ["p.status = 'active'"];
-$params = [];
-
-if ($search) {
-    $where[] = "(p.part_no LIKE ? OR p.part_name LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-}
-if ($filter_category) {
-    $where[] = "p.part_id = ?";
-    $params[] = $filter_category;
+// Get all Part ID series
+try {
+    $partIdSeries = $pdo->query("
+        SELECT ps.part_id, ps.description, ps.series_prefix, ps.is_active,
+            (SELECT COUNT(*) FROM part_master WHERE part_id = ps.part_id AND status = 'active') as part_count
+        FROM part_id_series ps
+        ORDER BY ps.part_id
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $partIdSeries = [];
+    $error_msg = "Error loading Part IDs: " . $e->getMessage();
 }
 
-$where_clause = "WHERE " . implode(" AND ", $where);
+// Get matrix counts per part_id per stage
+$matrixCounts = [];
+try {
+    $rows = $pdo->query("
+        SELECT part_id, stage, COUNT(*) as cnt
+        FROM qc_part_inspection_matrix
+        GROUP BY part_id, stage
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+        $matrixCounts[$row['part_id']][$row['stage']] = $row['cnt'];
+    }
+} catch (Exception $e) {}
 
 // Stats
 try {
-    $totalParts = $pdo->query("SELECT COUNT(*) FROM part_master WHERE status = 'active'")->fetchColumn();
-    $configuredParts = $pdo->query("SELECT COUNT(DISTINCT part_no) FROM qc_part_inspection_matrix")->fetchColumn();
+    $totalPartIds = count($partIdSeries);
+    $configuredIds = $pdo->query("SELECT COUNT(DISTINCT part_id) FROM qc_part_inspection_matrix")->fetchColumn();
     $totalCheckpoints = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints WHERE is_active = 1")->fetchColumn();
 } catch (Exception $e) {
-    $totalParts = $configuredParts = $totalCheckpoints = 0;
+    $totalPartIds = $configuredIds = $totalCheckpoints = 0;
 }
 
-// Get parts with matrix counts
+// Configured Part IDs for copy dropdown
+$configuredList = [];
 try {
-    $countParams = $params;
-    $countSql = "SELECT COUNT(*) FROM part_master p $where_clause";
-
-    if ($filter_configured === 'yes') {
-        $countSql = "SELECT COUNT(DISTINCT p.part_no) FROM part_master p INNER JOIN qc_part_inspection_matrix m ON p.part_no = m.part_no $where_clause";
-    } elseif ($filter_configured === 'no') {
-        $countSql = "SELECT COUNT(*) FROM part_master p LEFT JOIN qc_part_inspection_matrix m ON p.part_no = m.part_no $where_clause AND m.id IS NULL";
-    }
-
-    $countStmt = $pdo->prepare($countSql);
-    $countStmt->execute($countParams);
-    $total_count = $countStmt->fetchColumn();
-    $total_pages = ceil($total_count / $per_page);
-
-    $sql = "
-        SELECT p.part_no, p.part_name, p.part_id, p.category, p.uom,
-            (SELECT COUNT(*) FROM qc_part_inspection_matrix WHERE part_no = p.part_no AND stage = 'incoming') as incoming_count,
-            (SELECT COUNT(*) FROM qc_part_inspection_matrix WHERE part_no = p.part_no AND stage = 'work_order') as wo_count,
-            (SELECT COUNT(*) FROM qc_part_inspection_matrix WHERE part_no = p.part_no AND stage = 'so_release') as so_count,
-            (SELECT COUNT(*) FROM qc_part_inspection_matrix WHERE part_no = p.part_no AND stage = 'final_inspection') as final_count,
-            (SELECT COUNT(*) FROM qc_part_inspection_matrix WHERE part_no = p.part_no) as total_checks
-        FROM part_master p
-    ";
-
-    if ($filter_configured === 'yes') {
-        $sql .= " INNER JOIN (SELECT DISTINCT part_no FROM qc_part_inspection_matrix) m ON p.part_no = m.part_no ";
-    } elseif ($filter_configured === 'no') {
-        $sql .= " LEFT JOIN (SELECT DISTINCT part_no FROM qc_part_inspection_matrix) m ON p.part_no = m.part_no ";
-        $where_clause .= " AND m.part_no IS NULL";
-    }
-
-    $sql .= " $where_clause ORDER BY p.part_no LIMIT $per_page OFFSET $offset";
-
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $parts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Get part categories for filter
-    $partCategories = $pdo->query("SELECT DISTINCT part_id FROM part_master WHERE status = 'active' AND part_id IS NOT NULL AND part_id != '' ORDER BY part_id")->fetchAll(PDO::FETCH_COLUMN);
-
-    // Get configured parts for bulk copy source dropdown
-    $configuredPartsList = $pdo->query("SELECT DISTINCT m.part_no, p.part_name FROM qc_part_inspection_matrix m LEFT JOIN part_master p ON m.part_no = p.part_no ORDER BY m.part_no")->fetchAll(PDO::FETCH_ASSOC);
-
-} catch (Exception $e) {
-    $parts = [];
-    $partCategories = [];
-    $configuredPartsList = [];
-    $total_count = 0;
-    $total_pages = 0;
-    $error_msg = "Error: " . $e->getMessage();
-}
+    $configuredList = $pdo->query("
+        SELECT DISTINCT m.part_id, ps.description
+        FROM qc_part_inspection_matrix m
+        LEFT JOIN part_id_series ps ON m.part_id = ps.part_id
+        ORDER BY m.part_id
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
 
 include '../includes/header.php';
 include '../includes/sidebar.php';
@@ -165,26 +119,7 @@ include '../includes/sidebar.php';
         .stat-card.warning { border-left-color: #f39c12; }
         .stat-card.info { border-left-color: #3498db; }
 
-        .filter-section {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        .filter-section label { font-weight: 600; color: #495057; font-size: 0.9em; }
-        .filter-section select, .filter-section input[type="text"] {
-            padding: 8px 12px;
-            border: 1px solid #ced4da;
-            border-radius: 6px;
-            background: white;
-            font-size: 0.9em;
-        }
-
-        .parts-table {
+        .matrix-table {
             width: 100%;
             border-collapse: collapse;
             background: white;
@@ -192,60 +127,62 @@ include '../includes/sidebar.php';
             overflow: hidden;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
-        .parts-table th, .parts-table td {
-            padding: 12px 10px;
+        .matrix-table th, .matrix-table td {
+            padding: 14px 12px;
             text-align: center;
             border-bottom: 1px solid #eee;
-            font-size: 0.9em;
         }
-        .parts-table th {
+        .matrix-table th {
             background: #f8f9fa;
             font-weight: 600;
             color: #495057;
-            position: sticky;
-            top: 0;
+            font-size: 0.9em;
         }
-        .parts-table td:first-child, .parts-table td:nth-child(2) { text-align: left; }
-        .parts-table th:first-child, .parts-table th:nth-child(2) { text-align: left; }
-        .parts-table tr:hover { background: #f0f4ff; }
+        .matrix-table td:first-child, .matrix-table td:nth-child(2), .matrix-table td:nth-child(3) { text-align: left; }
+        .matrix-table th:first-child, .matrix-table th:nth-child(2), .matrix-table th:nth-child(3) { text-align: left; }
+        .matrix-table tr:hover { background: #f0f4ff; }
+
+        .part-id-badge {
+            display: inline-block;
+            padding: 5px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1em;
+            background: #667eea;
+            color: white;
+            letter-spacing: 0.5px;
+        }
 
         .count-badge {
             display: inline-block;
-            min-width: 28px;
-            padding: 3px 8px;
+            min-width: 30px;
+            padding: 4px 10px;
             border-radius: 12px;
-            font-size: 0.85em;
+            font-size: 0.9em;
             font-weight: 600;
             text-align: center;
         }
         .count-badge.has-checks { background: #d1fae5; color: #065f46; }
         .count-badge.no-checks { background: #f3f4f6; color: #9ca3af; }
 
-        .category-tag {
+        .total-badge {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 0.8em;
-            font-weight: 600;
-            background: #e8eaf6;
-            color: #3f51b5;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.95em;
         }
+        .total-badge.configured { background: #d1fae5; color: #065f46; }
+        .total-badge.not-configured { background: #fef3c7; color: #92400e; }
 
-        .pagination {
-            display: flex;
-            justify-content: center;
-            gap: 5px;
-            margin-top: 25px;
+        .alert-success {
+            background: #d1fae5; border: 1px solid #10b981; color: #065f46;
+            padding: 12px 20px; border-radius: 8px; margin-bottom: 20px;
         }
-        .pagination a, .pagination span {
-            padding: 8px 14px;
-            border-radius: 5px;
-            text-decoration: none;
-            font-size: 0.9em;
+        .alert-error {
+            background: #fee2e2; border: 1px solid #ef4444; color: #991b1b;
+            padding: 12px 20px; border-radius: 8px; margin-bottom: 20px;
         }
-        .pagination a { background: #f8f9fa; color: #495057; }
-        .pagination a:hover { background: #667eea; color: white; }
-        .pagination span { background: #667eea; color: white; }
 
         .modal-overlay {
             display: none;
@@ -261,7 +198,7 @@ include '../includes/sidebar.php';
             background: white;
             border-radius: 12px;
             padding: 30px;
-            width: 550px;
+            width: 500px;
             max-width: 90%;
             max-height: 80vh;
             overflow-y: auto;
@@ -269,20 +206,10 @@ include '../includes/sidebar.php';
         }
         .modal-box h3 { margin: 0 0 20px; color: #2c3e50; }
 
-        .alert-success {
-            background: #d1fae5; border: 1px solid #10b981; color: #065f46;
-            padding: 12px 20px; border-radius: 8px; margin-bottom: 20px;
-        }
-        .alert-error {
-            background: #fee2e2; border: 1px solid #ef4444; color: #991b1b;
-            padding: 12px 20px; border-radius: 8px; margin-bottom: 20px;
-        }
-
-        body.dark .stat-card, body.dark .parts-table, body.dark .modal-box { background: #2c3e50; }
+        body.dark .stat-card, body.dark .matrix-table, body.dark .modal-box { background: #2c3e50; }
         body.dark .stat-card .stat-value, body.dark .modal-box h3 { color: #ecf0f1; }
-        body.dark .parts-table th { background: #34495e; color: #ecf0f1; }
-        body.dark .parts-table tr:hover { background: #34495e; }
-        body.dark .filter-section { background: #34495e; }
+        body.dark .matrix-table th { background: #34495e; color: #ecf0f1; }
+        body.dark .matrix-table tr:hover { background: #34495e; }
     </style>
 </head>
 <body>
@@ -291,12 +218,12 @@ include '../includes/sidebar.php';
     <div class="page-header">
         <div>
             <h1>Part Inspection Matrix</h1>
-            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints for each part by stage</p>
+            <p style="color: #666; margin: 5px 0 0;">Configure inspection checkpoints per Part ID category</p>
         </div>
         <div style="display: flex; gap: 10px;">
             <a href="dashboard.php" class="btn btn-secondary">QC Dashboard</a>
             <a href="inspection_checkpoints.php" class="btn btn-secondary">Manage Checkpoints</a>
-            <?php if (!empty($configuredPartsList)): ?>
+            <?php if (!empty($configuredList)): ?>
                 <button onclick="openBulkCopyModal()" class="btn btn-primary">Copy Matrix</button>
             <?php endif; ?>
         </div>
@@ -312,15 +239,15 @@ include '../includes/sidebar.php';
     <!-- Stats -->
     <div class="stats-grid">
         <div class="stat-card info">
-            <div class="stat-value"><?= $totalParts ?></div>
-            <div class="stat-label">Total Active Parts</div>
+            <div class="stat-value"><?= $totalPartIds ?></div>
+            <div class="stat-label">Total Part IDs</div>
         </div>
         <div class="stat-card success">
-            <div class="stat-value"><?= $configuredParts ?></div>
-            <div class="stat-label">Parts Configured</div>
+            <div class="stat-value"><?= $configuredIds ?></div>
+            <div class="stat-label">Configured</div>
         </div>
         <div class="stat-card warning">
-            <div class="stat-value"><?= $totalParts - $configuredParts ?></div>
+            <div class="stat-value"><?= $totalPartIds - $configuredIds ?></div>
             <div class="stat-label">Not Configured</div>
         </div>
         <div class="stat-card">
@@ -329,53 +256,19 @@ include '../includes/sidebar.php';
         </div>
     </div>
 
-    <!-- Filters -->
-    <div class="filter-section">
-        <form method="get" style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; width: 100%;">
-            <div>
-                <label>Search:</label>
-                <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Part No or Name..." style="width: 180px;">
-            </div>
-            <div>
-                <label>Part Category:</label>
-                <select name="part_category" onchange="this.form.submit()">
-                    <option value="">All</option>
-                    <?php foreach ($partCategories as $cat): ?>
-                        <option value="<?= htmlspecialchars($cat) ?>" <?= $filter_category === $cat ? 'selected' : '' ?>><?= htmlspecialchars($cat) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div>
-                <label>Matrix Status:</label>
-                <select name="configured" onchange="this.form.submit()">
-                    <option value="">All</option>
-                    <option value="yes" <?= $filter_configured === 'yes' ? 'selected' : '' ?>>Configured</option>
-                    <option value="no" <?= $filter_configured === 'no' ? 'selected' : '' ?>>Not Configured</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-sm btn-primary">Search</button>
-            <?php if ($search || $filter_category || $filter_configured): ?>
-                <a href="inspection_matrix.php" class="btn btn-sm" style="background: #e74c3c; color: white;">Clear</a>
-            <?php endif; ?>
-            <div style="margin-left: auto; color: #666; font-size: 0.9em;">
-                <?= $total_count ?> part<?= $total_count != 1 ? 's' : '' ?>
-            </div>
-        </form>
-    </div>
-
-    <!-- Parts Table -->
-    <?php if (empty($parts)): ?>
+    <!-- Matrix Table -->
+    <?php if (empty($partIdSeries)): ?>
         <div style="text-align: center; padding: 60px 20px; color: #7f8c8d; background: white; border-radius: 10px;">
-            <h3>No Parts Found</h3>
-            <p>Add parts in <a href="../part_master/list.php">Part Master</a> first, or adjust your filters.</p>
+            <h3>No Part IDs Found</h3>
+            <p>Set up Part ID Series in <a href="../admin/setup_part_id_series.php">Admin Setup</a> first.</p>
         </div>
     <?php else: ?>
-        <table class="parts-table">
+        <table class="matrix-table">
             <thead>
                 <tr>
-                    <th>Part No</th>
-                    <th>Part Name</th>
-                    <th>Type</th>
+                    <th>Part ID</th>
+                    <th>Description</th>
+                    <th>Parts</th>
                     <th title="Incoming Inspection">Incoming</th>
                     <th title="Work Order Inspection">Work Order</th>
                     <th title="Sales Order Release">SO Release</th>
@@ -385,70 +278,48 @@ include '../includes/sidebar.php';
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($parts as $part): ?>
+                <?php foreach ($partIdSeries as $pid):
+                    $incoming = $matrixCounts[$pid['part_id']]['incoming'] ?? 0;
+                    $wo = $matrixCounts[$pid['part_id']]['work_order'] ?? 0;
+                    $so = $matrixCounts[$pid['part_id']]['so_release'] ?? 0;
+                    $final = $matrixCounts[$pid['part_id']]['final_inspection'] ?? 0;
+                    $total = $incoming + $wo + $so + $final;
+                ?>
                 <tr>
-                    <td><strong><?= htmlspecialchars($part['part_no']) ?></strong></td>
-                    <td><?= htmlspecialchars($part['part_name'] ?: '-') ?></td>
-                    <td><span class="category-tag"><?= htmlspecialchars($part['part_id'] ?: $part['category'] ?: '-') ?></span></td>
+                    <td><span class="part-id-badge"><?= htmlspecialchars($pid['part_id']) ?></span></td>
                     <td>
-                        <span class="count-badge <?= $part['incoming_count'] > 0 ? 'has-checks' : 'no-checks' ?>">
-                            <?= $part['incoming_count'] ?>
+                        <strong><?= htmlspecialchars($pid['description'] ?: '-') ?></strong>
+                        <div style="font-size: 0.8em; color: #999;">Prefix: <?= htmlspecialchars($pid['series_prefix']) ?></div>
+                    </td>
+                    <td style="text-align: center;">
+                        <span style="font-weight: 600; color: #3498db;"><?= $pid['part_count'] ?></span>
+                    </td>
+                    <td>
+                        <span class="count-badge <?= $incoming > 0 ? 'has-checks' : 'no-checks' ?>"><?= $incoming ?></span>
+                    </td>
+                    <td>
+                        <span class="count-badge <?= $wo > 0 ? 'has-checks' : 'no-checks' ?>"><?= $wo ?></span>
+                    </td>
+                    <td>
+                        <span class="count-badge <?= $so > 0 ? 'has-checks' : 'no-checks' ?>"><?= $so ?></span>
+                    </td>
+                    <td>
+                        <span class="count-badge <?= $final > 0 ? 'has-checks' : 'no-checks' ?>"><?= $final ?></span>
+                    </td>
+                    <td>
+                        <span class="total-badge <?= $total > 0 ? 'configured' : 'not-configured' ?>">
+                            <?= $total ?>
                         </span>
                     </td>
                     <td>
-                        <span class="count-badge <?= $part['wo_count'] > 0 ? 'has-checks' : 'no-checks' ?>">
-                            <?= $part['wo_count'] ?>
-                        </span>
-                    </td>
-                    <td>
-                        <span class="count-badge <?= $part['so_count'] > 0 ? 'has-checks' : 'no-checks' ?>">
-                            <?= $part['so_count'] ?>
-                        </span>
-                    </td>
-                    <td>
-                        <span class="count-badge <?= $part['final_count'] > 0 ? 'has-checks' : 'no-checks' ?>">
-                            <?= $part['final_count'] ?>
-                        </span>
-                    </td>
-                    <td>
-                        <strong style="color: <?= $part['total_checks'] > 0 ? '#27ae60' : '#999' ?>;">
-                            <?= $part['total_checks'] ?>
-                        </strong>
-                    </td>
-                    <td>
-                        <a href="inspection_matrix_edit.php?part_no=<?= urlencode($part['part_no']) ?>" class="btn btn-sm btn-primary">
-                            <?= $part['total_checks'] > 0 ? 'Edit' : 'Configure' ?>
+                        <a href="inspection_matrix_edit.php?part_id=<?= urlencode($pid['part_id']) ?>" class="btn btn-sm btn-primary">
+                            <?= $total > 0 ? 'Edit' : 'Configure' ?>
                         </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
-
-        <!-- Pagination -->
-        <?php if ($total_pages > 1): ?>
-        <div class="pagination">
-            <?php
-            $qp = http_build_query(array_filter(['search' => $search, 'part_category' => $filter_category, 'configured' => $filter_configured]));
-            $qp = $qp ? "&$qp" : '';
-            ?>
-            <?php if ($page > 1): ?>
-                <a href="?page=1<?= $qp ?>">First</a>
-                <a href="?page=<?= $page - 1 ?><?= $qp ?>">Prev</a>
-            <?php endif; ?>
-            <?php for ($i = max(1, $page - 2); $i <= min($total_pages, $page + 2); $i++): ?>
-                <?php if ($i == $page): ?>
-                    <span><?= $i ?></span>
-                <?php else: ?>
-                    <a href="?page=<?= $i ?><?= $qp ?>"><?= $i ?></a>
-                <?php endif; ?>
-            <?php endfor; ?>
-            <?php if ($page < $total_pages): ?>
-                <a href="?page=<?= $page + 1 ?><?= $qp ?>">Next</a>
-                <a href="?page=<?= $total_pages ?><?= $qp ?>">Last</a>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
     <?php endif; ?>
 </div>
 
@@ -456,40 +327,35 @@ include '../includes/sidebar.php';
 <div class="modal-overlay" id="bulkCopyModal">
     <div class="modal-box">
         <h3>Copy Inspection Matrix</h3>
-        <p style="color: #666; margin-bottom: 20px;">Copy all checkpoint assignments from one part to other parts. This will <strong>replace</strong> existing configurations on target parts.</p>
+        <p style="color: #666; margin-bottom: 20px;">Copy all checkpoint assignments from one Part ID to others. This will <strong>replace</strong> existing configurations on target Part IDs.</p>
         <form method="post">
             <input type="hidden" name="action" value="bulk_copy">
             <div style="margin-bottom: 15px;">
-                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Copy from (Source Part):</label>
-                <select name="source_part" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
-                    <option value="">Select source part...</option>
-                    <?php foreach ($configuredPartsList as $cp): ?>
-                        <option value="<?= htmlspecialchars($cp['part_no']) ?>">
-                            <?= htmlspecialchars($cp['part_no']) ?> - <?= htmlspecialchars($cp['part_name'] ?: 'N/A') ?>
+                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Copy from (Source):</label>
+                <select name="source_part_id" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                    <option value="">Select source Part ID...</option>
+                    <?php foreach ($configuredList as $cp): ?>
+                        <option value="<?= htmlspecialchars($cp['part_id']) ?>">
+                            <?= htmlspecialchars($cp['part_id']) ?> - <?= htmlspecialchars($cp['description'] ?: 'N/A') ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <div style="margin-bottom: 15px;">
-                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Copy to (Target Parts):</label>
+                <label style="display: block; font-weight: 600; margin-bottom: 5px;">Copy to (Targets):</label>
                 <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 10px;">
-                    <?php
-                    try {
-                        $allParts = $pdo->query("SELECT part_no, part_name FROM part_master WHERE status = 'active' ORDER BY part_no")->fetchAll(PDO::FETCH_ASSOC);
-                    } catch (Exception $e) { $allParts = []; }
-                    foreach ($allParts as $ap):
-                    ?>
-                        <label style="display: flex; align-items: center; padding: 5px 0; cursor: pointer;">
-                            <input type="checkbox" name="target_parts[]" value="<?= htmlspecialchars($ap['part_no']) ?>" style="margin-right: 8px;">
-                            <span><?= htmlspecialchars($ap['part_no']) ?></span>
-                            <span style="color: #999; margin-left: 8px; font-size: 0.85em;"><?= htmlspecialchars($ap['part_name'] ?: '') ?></span>
+                    <?php foreach ($partIdSeries as $pid): ?>
+                        <label style="display: flex; align-items: center; padding: 6px 0; cursor: pointer;">
+                            <input type="checkbox" name="target_part_ids[]" value="<?= htmlspecialchars($pid['part_id']) ?>" style="margin-right: 10px;">
+                            <span class="part-id-badge" style="font-size: 0.85em; padding: 3px 10px;"><?= htmlspecialchars($pid['part_id']) ?></span>
+                            <span style="color: #666; margin-left: 10px; font-size: 0.9em;"><?= htmlspecialchars($pid['description'] ?: '') ?></span>
                         </label>
                     <?php endforeach; ?>
                 </div>
             </div>
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
                 <button type="button" onclick="closeModal('bulkCopyModal')" class="btn btn-secondary">Cancel</button>
-                <button type="submit" class="btn btn-primary" onclick="return confirm('This will replace existing inspection matrix on target parts. Continue?')">Copy Matrix</button>
+                <button type="submit" class="btn btn-primary" onclick="return confirm('This will replace existing inspection matrix on target Part IDs. Continue?')">Copy Matrix</button>
             </div>
         </form>
     </div>

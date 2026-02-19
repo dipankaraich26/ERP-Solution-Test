@@ -83,12 +83,12 @@ try {
 
 // Inspection Matrix stats
 try {
-    $stats['matrix_configured'] = $pdo->query("SELECT COUNT(DISTINCT part_no) FROM qc_part_inspection_matrix")->fetchColumn();
-    $stats['matrix_total_parts'] = $pdo->query("SELECT COUNT(*) FROM part_master WHERE status = 'active'")->fetchColumn();
+    $stats['matrix_configured'] = $pdo->query("SELECT COUNT(DISTINCT part_id) FROM qc_part_inspection_matrix")->fetchColumn();
+    $stats['matrix_total_ids'] = $pdo->query("SELECT COUNT(*) FROM part_id_series")->fetchColumn();
     $stats['matrix_checkpoints'] = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints WHERE is_active = 1")->fetchColumn();
 } catch (Exception $e) {
     $stats['matrix_configured'] = 0;
-    $stats['matrix_total_parts'] = 0;
+    $stats['matrix_total_ids'] = 0;
     $stats['matrix_checkpoints'] = 0;
 }
 
@@ -434,10 +434,10 @@ if (toggle) {
             <div class="stat-label">WO Checklists Submitted</div>
         </div>
         <a href="inspection_matrix.php" style="text-decoration: none;">
-            <div class="stat-card <?= $stats['matrix_configured'] < $stats['matrix_total_parts'] ? 'warning' : 'success' ?>">
+            <div class="stat-card <?= $stats['matrix_configured'] < $stats['matrix_total_ids'] ? 'warning' : 'success' ?>">
                 <div class="stat-icon">📊</div>
-                <div class="stat-value"><?= $stats['matrix_configured'] ?>/<?= $stats['matrix_total_parts'] ?></div>
-                <div class="stat-label">Parts with Inspection Matrix</div>
+                <div class="stat-value"><?= $stats['matrix_configured'] ?>/<?= $stats['matrix_total_ids'] ?></div>
+                <div class="stat-label">Part IDs with Inspection Matrix</div>
             </div>
         </a>
     </div>
