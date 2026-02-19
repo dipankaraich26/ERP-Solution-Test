@@ -611,6 +611,7 @@ $showStrategy = $_isAdmin || _canView('strategy');
             <a href="/quality_control/calibration.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['calibration.php', 'calibration_add.php']) ? 'active' : '' ?>">Calibration</a>
             <a href="/quality_control/wo_inspections.php" class="<?= $currentDir === 'quality_control' && $current === 'wo_inspections.php' ? 'active' : '' ?>">WO Inspections</a>
             <a href="/quality_control/process_mapping.php" class="<?= $currentDir === 'quality_control' && $current === 'process_mapping.php' ? 'active' : '' ?>">Process Mapping</a>
+            <a href="/quality_control/inspection_matrix.php" class="<?= $currentDir === 'quality_control' && in_array($current, ['inspection_matrix.php', 'inspection_matrix_edit.php', 'inspection_checkpoints.php']) ? 'active' : '' ?>">Inspection Matrix</a>
         </div>
     </div>
     <?php endif; ?>
