@@ -828,6 +828,7 @@ showModal();
                     <label>Interaction Type *</label>
                     <select name="interaction_type" required>
                         <option value="call">Phone Call</option>
+                        <option value="whatsapp">WhatsApp</option>
                         <option value="email">Email</option>
                         <option value="meeting">Meeting</option>
                         <option value="site_visit">Site Visit</option>
