@@ -6,12 +6,18 @@ requireLogin();
 $success_msg = '';
 $error_msg = '';
 
-// Auto-create tables if they don't exist
+// Auto-create/fix tables
 try {
-    $pdo->query("SELECT 1 FROM qc_inspection_checkpoints LIMIT 1");
-} catch (Exception $e) {
-    // Tables don't exist - create them
+    // Check if matrix table has correct column (part_id vs old part_no)
+    $needsSetup = false;
     try {
+        $pdo->query("SELECT part_id FROM qc_part_inspection_matrix LIMIT 1");
+    } catch (Exception $e) {
+        $needsSetup = true;
+    }
+
+    if ($needsSetup) {
+        // Create checkpoints table if missing
         $pdo->exec("CREATE TABLE IF NOT EXISTS qc_inspection_checkpoints (
             id INT AUTO_INCREMENT PRIMARY KEY,
             checkpoint_name VARCHAR(255) NOT NULL,
@@ -22,7 +28,9 @@ try {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        $pdo->exec("CREATE TABLE IF NOT EXISTS qc_part_inspection_matrix (
+        // Drop old matrix table if it has wrong column, then recreate
+        $pdo->exec("DROP TABLE IF EXISTS qc_part_inspection_matrix");
+        $pdo->exec("CREATE TABLE qc_part_inspection_matrix (
             id INT AUTO_INCREMENT PRIMARY KEY,
             part_id VARCHAR(50) NOT NULL,
             checkpoint_id INT NOT NULL,
@@ -33,39 +41,42 @@ try {
             FOREIGN KEY (checkpoint_id) REFERENCES qc_inspection_checkpoints(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        // Insert default checkpoints
-        $defaults = [
-            ['Purchase Order Match', 'Verify items match PO specifications', 'Documentation', 1],
-            ['Packing List Verification', 'Check packing list against received items', 'Documentation', 2],
-            ['Invoice Verification', 'Supplier invoice matches PO and delivery', 'Documentation', 3],
-            ['Certificate of Conformance', 'COC/Test certificates provided if required', 'Documentation', 4],
-            ['Traceability Records', 'Serial/batch numbers recorded', 'Documentation', 5],
-            ['Quantity Verification', 'Received quantity matches delivery note', 'Quantity', 6],
-            ['Part Number Verification', 'Part numbers match PO specifications', 'Quantity', 7],
-            ['Packaging Condition', 'Packaging intact and undamaged', 'Packaging', 8],
-            ['Labeling Check', 'Items properly labeled with part no, batch, date', 'Packaging', 9],
-            ['Seal Integrity', 'Seals unbroken (if applicable)', 'Packaging', 10],
-            ['Visual Inspection - Surface', 'No visible damage, scratches, rust, or defects', 'Physical', 11],
-            ['Dimensional Check', 'Dimensions within specifications / drawing', 'Physical', 12],
-            ['Color/Finish Check', 'Color and finish as per specification', 'Physical', 13],
-            ['Weight Verification', 'Weight within acceptable range', 'Physical', 14],
-            ['Functionality Test', 'Basic functionality verified (if applicable)', 'Functional', 15],
-            ['Performance Test', 'Meets performance criteria', 'Functional', 16],
-            ['Fit/Assembly Check', 'Components fit correctly in assembly', 'Functional', 17],
-            ['Material Verification', 'Material grade/type as specified', 'Quality', 18],
-            ['Expiry/Shelf Life', 'Within acceptable shelf life period', 'Quality', 19],
-            ['Paint/Coating Check', 'Uniform coverage, no peeling', 'Quality', 20],
-            ['Safety Standards', 'Meets required safety standards', 'Compliance', 21],
-            ['Regulatory Compliance', 'Complies with applicable regulations', 'Compliance', 22],
-            ['Sharp Edges Check', 'No dangerous sharp edges', 'Compliance', 23],
-            ['Electrical Safety', 'Proper insulation/grounding (if applicable)', 'Compliance', 24],
-        ];
-        $stmt = $pdo->prepare("INSERT INTO qc_inspection_checkpoints (checkpoint_name, specification, category, sort_order) VALUES (?, ?, ?, ?)");
-        foreach ($defaults as $cp) { $stmt->execute($cp); }
-        $success_msg = "Inspection Matrix tables created with 24 default checkpoints.";
-    } catch (PDOException $ex) {
-        $error_msg = "Setup error: " . $ex->getMessage();
+        // Insert default checkpoints if empty
+        $cpCount = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints")->fetchColumn();
+        if ($cpCount == 0) {
+            $defaults = [
+                ['Purchase Order Match', 'Verify items match PO specifications', 'Documentation', 1],
+                ['Packing List Verification', 'Check packing list against received items', 'Documentation', 2],
+                ['Invoice Verification', 'Supplier invoice matches PO and delivery', 'Documentation', 3],
+                ['Certificate of Conformance', 'COC/Test certificates provided if required', 'Documentation', 4],
+                ['Traceability Records', 'Serial/batch numbers recorded', 'Documentation', 5],
+                ['Quantity Verification', 'Received quantity matches delivery note', 'Quantity', 6],
+                ['Part Number Verification', 'Part numbers match PO specifications', 'Quantity', 7],
+                ['Packaging Condition', 'Packaging intact and undamaged', 'Packaging', 8],
+                ['Labeling Check', 'Items properly labeled with part no, batch, date', 'Packaging', 9],
+                ['Seal Integrity', 'Seals unbroken (if applicable)', 'Packaging', 10],
+                ['Visual Inspection - Surface', 'No visible damage, scratches, rust, or defects', 'Physical', 11],
+                ['Dimensional Check', 'Dimensions within specifications / drawing', 'Physical', 12],
+                ['Color/Finish Check', 'Color and finish as per specification', 'Physical', 13],
+                ['Weight Verification', 'Weight within acceptable range', 'Physical', 14],
+                ['Functionality Test', 'Basic functionality verified (if applicable)', 'Functional', 15],
+                ['Performance Test', 'Meets performance criteria', 'Functional', 16],
+                ['Fit/Assembly Check', 'Components fit correctly in assembly', 'Functional', 17],
+                ['Material Verification', 'Material grade/type as specified', 'Quality', 18],
+                ['Expiry/Shelf Life', 'Within acceptable shelf life period', 'Quality', 19],
+                ['Paint/Coating Check', 'Uniform coverage, no peeling', 'Quality', 20],
+                ['Safety Standards', 'Meets required safety standards', 'Compliance', 21],
+                ['Regulatory Compliance', 'Complies with applicable regulations', 'Compliance', 22],
+                ['Sharp Edges Check', 'No dangerous sharp edges', 'Compliance', 23],
+                ['Electrical Safety', 'Proper insulation/grounding (if applicable)', 'Compliance', 24],
+            ];
+            $stmt = $pdo->prepare("INSERT INTO qc_inspection_checkpoints (checkpoint_name, specification, category, sort_order) VALUES (?, ?, ?, ?)");
+            foreach ($defaults as $cp) { $stmt->execute($cp); }
+        }
+        $success_msg = "Inspection Matrix tables set up successfully.";
     }
+} catch (PDOException $ex) {
+    $error_msg = "Setup error: " . $ex->getMessage();
 }
 
 // Handle bulk copy

@@ -137,16 +137,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$wo_id, $checklistNo, $userId]);
             $checklistId = $pdo->lastInsertId();
 
-            // Copy template items to checklist
-            $templates = $pdo->query("SELECT item_no, checkpoint, specification FROM wo_quality_checkpoint_templates WHERE is_active = 1 ORDER BY item_no")->fetchAll();
+            // Load checkpoints from Part Inspection Matrix based on this WO's part_id
+            $matrixCheckpoints = [];
+            try {
+                $partIdStmt = $pdo->prepare("SELECT part_id FROM part_master WHERE part_no = ? AND part_id IS NOT NULL AND part_id != '' LIMIT 1");
+                $partIdStmt->execute([$wo['part_no']]);
+                $partId = $partIdStmt->fetchColumn();
+
+                if ($partId) {
+                    $matrixStmt = $pdo->prepare("
+                        SELECT DISTINCT c.id, c.checkpoint_name, c.specification, c.sort_order
+                        FROM qc_part_inspection_matrix m
+                        JOIN qc_inspection_checkpoints c ON m.checkpoint_id = c.id
+                        WHERE m.part_id = ?
+                          AND m.stage = 'work_order'
+                          AND c.is_active = 1
+                        ORDER BY c.sort_order, c.id
+                    ");
+                    $matrixStmt->execute([$partId]);
+                    $matrixCheckpoints = $matrixStmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+            } catch (Exception $e) {
+                // Matrix tables may not exist yet - will fallback to old templates
+            }
 
             $itemStmt = $pdo->prepare("
                 INSERT INTO wo_quality_checklist_items (checklist_id, item_no, checkpoint, specification, result)
                 VALUES (?, ?, ?, ?, 'Pending')
             ");
 
-            foreach ($templates as $tpl) {
-                $itemStmt->execute([$checklistId, $tpl['item_no'], $tpl['checkpoint'], $tpl['specification']]);
+            if (!empty($matrixCheckpoints)) {
+                // Use matrix checkpoints
+                $itemNo = 1;
+                foreach ($matrixCheckpoints as $cp) {
+                    $itemStmt->execute([$checklistId, $itemNo, $cp['checkpoint_name'], $cp['specification']]);
+                    $itemNo++;
+                }
+            } else {
+                // Fallback: use old template table
+                $templates = $pdo->query("SELECT item_no, checkpoint, specification FROM wo_quality_checkpoint_templates WHERE is_active = 1 ORDER BY item_no")->fetchAll();
+                foreach ($templates as $tpl) {
+                    $itemStmt->execute([$checklistId, $tpl['item_no'], $tpl['checkpoint'], $tpl['specification']]);
+                }
             }
 
             $pdo->commit();

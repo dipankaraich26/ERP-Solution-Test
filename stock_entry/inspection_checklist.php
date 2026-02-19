@@ -65,16 +65,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$po_no, $checklistNo, $userId]);
             $checklistId = $pdo->lastInsertId();
 
-            // Copy template items to checklist
-            $templates = $pdo->query("SELECT item_no, checkpoint, specification FROM po_inspection_checkpoint_templates WHERE is_active = 1 ORDER BY item_no")->fetchAll();
+            // Load checkpoints from Part Inspection Matrix based on part_ids in this PO
+            $matrixCheckpoints = [];
+            try {
+                $partIdStmt = $pdo->prepare("
+                    SELECT DISTINCT pm.part_id
+                    FROM purchase_orders po
+                    JOIN part_master pm ON po.part_no = pm.part_no
+                    WHERE po.po_no = ? AND pm.part_id IS NOT NULL AND pm.part_id != ''
+                ");
+                $partIdStmt->execute([$po_no]);
+                $partIds = $partIdStmt->fetchAll(PDO::FETCH_COLUMN);
+
+                if (!empty($partIds)) {
+                    $placeholders = implode(',', array_fill(0, count($partIds), '?'));
+                    $matrixStmt = $pdo->prepare("
+                        SELECT DISTINCT c.id, c.checkpoint_name, c.specification, c.sort_order
+                        FROM qc_part_inspection_matrix m
+                        JOIN qc_inspection_checkpoints c ON m.checkpoint_id = c.id
+                        WHERE m.part_id IN ($placeholders)
+                          AND m.stage = 'incoming'
+                          AND c.is_active = 1
+                        ORDER BY c.sort_order, c.id
+                    ");
+                    $matrixStmt->execute($partIds);
+                    $matrixCheckpoints = $matrixStmt->fetchAll(PDO::FETCH_ASSOC);
+                }
+            } catch (Exception $e) {
+                // Matrix tables may not exist yet - will fallback to old templates
+            }
 
             $itemStmt = $pdo->prepare("
                 INSERT INTO po_inspection_checklist_items (checklist_id, item_no, checkpoint, specification, result)
                 VALUES (?, ?, ?, ?, 'Pending')
             ");
 
-            foreach ($templates as $tpl) {
-                $itemStmt->execute([$checklistId, $tpl['item_no'], $tpl['checkpoint'], $tpl['specification']]);
+            if (!empty($matrixCheckpoints)) {
+                // Use matrix checkpoints
+                $itemNo = 1;
+                foreach ($matrixCheckpoints as $cp) {
+                    $itemStmt->execute([$checklistId, $itemNo, $cp['checkpoint_name'], $cp['specification']]);
+                    $itemNo++;
+                }
+            } else {
+                // Fallback: use old template table
+                $templates = $pdo->query("SELECT item_no, checkpoint, specification FROM po_inspection_checkpoint_templates WHERE is_active = 1 ORDER BY item_no")->fetchAll();
+                foreach ($templates as $tpl) {
+                    $itemStmt->execute([$checklistId, $tpl['item_no'], $tpl['checkpoint'], $tpl['specification']]);
+                }
             }
 
             $pdo->commit();

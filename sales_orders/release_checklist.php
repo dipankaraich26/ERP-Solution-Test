@@ -23,6 +23,26 @@ try {
     exit;
 }
 
+// Auto-create SO inspection items table for matrix-based checkpoints
+try {
+    $pdo->query("SELECT 1 FROM so_inspection_checklist_items LIMIT 1");
+} catch (PDOException $e) {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS so_inspection_checklist_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            so_no VARCHAR(50) NOT NULL,
+            item_no INT NOT NULL,
+            checkpoint VARCHAR(255) NOT NULL,
+            specification TEXT,
+            result ENUM('Pending','OK','Not OK','NA','Conditional') DEFAULT 'Pending',
+            actual_value VARCHAR(255),
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_so_no (so_no)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+}
+
 // Fetch sales order
 $stmt = $pdo->prepare("
     SELECT so.*, p.part_name,
@@ -66,6 +86,41 @@ $checklistItems = [];
 try {
     $checklistItems = $pdo->query("SELECT * FROM so_checklist_items WHERE is_active = 1 ORDER BY sort_order")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
+
+// Resolve part_id for this SO's part and load matrix-based inspection items
+$soPartId = null;
+$soInspectionItems = [];
+$matrixCheckpoints = [];
+$matrixAvailable = false;
+
+try {
+    $pidStmt = $pdo->prepare("SELECT part_id FROM part_master WHERE part_no = ? AND part_id IS NOT NULL AND part_id != '' LIMIT 1");
+    $pidStmt->execute([$order['part_no']]);
+    $soPartId = $pidStmt->fetchColumn();
+} catch (Exception $e) {}
+
+// Load existing SO inspection items
+try {
+    $insItemStmt = $pdo->prepare("SELECT * FROM so_inspection_checklist_items WHERE so_no = ? ORDER BY item_no");
+    $insItemStmt->execute([$so_no]);
+    $soInspectionItems = $insItemStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+// Check if matrix checkpoints exist for this part
+if ($soPartId) {
+    try {
+        $mcStmt = $pdo->prepare("
+            SELECT c.id, c.checkpoint_name, c.specification, c.category, c.sort_order
+            FROM qc_part_inspection_matrix m
+            JOIN qc_inspection_checkpoints c ON m.checkpoint_id = c.id
+            WHERE m.part_id = ? AND m.stage = 'so_release' AND c.is_active = 1
+            ORDER BY c.sort_order, c.id
+        ");
+        $mcStmt->execute([$soPartId]);
+        $matrixCheckpoints = $mcStmt->fetchAll(PDO::FETCH_ASSOC);
+        $matrixAvailable = !empty($matrixCheckpoints);
+    } catch (Exception $e) {}
+}
 
 // SO Approval tables auto-create
 try {
@@ -305,6 +360,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (PDOException $e) {
                 $errors[] = "Failed to request approval: " . $e->getMessage();
             }
+        }
+    }
+
+    // Generate inspection checkpoints from Part Inspection Matrix
+    if ($action === 'generate_inspection') {
+        if ($matrixAvailable && empty($soInspectionItems)) {
+            try {
+                $insStmt = $pdo->prepare("
+                    INSERT INTO so_inspection_checklist_items (so_no, item_no, checkpoint, specification, result)
+                    VALUES (?, ?, ?, ?, 'Pending')
+                ");
+                $itemNo = 1;
+                foreach ($matrixCheckpoints as $cp) {
+                    $insStmt->execute([$so_no, $itemNo, $cp['checkpoint_name'], $cp['specification']]);
+                    $itemNo++;
+                }
+                $success = "Inspection checkpoints generated from Part Inspection Matrix.";
+                // Refresh
+                $insItemStmt = $pdo->prepare("SELECT * FROM so_inspection_checklist_items WHERE so_no = ? ORDER BY item_no");
+                $insItemStmt->execute([$so_no]);
+                $soInspectionItems = $insItemStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                $errors[] = "Error generating inspection items: " . $e->getMessage();
+            }
+        }
+    }
+
+    // Save inspection checklist items
+    if ($action === 'save_inspection') {
+        try {
+            if (isset($_POST['insp_items']) && is_array($_POST['insp_items'])) {
+                $updateStmt = $pdo->prepare("
+                    UPDATE so_inspection_checklist_items
+                    SET result = ?, actual_value = ?, remarks = ?
+                    WHERE id = ? AND so_no = ?
+                ");
+                foreach ($_POST['insp_items'] as $itemId => $item) {
+                    $updateStmt->execute([
+                        $item['result'] ?? 'Pending',
+                        $item['actual_value'] ?? null,
+                        $item['remarks'] ?? null,
+                        (int)$itemId,
+                        $so_no
+                    ]);
+                }
+            }
+            $success = "Inspection items saved successfully.";
+            // Refresh
+            $insItemStmt = $pdo->prepare("SELECT * FROM so_inspection_checklist_items WHERE so_no = ? ORDER BY item_no");
+            $insItemStmt->execute([$so_no]);
+            $soInspectionItems = $insItemStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            $errors[] = "Error saving inspection items: " . $e->getMessage();
         }
     }
 }
@@ -832,6 +940,124 @@ include "../includes/sidebar.php";
                 </button>
             </div>
         </form>
+
+        <!-- Part-Specific Inspection Checkpoints (from Matrix) -->
+        <?php if ($matrixAvailable || !empty($soInspectionItems)): ?>
+        <div class="checklist-section">
+            <h3>
+                <span class="section-icon" style="background: #ede9fe;">&#128270;</span>
+                Part-Specific Inspection Checkpoints
+                <?php if ($soPartId): ?>
+                    <span style="font-size: 0.7em; background: #e0e7ff; color: #3730a3; padding: 3px 10px; border-radius: 12px; font-weight: 500;">Part ID: <?= htmlspecialchars($soPartId) ?></span>
+                <?php endif; ?>
+            </h3>
+
+            <?php if (empty($soInspectionItems) && $matrixAvailable): ?>
+                <!-- Generate button -->
+                <div style="text-align: center; padding: 25px; background: #fef3c7; border-radius: 8px; border: 1px solid #fbbf24;">
+                    <p style="margin: 0 0 15px 0; color: #92400e; font-weight: 500;">
+                        <?= count($matrixCheckpoints) ?> inspection checkpoint<?= count($matrixCheckpoints) != 1 ? 's' : '' ?> configured for this Part ID (SO Release stage).
+                    </p>
+                    <form method="POST">
+                        <input type="hidden" name="action" value="generate_inspection">
+                        <button type="submit" class="btn btn-primary" style="padding: 10px 30px;">
+                            Generate Inspection Checkpoints
+                        </button>
+                    </form>
+                </div>
+            <?php elseif (!empty($soInspectionItems)): ?>
+                <!-- Render inspection table -->
+                <?php
+                    $totalItems = count($soInspectionItems);
+                    $okItems = count(array_filter($soInspectionItems, fn($i) => $i['result'] === 'OK'));
+                    $notOkItems = count(array_filter($soInspectionItems, fn($i) => $i['result'] === 'Not OK'));
+                    $pendingItems = count(array_filter($soInspectionItems, fn($i) => $i['result'] === 'Pending'));
+                ?>
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div style="background: #f0fdf4; padding: 8px 15px; border-radius: 6px; border: 1px solid #bbf7d0;">
+                        <span style="color: #16a34a; font-weight: 600;"><?= $okItems ?></span> <span style="color: #666; font-size: 0.85em;">OK</span>
+                    </div>
+                    <div style="background: #fef2f2; padding: 8px 15px; border-radius: 6px; border: 1px solid #fecaca;">
+                        <span style="color: #dc2626; font-weight: 600;"><?= $notOkItems ?></span> <span style="color: #666; font-size: 0.85em;">Not OK</span>
+                    </div>
+                    <div style="background: #fffbeb; padding: 8px 15px; border-radius: 6px; border: 1px solid #fed7aa;">
+                        <span style="color: #d97706; font-weight: 600;"><?= $pendingItems ?></span> <span style="color: #666; font-size: 0.85em;">Pending</span>
+                    </div>
+                </div>
+
+                <form method="POST">
+                    <input type="hidden" name="action" value="save_inspection">
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                            <thead>
+                                <tr style="background: #f3f4f6;">
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; white-space: nowrap;">#</th>
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151;">Checkpoint</th>
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151;">Specification</th>
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151; white-space: nowrap;">Result</th>
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151;">Actual Value</th>
+                                    <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #374151;">Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($soInspectionItems as $item):
+                                    $rowBg = match($item['result']) {
+                                        'OK' => '#f0fdf4',
+                                        'Not OK' => '#fef2f2',
+                                        'NA' => '#f8fafc',
+                                        default => 'white'
+                                    };
+                                ?>
+                                <tr style="border-bottom: 1px solid #e5e7eb; background: <?= $rowBg ?>;">
+                                    <td style="padding: 10px 12px; color: #9ca3af;"><?= $item['item_no'] ?></td>
+                                    <td style="padding: 10px 12px; font-weight: 500;"><?= htmlspecialchars($item['checkpoint']) ?></td>
+                                    <td style="padding: 10px 12px; color: #6b7280; font-size: 0.9em;"><?= htmlspecialchars($item['specification'] ?? '-') ?></td>
+                                    <td style="padding: 10px 12px;">
+                                        <select name="insp_items[<?= $item['id'] ?>][result]" style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.9em;">
+                                            <option value="Pending" <?= $item['result'] === 'Pending' ? 'selected' : '' ?>>Pending</option>
+                                            <option value="OK" <?= $item['result'] === 'OK' ? 'selected' : '' ?>>OK</option>
+                                            <option value="Not OK" <?= $item['result'] === 'Not OK' ? 'selected' : '' ?>>Not OK</option>
+                                            <option value="NA" <?= $item['result'] === 'NA' ? 'selected' : '' ?>>N/A</option>
+                                            <option value="Conditional" <?= $item['result'] === 'Conditional' ? 'selected' : '' ?>>Conditional</option>
+                                        </select>
+                                    </td>
+                                    <td style="padding: 10px 12px;">
+                                        <input type="text" name="insp_items[<?= $item['id'] ?>][actual_value]"
+                                               value="<?= htmlspecialchars($item['actual_value'] ?? '') ?>"
+                                               style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 5px; width: 100%; min-width: 80px; font-size: 0.9em;"
+                                               placeholder="Measured">
+                                    </td>
+                                    <td style="padding: 10px 12px;">
+                                        <input type="text" name="insp_items[<?= $item['id'] ?>][remarks]"
+                                               value="<?= htmlspecialchars($item['remarks'] ?? '') ?>"
+                                               style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 5px; width: 100%; min-width: 100px; font-size: 0.9em;"
+                                               placeholder="Notes">
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <button type="submit" class="btn btn-primary" style="padding: 10px 30px;">
+                            Save Inspection Items
+                        </button>
+                    </div>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php elseif ($soPartId && !$matrixAvailable): ?>
+        <div class="checklist-section" style="opacity: 0.7;">
+            <h3>
+                <span class="section-icon" style="background: #f3f4f6;">&#128270;</span>
+                Part-Specific Inspection
+            </h3>
+            <p style="color: #666; text-align: center; padding: 15px;">
+                No part-specific inspection checkpoints configured for Part ID: <strong><?= htmlspecialchars($soPartId) ?></strong> (SO Release stage).
+                <br><a href="/quality_control/inspection_matrix_edit.php?part_id=<?= urlencode($soPartId) ?>">Configure in Inspection Matrix</a>
+            </p>
+        </div>
+        <?php endif; ?>
 
         <!-- Document Management Section -->
         <div class="checklist-section">
