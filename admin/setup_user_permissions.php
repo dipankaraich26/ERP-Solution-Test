@@ -111,14 +111,17 @@ try {
     ];
 
     $insertStmt = $pdo->prepare("
-        INSERT IGNORE INTO modules (module_key, module_name, module_group, display_order)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO modules (module_key, module_name, module_group, display_order, is_active)
+        VALUES (?, ?, ?, ?, 1)
+        ON DUPLICATE KEY UPDATE module_name = VALUES(module_name), module_group = VALUES(module_group), display_order = VALUES(display_order), is_active = 1
     ");
 
+    $inserted = 0;
     foreach ($modules as $m) {
         $insertStmt->execute($m);
+        $inserted++;
     }
-    $messages[] = ['success', 'Default modules inserted'];
+    $messages[] = ['success', "All $inserted modules synced (inserted or updated)"];
 
 } catch (Exception $e) {
     $messages[] = ['error', 'Error with modules table: ' . $e->getMessage()];
