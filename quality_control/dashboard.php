@@ -81,6 +81,17 @@ try {
     $stats['wo_checklists_failed'] = 0;
 }
 
+// Inspection Matrix stats
+try {
+    $stats['matrix_configured'] = $pdo->query("SELECT COUNT(DISTINCT part_no) FROM qc_part_inspection_matrix")->fetchColumn();
+    $stats['matrix_total_parts'] = $pdo->query("SELECT COUNT(*) FROM part_master WHERE status = 'active'")->fetchColumn();
+    $stats['matrix_checkpoints'] = $pdo->query("SELECT COUNT(*) FROM qc_inspection_checkpoints WHERE is_active = 1")->fetchColumn();
+} catch (Exception $e) {
+    $stats['matrix_configured'] = 0;
+    $stats['matrix_total_parts'] = 0;
+    $stats['matrix_checkpoints'] = 0;
+}
+
 // Quality Issues stats
 try {
     $stats['quality_issues_open'] = $pdo->query("SELECT COUNT(*) FROM qc_quality_issues WHERE status NOT IN ('Closed', 'Cancelled')")->fetchColumn();
@@ -422,6 +433,13 @@ if (toggle) {
             <div class="stat-value"><?= $stats['wo_checklists_submitted'] ?></div>
             <div class="stat-label">WO Checklists Submitted</div>
         </div>
+        <a href="inspection_matrix.php" style="text-decoration: none;">
+            <div class="stat-card <?= $stats['matrix_configured'] < $stats['matrix_total_parts'] ? 'warning' : 'success' ?>">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value"><?= $stats['matrix_configured'] ?>/<?= $stats['matrix_total_parts'] ?></div>
+                <div class="stat-label">Parts with Inspection Matrix</div>
+            </div>
+        </a>
     </div>
 
     <!-- Dashboard Panels -->
@@ -685,6 +703,10 @@ if (toggle) {
         <a href="wo_inspections.php" class="quick-action-btn" style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);">
             <div class="action-icon">🏭</div>
             WO Inspections
+        </a>
+        <a href="inspection_matrix.php" class="quick-action-btn" style="background: linear-gradient(135deg, #059669 0%, #047857 100%);">
+            <div class="action-icon">📊</div>
+            Inspection Matrix
         </a>
     </div>
 </div>
