@@ -30,10 +30,17 @@ class SimpleXLSXGen {
     }
 
     public function downloadAs($filename) {
+        $content = $this->generate();
+        // Clean any prior output that would corrupt the file
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Content-Length: ' . strlen($content));
         header('Cache-Control: max-age=0');
-        echo $this->generate();
+        header('Pragma: public');
+        echo $content;
         exit;
     }
 

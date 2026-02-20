@@ -1,5 +1,7 @@
 <?php
+ob_start();
 include "../db.php";
+require '../lib/SimpleXLSXGen.php';
 
 // Get the selected PO numbers from POST
 $po_numbers_json = $_POST['po_numbers'] ?? '[]';
@@ -43,21 +45,11 @@ if (empty($records)) {
     die("No records found for selected purchase orders");
 }
 
-// Set headers for CSV download
-$filename = 'Purchase_Orders_' . date('Y-m-d_His') . '.csv';
-header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
-header('Pragma: no-cache');
-header('Expires: 0');
+// Build Excel data
+$data = [];
 
-// Create output stream
-$output = fopen('php://output', 'w');
-
-// Add BOM for Excel UTF-8 support
-fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
-
-// Write CSV header
-fputcsv($output, [
+// Headers
+$data[] = [
     'PO Number',
     'Purchase Date',
     'Status',
@@ -74,15 +66,15 @@ fputcsv($output, [
     'Rate',
     'Line Total',
     'Currency'
-]);
+];
 
-// Write data rows
+// Data rows
 $po_totals = [];
 foreach ($records as $row) {
-    fputcsv($output, [
+    $data[] = [
         $row['po_no'],
         $row['purchase_date'],
-        $row['status'],
+        ucfirst($row['status']),
         $row['supplier_code'],
         $row['supplier_name'],
         $row['city'] ?? '',
@@ -92,32 +84,34 @@ foreach ($records as $row) {
         $row['part_no'],
         $row['part_name'],
         $row['hsn_code'] ?? '',
-        $row['qty'],
-        number_format($row['rate'], 2, '.', ''),
-        number_format($row['line_total'], 2, '.', ''),
+        (int)$row['qty'],
+        (float)$row['rate'],
+        (float)$row['line_total'],
         'INR'
-    ]);
+    ];
 
-    // Track PO totals
     if (!isset($po_totals[$row['po_no']])) {
         $po_totals[$row['po_no']] = 0;
     }
     $po_totals[$row['po_no']] += $row['line_total'];
 }
 
-// Add summary section
-fputcsv($output, []); // Empty row
-fputcsv($output, ['SUMMARY']);
-fputcsv($output, []); // Empty row
+// Add empty row
+$data[] = array_fill(0, 16, '');
 
-fputcsv($output, ['PO Number', 'Total Value (INR)']);
+// Summary section
+$data[] = ['SUMMARY', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
+$data[] = ['PO Number', 'Total Value (INR)', '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
 foreach ($po_totals as $po_no => $total) {
-    fputcsv($output, [$po_no, number_format($total, 2, '.', '')]);
+    $data[] = [$po_no, (float)$total, '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
 }
+$data[] = array_fill(0, 16, '');
+$data[] = ['Grand Total', (float)array_sum($po_totals), '', '', '', '', '', '', '', '', '', '', '', '', '', ''];
 
-// Add grand total
-fputcsv($output, []); // Empty row
-fputcsv($output, ['Grand Total', number_format(array_sum($po_totals), 2, '.', '')]);
+// Generate filename
+$filename = 'Purchase_Orders_' . date('Y-m-d_His') . '.xlsx';
 
-fclose($output);
-exit;
+ob_end_clean();
+
+$xlsx = SimpleXLSXGen::fromArray($data, 'Purchase Orders');
+$xlsx->downloadAs($filename);

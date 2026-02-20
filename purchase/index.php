@@ -6,6 +6,41 @@ requirePermission('purchase');
 include "../includes/dialog.php";
 
 /* =========================
+   AUTO-ADD PAYMENT COLUMNS
+========================= */
+try {
+    $pdo->query("SELECT payment_status FROM purchase_orders LIMIT 1");
+} catch (Exception $e) {
+    $pdo->exec("ALTER TABLE purchase_orders ADD COLUMN payment_status ENUM('Unpaid','Partial','Paid') DEFAULT 'Unpaid'");
+    $pdo->exec("ALTER TABLE purchase_orders ADD COLUMN payment_amount DECIMAL(12,2) DEFAULT 0");
+    $pdo->exec("ALTER TABLE purchase_orders ADD COLUMN payment_date DATE NULL");
+    $pdo->exec("ALTER TABLE purchase_orders ADD COLUMN payment_remarks VARCHAR(255) DEFAULT NULL");
+}
+
+/* =========================
+   HANDLE PAYMENT STATUS UPDATE
+========================= */
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'update_payment') {
+    $upd_po_no = $_POST['po_no'] ?? '';
+    $upd_status = $_POST['payment_status'] ?? 'Unpaid';
+    $upd_amount = (float)($_POST['payment_amount'] ?? 0);
+    $upd_date = $_POST['payment_date'] ?? null;
+    $upd_remarks = trim($_POST['payment_remarks'] ?? '');
+
+    if ($upd_po_no) {
+        $stmt = $pdo->prepare("
+            UPDATE purchase_orders
+            SET payment_status = ?, payment_amount = ?, payment_date = ?, payment_remarks = ?
+            WHERE po_no = ?
+        ");
+        $stmt->execute([$upd_status, $upd_amount, $upd_date ?: null, $upd_remarks ?: null, $upd_po_no]);
+        setModal("Success", "Payment status updated for $upd_po_no");
+        header("Location: index.php" . ($_SERVER['QUERY_STRING'] ? '?' . $_SERVER['QUERY_STRING'] : ''));
+        exit;
+    }
+}
+
+/* =========================
    HANDLE PO CREATION
 ========================= */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
@@ -121,6 +156,7 @@ $filter_date_from = isset($_GET['filter_date_from']) ? trim($_GET['filter_date_f
 $filter_date_to = isset($_GET['filter_date_to']) ? trim($_GET['filter_date_to']) : '';
 $filter_status = isset($_GET['filter_status']) ? trim($_GET['filter_status']) : '';
 $filter_part = isset($_GET['filter_part']) ? trim($_GET['filter_part']) : '';
+$filter_payment = isset($_GET['filter_payment']) ? trim($_GET['filter_payment']) : '';
 
 // Build WHERE clauses
 $where = [];
@@ -151,6 +187,10 @@ if ($filter_part !== '') {
     $params[':filter_part'] = '%' . $filter_part . '%';
     $params[':filter_part2'] = '%' . $filter_part . '%';
 }
+if ($filter_payment !== '') {
+    $where[] = "po.payment_status = :filter_payment";
+    $params[':filter_payment'] = $filter_payment;
+}
 
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
@@ -179,6 +219,7 @@ $filterQuery = http_build_query(array_filter([
     'filter_date_to' => $filter_date_to,
     'filter_status' => $filter_status,
     'filter_part' => $filter_part,
+    'filter_payment' => $filter_payment,
 ]));
 
 /* =========================
@@ -214,7 +255,11 @@ $stmt = $pdo->prepare("
          JOIN purchase_orders po2 ON se.po_id = po2.id
          WHERE po2.po_no = po.po_no AND se.status = 'posted'
         ) AS total_received_qty,
-        SUM(po.qty) AS total_ordered_qty
+        SUM(po.qty) AS total_ordered_qty,
+        MAX(po.payment_status) AS payment_status,
+        MAX(po.payment_amount) AS payment_amount,
+        MAX(po.payment_date) AS payment_date,
+        MAX(po.payment_remarks) AS payment_remarks
     FROM purchase_orders po
     JOIN part_master p ON p.part_no = po.part_no
     JOIN suppliers s ON s.id = po.supplier_id
@@ -558,12 +603,21 @@ showModal();
                 <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Part No / Name</label>
                 <input type="text" name="filter_part" value="<?= htmlspecialchars($filter_part) ?>" placeholder="Search parts..." style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
             </div>
+            <div style="min-width: 120px;">
+                <label style="display: block; font-size: 0.85em; font-weight: bold; margin-bottom: 4px; color: #555;">Payment</label>
+                <select name="filter_payment" style="width: 100%; padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px;">
+                    <option value="">All</option>
+                    <option value="Unpaid" <?= $filter_payment === 'Unpaid' ? 'selected' : '' ?>>Unpaid</option>
+                    <option value="Partial" <?= $filter_payment === 'Partial' ? 'selected' : '' ?>>Partial</option>
+                    <option value="Paid" <?= $filter_payment === 'Paid' ? 'selected' : '' ?>>Paid</option>
+                </select>
+            </div>
             <div style="display: flex; gap: 8px;">
                 <button type="submit" class="btn btn-primary" style="padding: 7px 18px;">Filter</button>
                 <a href="index.php" class="btn btn-secondary" style="padding: 7px 18px; text-decoration: none;">Clear</a>
             </div>
         </div>
-        <?php if ($filter_po || $filter_supplier || $filter_date_from || $filter_date_to || $filter_status || $filter_part): ?>
+        <?php if ($filter_po || $filter_supplier || $filter_date_from || $filter_date_to || $filter_status || $filter_part || $filter_payment): ?>
         <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
             Showing <?= $total_count ?> result(s)
             <?php
@@ -578,6 +632,7 @@ showModal();
             if ($filter_date_to) $activeFilters[] = 'To: ' . htmlspecialchars($filter_date_to);
             if ($filter_status) $activeFilters[] = 'Status: ' . htmlspecialchars(ucfirst($filter_status));
             if ($filter_part) $activeFilters[] = 'Part: ' . htmlspecialchars($filter_part);
+            if ($filter_payment) $activeFilters[] = 'Payment: ' . htmlspecialchars($filter_payment);
             echo ' &mdash; ' . implode(' | ', $activeFilters);
             ?>
         </div>
@@ -608,6 +663,7 @@ showModal();
         <th>PO Value</th>
         <th>Status</th>
         <th>Receipt Details</th>
+        <th>Payment Status</th>
         <th>Actions</th>
     </tr>
 
@@ -673,6 +729,30 @@ showModal();
                 <span style="color: #adb5bd;">-</span>
             <?php endif; ?>
         </td>
+        <td style="white-space: nowrap; text-align: center;">
+            <?php
+            $payStatus = $o['payment_status'] ?? 'Unpaid';
+            $payAmount = (float)($o['payment_amount'] ?? 0);
+            $payDate = $o['payment_date'] ?? '';
+            $payRemarks = $o['payment_remarks'] ?? '';
+            $poValue = (float)$o['po_value'];
+
+            if ($payStatus === 'Paid'): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #10b981; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Paid</span>
+                <?php if ($payDate): ?><br><small style="color: #059669;"><?= date('d M Y', strtotime($payDate)) ?></small><?php endif; ?>
+            <?php elseif ($payStatus === 'Partial'): ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #f59e0b; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Partial</span>
+                <?php if ($payAmount > 0): ?><br><small style="color: #d97706;">Paid: ₹<?= number_format($payAmount, 0) ?></small><?php endif; ?>
+            <?php else: ?>
+                <span style="display: inline-block; padding: 3px 10px; background: #ef4444; color: white; border-radius: 12px; font-size: 0.85em; font-weight: 600;">Unpaid</span>
+            <?php endif; ?>
+            <?php if ($payRemarks): ?><br><small style="color: #666;" title="<?= htmlspecialchars($payRemarks) ?>"><?= htmlspecialchars(mb_substr($payRemarks, 0, 20)) ?><?= mb_strlen($payRemarks) > 20 ? '...' : '' ?></small><?php endif; ?>
+            <br>
+            <button type="button" class="btn btn-secondary" style="font-size: 0.75em; padding: 2px 8px; margin-top: 4px;"
+                    onclick="openPaymentModal('<?= htmlspecialchars($o['po_no']) ?>', '<?= $payStatus ?>', <?= $payAmount ?>, '<?= $payDate ?>', '<?= htmlspecialchars(addslashes($payRemarks)) ?>', <?= $poValue ?>)">
+                Update
+            </button>
+        </td>
         <td style="white-space: nowrap;">
             <a class="btn btn-primary" href="view.php?po_no=<?= urlencode($o['po_no']) ?>">View</a>
             <?php if ($hasOpen || $hasPartial): ?>
@@ -707,6 +787,81 @@ showModal();
 </div>
 <?php endif; ?>
 </div>
+
+<!-- Payment Status Modal -->
+<div id="paymentModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+    <div style="background: white; border-radius: 12px; padding: 25px; width: 420px; max-width: 95vw; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
+        <h3 style="margin: 0 0 15px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+            Update Payment Status - <span id="payModalPO"></span>
+        </h3>
+        <form method="post" id="paymentForm">
+            <input type="hidden" name="action" value="update_payment">
+            <input type="hidden" name="po_no" id="payFormPO">
+
+            <div style="margin-bottom: 12px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;">Payment Status *</label>
+                <select name="payment_status" id="payFormStatus" onchange="onPaymentStatusChange()" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px;">
+                    <option value="Unpaid">Unpaid</option>
+                    <option value="Partial">Partial</option>
+                    <option value="Paid">Paid</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;">PO Value</label>
+                <div id="payModalValue" style="font-size: 1.1em; font-weight: 600; color: #27ae60; padding: 5px 0;">-</div>
+            </div>
+
+            <div style="margin-bottom: 12px;" id="payAmountDiv">
+                <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;">Amount Paid (₹)</label>
+                <input type="number" name="payment_amount" id="payFormAmount" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;">
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;">Payment Date</label>
+                <input type="date" name="payment_date" id="payFormDate" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;">
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em;">Remarks</label>
+                <input type="text" name="payment_remarks" id="payFormRemarks" placeholder="e.g. Cheque #12345, UTR ref..." maxlength="255" style="width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;">
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closePaymentModal()">Cancel</button>
+                <button type="submit" class="btn btn-success">Save Payment</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openPaymentModal(poNo, status, amount, date, remarks, poValue) {
+    document.getElementById('payModalPO').textContent = poNo;
+    document.getElementById('payFormPO').value = poNo;
+    document.getElementById('payFormStatus').value = status || 'Unpaid';
+    document.getElementById('payFormAmount').value = amount > 0 ? amount : '';
+    document.getElementById('payFormDate').value = date || '';
+    document.getElementById('payFormRemarks').value = remarks || '';
+    document.getElementById('payModalValue').textContent = '₹' + poValue.toLocaleString('en-IN', {minimumFractionDigits: 2});
+    document.getElementById('paymentModal').style.display = 'flex';
+    onPaymentStatusChange();
+}
+function closePaymentModal() {
+    document.getElementById('paymentModal').style.display = 'none';
+}
+function onPaymentStatusChange() {
+    var st = document.getElementById('payFormStatus').value;
+    document.getElementById('payAmountDiv').style.display = (st === 'Partial') ? 'block' : 'none';
+    if (st === 'Paid') {
+        document.getElementById('payFormDate').value = document.getElementById('payFormDate').value || new Date().toISOString().split('T')[0];
+    }
+}
+// Close modal on outside click
+document.getElementById('paymentModal').addEventListener('click', function(e) {
+    if (e.target === this) closePaymentModal();
+});
+</script>
 
 <script>
 let supplierParts = [];

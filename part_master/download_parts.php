@@ -1,4 +1,6 @@
 <?php
+ob_start(); // Start output buffering to prevent any accidental output
+
 require '../db.php';
 require '../lib/SimpleXLSXGen.php';
 
@@ -86,15 +88,15 @@ foreach ($parts as $part) {
         $part['category'] ?? '',
         $part['description'] ?? '',
         $part['uom'] ?? '',
-        $part['display_rate'] ?? $part['rate'] ?? 0,
+        (float)($part['display_rate'] ?? $part['rate'] ?? 0),
         $part['hsn_code'] ?? '',
         $part['gst'] ?? '',
-        $part['min_stock'] ?? 0,
-        $part['max_stock'] ?? 0,
-        $part['reorder_level'] ?? 0,
-        $part['current_stock'] ?? 0,
-        $part['on_order'] ?? 0,
-        $part['in_wo'] ?? 0,
+        (int)($part['min_stock'] ?? 0),
+        (int)($part['max_stock'] ?? 0),
+        (int)($part['reorder_level'] ?? 0),
+        (int)($part['current_stock'] ?? 0),
+        (int)($part['on_order'] ?? 0),
+        (int)($part['in_wo'] ?? 0),
         $part['supplier_names'] ?? '',
         $part['status'] ?? 'active'
     ];
@@ -104,6 +106,9 @@ foreach ($parts as $part) {
 $filename = 'parts_' . date('Y-m-d_His');
 if ($search) $filename .= '_' . preg_replace('/[^a-zA-Z0-9]/', '', substr($search, 0, 20));
 $filename .= '.xlsx';
+
+// Clear any buffered output before sending file
+ob_end_clean();
 
 // Generate and download Excel
 $xlsx = SimpleXLSXGen::fromArray($data, 'Parts');
