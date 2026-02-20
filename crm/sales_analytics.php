@@ -187,6 +187,97 @@ $currentMonth = (int)date('n');
 $remainingMonths = 12 - $currentMonth;
 $projNextYear = $revenueYTD + ($projNextMonth * $remainingMonths);
 
+// === REVENUE PIPELINE PROJECTION (Month-wise) ===
+
+// 1. PI Value: Released quotes NOT yet linked to any SO
+$piTotalValue = 0;
+try {
+    $stmt = $pdo->query("
+        SELECT COALESCE(SUM(qi.total_amount), 0)
+        FROM quote_master qm
+        JOIN quote_items qi ON qi.quote_id = qm.id
+        WHERE qm.status = 'released'
+        AND qm.id NOT IN (
+            SELECT DISTINCT linked_quote_id FROM sales_orders WHERE linked_quote_id IS NOT NULL
+        )
+    ");
+    $piTotalValue = (float)$stmt->fetchColumn();
+} catch (Exception $e) { $piTotalValue = 0; }
+
+// Count of pending PIs
+$piCount = 0;
+try {
+    $stmt = $pdo->query("
+        SELECT COUNT(*)
+        FROM quote_master qm
+        WHERE qm.status = 'released'
+        AND qm.id NOT IN (
+            SELECT DISTINCT linked_quote_id FROM sales_orders WHERE linked_quote_id IS NOT NULL
+        )
+    ");
+    $piCount = (int)$stmt->fetchColumn();
+} catch (Exception $e) { $piCount = 0; }
+
+// 2. On-hand SO Value: SOs created but NOT yet invoiced
+$soOnHandValue = 0;
+try {
+    $stmt = $pdo->query("
+        SELECT COALESCE(SUM(qi.total_amount), 0)
+        FROM (SELECT DISTINCT so_no, linked_quote_id FROM sales_orders WHERE status NOT IN ('cancelled')) so_unique
+        JOIN quote_items qi ON qi.quote_id = so_unique.linked_quote_id
+        WHERE so_unique.so_no NOT IN (
+            SELECT DISTINCT so_no FROM invoice_master WHERE status = 'released'
+        )
+    ");
+    $soOnHandValue = (float)$stmt->fetchColumn();
+} catch (Exception $e) { $soOnHandValue = 0; }
+
+// Count of on-hand SOs
+$soOnHandCount = 0;
+try {
+    $stmt = $pdo->query("
+        SELECT COUNT(DISTINCT so_no)
+        FROM sales_orders
+        WHERE status NOT IN ('cancelled')
+        AND so_no NOT IN (
+            SELECT DISTINCT so_no FROM invoice_master WHERE status = 'released'
+        )
+    ");
+    $soOnHandCount = (int)$stmt->fetchColumn();
+} catch (Exception $e) { $soOnHandCount = 0; }
+
+// Hot & Warm values already computed: $hotValue, $warmValue
+
+// Distribution weights over 6 future months (conversion probability)
+// PI (not yet SO): gradual conversion
+$piWeights   = [0.30, 0.25, 0.20, 0.15, 0.07, 0.03];
+// SO (on-hand): faster since already ordered
+$soWeights   = [0.40, 0.30, 0.15, 0.10, 0.03, 0.02];
+// Hot leads: strong near-term probability
+$hotWeights  = [0.25, 0.25, 0.20, 0.15, 0.10, 0.05];
+// Warm leads: slower buildup
+$warmWeights = [0.10, 0.15, 0.20, 0.25, 0.20, 0.10];
+
+$projectionData = [];
+$projTotalPipeline = 0;
+for ($i = 0; $i < 6; $i++) {
+    $mLabel = date('M Y', strtotime("+" . ($i + 1) . " months"));
+    $piMonth   = round($piTotalValue * $piWeights[$i]);
+    $soMonth   = round($soOnHandValue * $soWeights[$i]);
+    $hotMonth  = round($hotValue * $hotWeights[$i]);
+    $warmMonth = round($warmValue * $warmWeights[$i]);
+    $totalMonth = $piMonth + $soMonth + $hotMonth + $warmMonth;
+    $projTotalPipeline += $totalMonth;
+    $projectionData[] = [
+        'label' => $mLabel,
+        'pi' => $piMonth,
+        'so' => $soMonth,
+        'hot' => $hotMonth,
+        'warm' => $warmMonth,
+        'total' => $totalMonth
+    ];
+}
+
 // === PIPELINE FUNNEL ===
 try { $funnelLeads = (int)$pdo->query("SELECT COUNT(*) FROM crm_leads")->fetchColumn(); }
 catch (Exception $e) { $funnelLeads = 0; }
@@ -560,10 +651,23 @@ include "../includes/sidebar.php";
         .rev-save-btn:hover { background: #219a52; }
         .saved-msg { display: inline-block; padding: 8px 16px; background: #e8f5e9; color: #388e3c; border-radius: 6px; font-size: 0.9em; font-weight: 500; margin-left: 10px; }
 
+        /* Pipeline Source Cards */
+        .pipeline-source-row {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px; margin-bottom: 10px;
+        }
+        .pipeline-src-card {
+            background: var(--bg, #f8f9fa); border-radius: 8px; padding: 14px 16px;
+        }
+        .pipeline-src-card .ps-label { font-size: 0.78em; color: var(--muted-text, #7f8c8d); font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+        .pipeline-src-card .ps-value { font-size: 1.4em; font-weight: bold; }
+        .pipeline-src-card .ps-sub { font-size: 0.75em; color: var(--muted-text, #999); margin-top: 3px; }
+
         @media (max-width: 768px) {
             .kpi-row { grid-template-columns: 1fr 1fr; }
             .proj-row { grid-template-columns: 1fr; }
             .rev-entry-row { grid-template-columns: 120px 1fr; }
+            .pipeline-source-row { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
@@ -694,6 +798,88 @@ include "../includes/sidebar.php";
                     <span class="label">Blend (60% pipe + 40% hist)</span>
                     <span class="val"><?= formatINR($projNextMonth) ?>/mo</span>
                 </div>
+            </div>
+        </details>
+    </div>
+
+    <!-- Revenue Pipeline Projection (Month-wise) -->
+    <div class="section-card">
+        <div class="section-title"><span class="icon">📈</span> Revenue Pipeline Projection (Next 6 Months)</div>
+
+        <!-- Pipeline Source Summary -->
+        <div class="pipeline-source-row">
+            <div class="pipeline-src-card" style="border-left: 4px solid #3498db;">
+                <div class="ps-label">Proforma Invoices (PI)</div>
+                <div class="ps-value" style="color: #3498db;"><?= formatINR($piTotalValue) ?></div>
+                <div class="ps-sub"><?= $piCount ?> pending PI<?= $piCount != 1 ? 's' : '' ?> (not yet SO)</div>
+            </div>
+            <div class="pipeline-src-card" style="border-left: 4px solid #2ecc71;">
+                <div class="ps-label">On-hand Sales Orders</div>
+                <div class="ps-value" style="color: #2ecc71;"><?= formatINR($soOnHandValue) ?></div>
+                <div class="ps-sub"><?= $soOnHandCount ?> SO<?= $soOnHandCount != 1 ? 's' : '' ?> (not yet invoiced)</div>
+            </div>
+            <div class="pipeline-src-card" style="border-left: 4px solid #e74c3c;">
+                <div class="ps-label">Hot Leads Prospective</div>
+                <div class="ps-value" style="color: #e74c3c;"><?= formatINR($hotValue) ?></div>
+                <div class="ps-sub">Weighted at 70% probability</div>
+            </div>
+            <div class="pipeline-src-card" style="border-left: 4px solid #f39c12;">
+                <div class="ps-label">Warm Leads Prospective</div>
+                <div class="ps-value" style="color: #f39c12;"><?= formatINR($warmValue) ?></div>
+                <div class="ps-sub">Weighted at 40% probability</div>
+            </div>
+        </div>
+
+        <!-- Stacked Bar Chart -->
+        <div style="position: relative; height: 320px; margin: 20px 0;">
+            <canvas id="projectionChart"></canvas>
+        </div>
+
+        <!-- Projection Breakdown Table -->
+        <div class="table-scroll" style="margin-top: 15px;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Month</th>
+                        <th class="num" style="color: #3498db;">PI Value</th>
+                        <th class="num" style="color: #2ecc71;">SO On-hand</th>
+                        <th class="num" style="color: #e74c3c;">Hot Leads</th>
+                        <th class="num" style="color: #f39c12;">Warm Leads</th>
+                        <th class="num" style="font-weight: 700;">Total Projected</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($projectionData as $pd): ?>
+                    <tr>
+                        <td><?= $pd['label'] ?></td>
+                        <td class="num"><?= $pd['pi'] > 0 ? formatINR($pd['pi']) : '-' ?></td>
+                        <td class="num"><?= $pd['so'] > 0 ? formatINR($pd['so']) : '-' ?></td>
+                        <td class="num"><?= $pd['hot'] > 0 ? formatINR($pd['hot']) : '-' ?></td>
+                        <td class="num"><?= $pd['warm'] > 0 ? formatINR($pd['warm']) : '-' ?></td>
+                        <td class="num highlight-cell"><?= $pd['total'] > 0 ? formatINR($pd['total']) : '-' ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <tr style="background: var(--bg, #f0f4ff); font-weight: 600;">
+                        <td>Total Pipeline</td>
+                        <td class="num" style="color: #3498db;"><?= formatINR($piTotalValue) ?></td>
+                        <td class="num" style="color: #2ecc71;"><?= formatINR($soOnHandValue) ?></td>
+                        <td class="num" style="color: #e74c3c;"><?= formatINR($hotValue) ?></td>
+                        <td class="num" style="color: #f39c12;"><?= formatINR($warmValue) ?></td>
+                        <td class="num" style="color: #2c3e50;"><?= formatINR($projTotalPipeline) ?></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <details style="margin-top: 12px;">
+            <summary style="cursor: pointer; color: var(--muted-text, #7f8c8d); font-size: 0.85em; font-weight: 500;">
+                Distribution Methodology
+            </summary>
+            <div style="font-size: 0.83em; color: var(--muted-text, #666); padding: 10px 0;">
+                <p style="margin: 5px 0;"><strong style="color: #3498db;">PI (Proforma Invoices):</strong> 30% / 25% / 20% / 15% / 7% / 3% - Gradual conversion as PIs progress to SOs</p>
+                <p style="margin: 5px 0;"><strong style="color: #2ecc71;">SO (On-hand Orders):</strong> 40% / 30% / 15% / 10% / 3% / 2% - Faster since already ordered, pending invoicing</p>
+                <p style="margin: 5px 0;"><strong style="color: #e74c3c;">Hot Leads:</strong> 25% / 25% / 20% / 15% / 10% / 5% - Strong near-term conversion probability</p>
+                <p style="margin: 5px 0;"><strong style="color: #f39c12;">Warm Leads:</strong> 10% / 15% / 20% / 25% / 20% / 10% - Slower buildup, peaks at month 3-4</p>
             </div>
         </details>
     </div>
@@ -969,6 +1155,105 @@ new Chart(ctx, {
             x: {
                 ticks: { maxRotation: 45, font: { size: 11 } },
                 grid: { display: false }
+            }
+        }
+    }
+});
+
+// Revenue Pipeline Projection Chart (Stacked Bar)
+const projData = <?= json_encode($projectionData) ?>;
+const projCtx = document.getElementById('projectionChart').getContext('2d');
+
+new Chart(projCtx, {
+    type: 'bar',
+    data: {
+        labels: projData.map(d => d.label),
+        datasets: [
+            {
+                label: 'On-hand SO',
+                data: projData.map(d => d.so),
+                backgroundColor: 'rgba(46, 204, 113, 0.8)',
+                borderColor: '#2ecc71',
+                borderWidth: 1,
+                borderRadius: 4,
+                stack: 'pipeline'
+            },
+            {
+                label: 'Proforma Invoices',
+                data: projData.map(d => d.pi),
+                backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                borderColor: '#3498db',
+                borderWidth: 1,
+                borderRadius: 4,
+                stack: 'pipeline'
+            },
+            {
+                label: 'Hot Leads',
+                data: projData.map(d => d.hot),
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+                borderRadius: 4,
+                stack: 'pipeline'
+            },
+            {
+                label: 'Warm Leads',
+                data: projData.map(d => d.warm),
+                backgroundColor: 'rgba(243, 156, 18, 0.6)',
+                borderColor: '#f39c12',
+                borderWidth: 1,
+                borderRadius: 4,
+                stack: 'pipeline'
+            },
+            {
+                label: 'Total Projected',
+                data: projData.map(d => d.total),
+                type: 'line',
+                borderColor: '#2c3e50',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [5, 5],
+                pointRadius: 4,
+                pointBackgroundColor: '#2c3e50',
+                tension: 0.3,
+                order: 0,
+                yAxisID: 'y'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        let val = context.raw;
+                        if (val >= 10000000) return context.dataset.label + ': ' + (val/10000000).toFixed(2) + ' Cr';
+                        if (val >= 100000) return context.dataset.label + ': ' + (val/100000).toFixed(1) + ' L';
+                        return context.dataset.label + ': ' + val.toLocaleString('en-IN');
+                    }
+                }
+            },
+            legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 } }
+        },
+        scales: {
+            x: {
+                stacked: true,
+                grid: { display: false },
+                ticks: { font: { size: 12, weight: '500' } }
+            },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                ticks: {
+                    callback: function(v) {
+                        if (v >= 10000000) return (v/10000000).toFixed(1) + ' Cr';
+                        if (v >= 100000) return (v/100000).toFixed(0) + ' L';
+                        return v.toLocaleString('en-IN');
+                    }
+                },
+                grid: { color: 'rgba(0,0,0,0.05)' }
             }
         }
     }
