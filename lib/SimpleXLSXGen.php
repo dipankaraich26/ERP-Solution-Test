@@ -45,40 +45,93 @@ class SimpleXLSXGen {
     }
 
     public function generate() {
-        $zip = new ZipArchive();
-        $tempFile = tempnam(sys_get_temp_dir(), 'xlsx');
-
-        if ($zip->open($tempFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-            throw new Exception('Cannot create XLSX file');
-        }
-
-        // [Content_Types].xml
-        $zip->addFromString('[Content_Types].xml', $this->contentTypes());
-
-        // _rels/.rels
-        $zip->addFromString('_rels/.rels', $this->rels());
-
-        // xl/_rels/workbook.xml.rels
-        $zip->addFromString('xl/_rels/workbook.xml.rels', $this->workbookRels());
-
-        // xl/workbook.xml
-        $zip->addFromString('xl/workbook.xml', $this->workbook());
-
-        // xl/styles.xml
-        $zip->addFromString('xl/styles.xml', $this->styles());
-
-        // xl/sharedStrings.xml and xl/worksheets/sheet1.xml
+        // Build all XML files
         $sharedStrings = [];
         $sheetXml = $this->sheet($this->sheets[0]['rows'], $sharedStrings);
-        $zip->addFromString('xl/worksheets/sheet1.xml', $sheetXml);
-        $zip->addFromString('xl/sharedStrings.xml', $this->sharedStrings($sharedStrings));
 
-        $zip->close();
+        $files = [
+            '[Content_Types].xml'          => $this->contentTypes(),
+            '_rels/.rels'                   => $this->rels(),
+            'xl/_rels/workbook.xml.rels'    => $this->workbookRels(),
+            'xl/workbook.xml'              => $this->workbook(),
+            'xl/styles.xml'                => $this->styles(),
+            'xl/worksheets/sheet1.xml'     => $sheetXml,
+            'xl/sharedStrings.xml'         => $this->sharedStrings($sharedStrings),
+        ];
 
-        $content = file_get_contents($tempFile);
-        unlink($tempFile);
+        return $this->buildZip($files);
+    }
 
-        return $content;
+    /**
+     * Build a ZIP archive from an array of filename => content pairs.
+     * Pure PHP implementation — no ZipArchive extension required.
+     */
+    private function buildZip(array $files) {
+        $localHeaders = '';
+        $centralDir = '';
+        $offset = 0;
+        $count = 0;
+
+        foreach ($files as $name => $data) {
+            $crc32 = crc32($data);
+            $sizeUncompressed = strlen($data);
+            $compressed = gzdeflate($data);
+            $sizeCompressed = strlen($compressed);
+            $nameLen = strlen($name);
+
+            // Local file header
+            $local = pack('V', 0x04034b50);           // signature
+            $local .= pack('v', 20);                   // version needed
+            $local .= pack('v', 0);                    // flags
+            $local .= pack('v', 8);                    // compression (deflate)
+            $local .= pack('v', 0) . pack('v', 0);    // mod time, mod date
+            $local .= pack('V', $crc32);
+            $local .= pack('V', $sizeCompressed);
+            $local .= pack('V', $sizeUncompressed);
+            $local .= pack('v', $nameLen);
+            $local .= pack('v', 0);                    // extra field length
+            $local .= $name;
+            $local .= $compressed;
+
+            $localHeaders .= $local;
+
+            // Central directory entry
+            $central = pack('V', 0x02014b50);          // signature
+            $central .= pack('v', 20);                  // version made by
+            $central .= pack('v', 20);                  // version needed
+            $central .= pack('v', 0);                   // flags
+            $central .= pack('v', 8);                   // compression
+            $central .= pack('v', 0) . pack('v', 0);   // mod time, mod date
+            $central .= pack('V', $crc32);
+            $central .= pack('V', $sizeCompressed);
+            $central .= pack('V', $sizeUncompressed);
+            $central .= pack('v', $nameLen);
+            $central .= pack('v', 0);                   // extra field length
+            $central .= pack('v', 0);                   // comment length
+            $central .= pack('v', 0);                   // disk number start
+            $central .= pack('v', 0);                   // internal attributes
+            $central .= pack('V', 32);                  // external attributes
+            $central .= pack('V', $offset);             // relative offset
+            $central .= $name;
+
+            $centralDir .= $central;
+            $offset += strlen($local);
+            $count++;
+        }
+
+        $centralDirSize = strlen($centralDir);
+
+        // End of central directory
+        $end = pack('V', 0x06054b50);                  // signature
+        $end .= pack('v', 0);                          // disk number
+        $end .= pack('v', 0);                          // disk with central dir
+        $end .= pack('v', $count);                     // entries on this disk
+        $end .= pack('v', $count);                     // total entries
+        $end .= pack('V', $centralDirSize);
+        $end .= pack('V', $offset);                    // offset of central dir
+        $end .= pack('v', 0);                          // comment length
+
+        return $localHeaders . $centralDir . $end;
     }
 
     private function contentTypes() {
