@@ -2,7 +2,6 @@
 require '../db.php';
 require '../includes/auth.php';
 requireLogin();
-requirePermission('procurement');
 require '../includes/procurement_helper.php';
 
 // Pagination setup
@@ -13,17 +12,14 @@ $offset = ($page - 1) * $per_page;
 
 // Auto-close plans where all SOs are released
 try {
-    $activePlans = $pdo->query("SELECT id FROM procurement_plans WHERE status NOT IN ('completed', 'cancelled') AND (plan_type = 'procurement' OR plan_type IS NULL)")->fetchAll(PDO::FETCH_COLUMN);
+    $activePlans = $pdo->query("SELECT id FROM procurement_plans WHERE status NOT IN ('completed', 'cancelled') AND plan_type = 'wo_planning'")->fetchAll(PDO::FETCH_COLUMN);
     foreach ($activePlans as $apId) {
         autoClosePlanIfAllSOsReleased($pdo, (int)$apId);
     }
 } catch (Exception $e) {}
 
-// Sync stock blocks for all active approved/partiallyordered plans
-syncStockBlocksForActivePlans($pdo);
-
-// Get total count (only procurement plans, exclude WO planning)
-$total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans WHERE (plan_type = 'procurement' OR plan_type IS NULL)")->fetchColumn();
+// Get total count (only WO planning plans)
+$total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans WHERE plan_type = 'wo_planning'")->fetchColumn();
 $total_pages = ceil($total_count / $per_page);
 
 // Fetch plans with summary
@@ -35,18 +31,10 @@ $stmt = $pdo->prepare("
         pp.status,
         pp.so_list,
         pp.total_parts,
-        pp.total_items_to_order,
-        pp.total_estimated_cost,
-        COUNT(ppi.id) AS item_count,
         (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id) AS wo_total,
-        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status IN ('completed', 'closed')) AS wo_done,
-        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id) AS po_total,
-        (SELECT COUNT(*) FROM procurement_plan_po_items WHERE plan_id = pp.id AND status IN ('received', 'closed')) AS po_done
+        (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status IN ('completed', 'closed')) AS wo_done
     FROM procurement_plans pp
-    LEFT JOIN procurement_plan_items ppi ON pp.id = ppi.plan_id
-    WHERE (pp.plan_type = 'procurement' OR pp.plan_type IS NULL)
-    GROUP BY pp.id, pp.plan_no, pp.plan_date, pp.status, pp.so_list, pp.total_parts,
-             pp.total_items_to_order, pp.total_estimated_cost
+    WHERE pp.plan_type = 'wo_planning'
     ORDER BY pp.plan_date DESC, pp.id DESC
     LIMIT :limit OFFSET :offset
 ");
@@ -55,11 +43,10 @@ $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Collect SO numbers per plan from ALL sources
-$planSoNos = []; // plan_id => [so_no, ...]
+// Collect SO numbers per plan
+$planSoNos = [];
 $planIds = array_column($plans, 'id');
 
-// Source 1: pp.so_list (set at plan creation)
 foreach ($plans as $plan) {
     $pid = $plan['id'];
     $planSoNos[$pid] = [];
@@ -72,26 +59,24 @@ foreach ($plans as $plan) {
     }
 }
 
-// Source 2: WO/PO items so_list (for plans where pp.so_list might be empty)
+// Also gather from WO items so_list
 if (!empty($planIds)) {
     $phIds = implode(',', array_fill(0, count($planIds), '?'));
-    foreach (['procurement_plan_wo_items', 'procurement_plan_po_items'] as $tbl) {
-        try {
-            $tblStmt = $pdo->prepare("SELECT plan_id, so_list FROM $tbl WHERE plan_id IN ($phIds) AND so_list IS NOT NULL AND so_list != ''");
-            $tblStmt->execute($planIds);
-            foreach ($tblStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $pid = $row['plan_id'];
-                foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
-                    if ($soNo !== '' && !in_array($soNo, $planSoNos[$pid])) {
-                        $planSoNos[$pid][] = $soNo;
-                    }
+    try {
+        $tblStmt = $pdo->prepare("SELECT plan_id, so_list FROM procurement_plan_wo_items WHERE plan_id IN ($phIds) AND so_list IS NOT NULL AND so_list != ''");
+        $tblStmt->execute($planIds);
+        foreach ($tblStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $pid = $row['plan_id'];
+            foreach (array_map('trim', explode(',', $row['so_list'])) as $soNo) {
+                if ($soNo !== '' && !in_array($soNo, $planSoNos[$pid])) {
+                    $planSoNos[$pid][] = $soNo;
                 }
             }
-        } catch (Exception $e) {}
-    }
+        }
+    } catch (Exception $e) {}
 }
 
-// Collect all unique SO numbers and fetch details from sales_orders
+// Collect all unique SO numbers and fetch details
 $allSoNos = [];
 foreach ($planSoNos as $soList) {
     $allSoNos = array_merge($allSoNos, $soList);
@@ -99,7 +84,7 @@ foreach ($planSoNos as $soList) {
 $allSoNos = array_values(array_unique($allSoNos));
 
 $soCustomers = [];
-$soProducts = []; // so_no => [part_name, ...]
+$soProducts = [];
 if (!empty($allSoNos)) {
     $phSo = implode(',', array_fill(0, count($allSoNos), '?'));
     $soStmt = $pdo->prepare("
@@ -123,7 +108,7 @@ if (!empty($allSoNos)) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Procurement Planning</title>
+    <title>Work Order Planning</title>
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
@@ -132,23 +117,21 @@ if (!empty($allSoNos)) {
 
 <div class="content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>Procurement Planning</h2>
-        <a href="create.php" class="btn btn-primary">+ Create New Plan</a>
+        <h2>Work Order Planning</h2>
+        <a href="create.php" class="btn btn-primary">+ Create New WO Plan</a>
     </div>
 
     <!-- Summary Cards -->
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px;">
         <?php
-        // Get summary stats
         $stats = $pdo->query("
             SELECT
                 COUNT(CASE WHEN status = 'draft' THEN 1 END) AS draft_count,
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) AS approved_count,
                 COUNT(CASE WHEN status = 'partiallyordered' THEN 1 END) AS ordered_count,
-                COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed_count,
-                COALESCE(SUM(CASE WHEN status IN ('draft', 'approved') THEN total_estimated_cost ELSE 0 END), 0) AS pending_cost
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed_count
             FROM procurement_plans
-            WHERE (plan_type = 'procurement' OR plan_type IS NULL)
+            WHERE plan_type = 'wo_planning'
         ")->fetch(PDO::FETCH_ASSOC);
         ?>
 
@@ -158,12 +141,12 @@ if (!empty($allSoNos)) {
         </div>
 
         <div style="padding: 15px; background: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b;">
-            <div style="color: #666; font-size: 0.9em;">Pending Approval</div>
+            <div style="color: #666; font-size: 0.9em;">Approved</div>
             <div style="font-size: 2em; font-weight: bold; color: #f59e0b;"><?= $stats['approved_count'] ?></div>
         </div>
 
         <div style="padding: 15px; background: #dbeafe; border-radius: 8px; border-left: 4px solid #3b82f6;">
-            <div style="color: #666; font-size: 0.9em;">Ordered</div>
+            <div style="color: #666; font-size: 0.9em;">In Progress</div>
             <div style="font-size: 2em; font-weight: bold; color: #3b82f6;"><?= $stats['ordered_count'] ?></div>
         </div>
 
@@ -183,9 +166,7 @@ if (!empty($allSoNos)) {
                     <th>Sales Orders</th>
                     <th>Product</th>
                     <th>Status</th>
-                    <th>Items</th>
-                    <th>Order Qty</th>
-                    <th>Est. Cost</th>
+                    <th>WO Items</th>
                     <th>Progress</th>
                     <th>Actions</th>
                 </tr>
@@ -193,8 +174,8 @@ if (!empty($allSoNos)) {
             <tbody>
                 <?php if (empty($plans)): ?>
                     <tr>
-                        <td colspan="10" style="text-align: center; padding: 20px; color: #666;">
-                            No procurement plans yet.
+                        <td colspan="8" style="text-align: center; padding: 20px; color: #666;">
+                            No WO plans yet.
                             <a href="create.php" style="color: #0284c7;">Create one now</a>
                         </td>
                     </tr>
@@ -249,18 +230,26 @@ if (!empty($allSoNos)) {
                                     'cancelled' => '#dc2626'
                                 ];
                                 $statusColor = $statusColors[$plan['status']] ?? '#6b7280';
+                                $statusLabels = [
+                                    'draft' => 'Draft',
+                                    'approved' => 'Approved',
+                                    'partiallyordered' => 'In Progress',
+                                    'completed' => 'Completed',
+                                    'cancelled' => 'Cancelled'
+                                ];
                                 ?>
                                 <span style="display: inline-block; padding: 4px 8px; background: <?= $statusColor ?>20; color: <?= $statusColor ?>; border-radius: 4px; font-weight: 500; font-size: 0.9em;">
-                                    <?= ucfirst(str_replace('partially', 'Partially ', str_replace('_', ' ', $plan['status']))) ?>
+                                    <?= $statusLabels[$plan['status']] ?? ucfirst($plan['status']) ?>
                                 </span>
                             </td>
-                            <td><?= $plan['item_count'] ?? 0 ?></td>
-                            <td><?= $plan['total_items_to_order'] ?? 0 ?> units</td>
-                            <td>₹ <?= number_format($plan['total_estimated_cost'] ?? 0, 2) ?></td>
+                            <td><?= $plan['wo_total'] ?? 0 ?></td>
                             <td>
                                 <?php
-                                $progress = calculatePlanProgress($pdo, $plan['id'], $plan['status']);
-                                $percentage = $progress['percentage'];
+                                $woTotal = (int)($plan['wo_total'] ?? 0);
+                                $woDone = (int)($plan['wo_done'] ?? 0);
+                                $percentage = $woTotal > 0 ? round(($woDone / $woTotal) * 100) : 0;
+                                if ($plan['status'] === 'completed') $percentage = 100;
+                                if ($plan['status'] === 'cancelled') $percentage = 0;
                                 $barColor = $percentage >= 100 ? '#16a34a' : ($percentage > 0 ? '#f59e0b' : '#e5e7eb');
                                 ?>
                                 <div style="display: flex; align-items: center; gap: 8px;">

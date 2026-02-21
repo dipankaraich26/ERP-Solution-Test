@@ -753,8 +753,9 @@ if ($planDetails) {
     // WO/PO items already loaded and processed at the top of the file
     ?>
 
-    <?php if (!empty($woItems)): ?>
-    <!-- Work Order Parts Section -->
+    <?php $showWoSection = (($planDetails['plan_type'] ?? '') === 'wo_planning'); ?>
+    <?php if ($showWoSection && !empty($woItems)): ?>
+    <!-- Work Order Parts Section (only shown for WO Planning plans) -->
     <div class="form-section" style="margin-top: 30px; border-top: 3px solid #10b981; padding-top: 20px;">
         <h3 style="color: #059669; margin-bottom: 15px;">
             <span style="background: #d1fae5; padding: 4px 12px; border-radius: 20px;">

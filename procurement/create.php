@@ -95,7 +95,7 @@ if ($step == 2) {
     }
 
     // Get or create a plan for these selected SOs
-    $planResult = getOrCreatePlanForSOs($pdo, $selectedSOs);
+    $planResult = getOrCreatePlanForSOs($pdo, $selectedSOs, 'procurement');
     $currentPlanId = $planResult['plan_id'] ?? null;
     $currentPlanNo = $planResult['plan_no'] ?? '';
     $isExistingPlan = $planResult['is_existing'] ?? false;
@@ -906,6 +906,7 @@ if ($step == 3 && $planId) {
         </div>
         <?php endif; ?>
 
+        <?php if (false): // WO items section hidden - moved to WO Planning module ?>
         <?php if (!empty($workOrderItems)): ?>
         <!-- Work Order Parts Section -->
         <div style="margin-top: 40px; padding-top: 30px; border-top: 3px solid #10b981;">
@@ -1190,6 +1191,7 @@ if ($step == 3 && $planId) {
             <?php endif; ?>
         </div>
         <?php endif; ?>
+        <?php endif; // End of hidden WO section ?>
 
         <?php if (!empty($subletItems)): ?>
         <!-- Sublet Parts Section -->

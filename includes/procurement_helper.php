@@ -7,7 +7,14 @@
 /**
  * Generate next procurement plan number
  */
-function generateProcurementPlanNo($pdo): string {
+function generateProcurementPlanNo($pdo, string $planType = 'procurement'): string {
+    if ($planType === 'wo_planning') {
+        $maxNo = $pdo->query("
+            SELECT COALESCE(MAX(CAST(SUBSTRING(plan_no,5) AS UNSIGNED)),0)
+            FROM procurement_plans WHERE plan_no LIKE 'WOP-%'
+        ")->fetchColumn();
+        return 'WOP-' . str_pad(((int)$maxNo + 1), 3, '0', STR_PAD_LEFT);
+    }
     $maxNo = $pdo->query("
         SELECT COALESCE(MAX(CAST(SUBSTRING(plan_no,4) AS UNSIGNED)),0)
         FROM procurement_plans WHERE plan_no LIKE 'PP-%'
@@ -203,9 +210,9 @@ function calculateProcurementRecommendation($pdo, string $partNo, int $demandQty
  * Create procurement plan with line items
  * @param array $items Array of plan items (part_no, demand_qty, supplier_id, etc.)
  */
-function createProcurementPlan($pdo, array $items, string $notes = ''): ?array {
+function createProcurementPlan($pdo, array $items, string $notes = '', string $planType = 'procurement'): ?array {
     try {
-        $planNo = generateProcurementPlanNo($pdo);
+        $planNo = generateProcurementPlanNo($pdo, $planType);
         $totalParts = count($items);
         $totalQty = 0;
         $totalCost = 0;
@@ -221,10 +228,10 @@ function createProcurementPlan($pdo, array $items, string $notes = ''): ?array {
         // Insert plan header
         $stmt = $pdo->prepare("
             INSERT INTO procurement_plans
-            (plan_no, status, total_parts, total_items_to_order, total_estimated_cost, notes, created_by)
-            VALUES (?, 'draft', ?, ?, ?, ?, 1)
+            (plan_no, plan_type, status, total_parts, total_items_to_order, total_estimated_cost, notes, created_by)
+            VALUES (?, ?, 'draft', ?, ?, ?, ?, 1)
         ");
-        $stmt->execute([$planNo, $totalParts, $totalQty, $totalCost, $notes]);
+        $stmt->execute([$planNo, $planType, $totalParts, $totalQty, $totalCost, $notes]);
         $planId = $pdo->lastInsertId();
 
         // Insert plan items
@@ -1732,7 +1739,7 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
  * @param array $selectedSOs Array of selected SO numbers
  * @return array Plan details with id and plan_no
  */
-function getOrCreatePlanForSOs($pdo, array $selectedSOs): array {
+function getOrCreatePlanForSOs($pdo, array $selectedSOs, string $planType = 'procurement'): array {
     sort($selectedSOs); // Sort for consistent comparison
     $soListStr = implode(',', $selectedSOs);
 
@@ -1740,11 +1747,11 @@ function getOrCreatePlanForSOs($pdo, array $selectedSOs): array {
         // Check if plan exists for these SOs
         $stmt = $pdo->prepare("
             SELECT id, plan_no, status FROM procurement_plans
-            WHERE so_list = ? AND status NOT IN ('cancelled', 'completed')
+            WHERE so_list = ? AND plan_type = ? AND status NOT IN ('cancelled', 'completed')
             ORDER BY id DESC
             LIMIT 1
         ");
-        $stmt->execute([$soListStr]);
+        $stmt->execute([$soListStr, $planType]);
         $existingPlan = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existingPlan) {
@@ -1758,12 +1765,12 @@ function getOrCreatePlanForSOs($pdo, array $selectedSOs): array {
         }
 
         // Create new plan
-        $planNo = generateProcurementPlanNo($pdo);
+        $planNo = generateProcurementPlanNo($pdo, $planType);
         $stmt = $pdo->prepare("
-            INSERT INTO procurement_plans (plan_no, so_list, status, created_by)
-            VALUES (?, ?, 'draft', 1)
+            INSERT INTO procurement_plans (plan_no, so_list, plan_type, status, created_by)
+            VALUES (?, ?, ?, 'draft', 1)
         ");
-        $stmt->execute([$planNo, $soListStr]);
+        $stmt->execute([$planNo, $soListStr, $planType]);
         $planId = $pdo->lastInsertId();
 
         return [

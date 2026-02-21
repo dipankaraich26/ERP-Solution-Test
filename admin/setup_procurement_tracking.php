@@ -24,6 +24,18 @@ try {
         }
     }
 
+    // Add plan_type column to procurement_plans table
+    try {
+        $pdo->exec("ALTER TABLE procurement_plans ADD COLUMN plan_type ENUM('procurement', 'wo_planning') DEFAULT 'procurement' AFTER status");
+        $messages[] = "Added plan_type column to procurement_plans table";
+    } catch (PDOException $e) {
+        if (strpos($e->getMessage(), 'Duplicate column') !== false) {
+            $messages[] = "Column plan_type already exists in procurement_plans";
+        } else {
+            $errors[] = "Error adding plan_type column: " . $e->getMessage();
+        }
+    }
+
     // 2. Create procurement_plan_wo_items table to track work order items
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS procurement_plan_wo_items (

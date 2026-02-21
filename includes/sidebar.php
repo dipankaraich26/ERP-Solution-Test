@@ -450,8 +450,8 @@ $showStrategy = $_isAdmin || _canView('strategy');
 
     <!-- Operations -->
     <?php if ($showOperations): ?>
-    <div class="sidebar-group <?= in_array($currentDir, ['bom', 'work_orders']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['bom', 'work_orders']) ? 'active' : '' ?>">
+    <div class="sidebar-group <?= in_array($currentDir, ['bom', 'work_orders', 'wo_planning']) ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= in_array($currentDir, ['bom', 'work_orders', 'wo_planning']) ? 'active' : '' ?>">
             <a href="/bom/dashboard.php" class="module-link">Operations</a>
             <span class="arrow" onclick="toggleGroup(this.parentElement)">&#9654;</span>
         </div>
@@ -462,6 +462,7 @@ $showStrategy = $_isAdmin || _canView('strategy');
             <?php if (_canView('work_orders')): ?>
             <a href="/work_orders/index.php" class="<?= $currentDir === 'work_orders' ? 'active' : '' ?>">Work Orders</a>
             <?php endif; ?>
+            <a href="/wo_planning/index.php" class="<?= $currentDir === 'wo_planning' ? 'active' : '' ?>">Work Order Planning</a>
         </div>
     </div>
     <?php endif; ?>
