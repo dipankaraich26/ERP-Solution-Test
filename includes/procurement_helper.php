@@ -1486,25 +1486,66 @@ function getExistingPoForPlanItem($pdo, int $planId, string $partNo): ?array {
  */
 function findExistingActivePo($pdo, string $partNo, ?int $excludePlanId = null): ?array {
     try {
-        // Find active PO for this part that is NOT already linked to a different plan
+        // Find active POs for this part
         $stmt = $pdo->prepare("
             SELECT po.id, po.po_no, po.part_no, po.qty, po.rate, po.supplier_id, po.status
             FROM purchase_orders po
             WHERE po.part_no = ? AND po.status NOT IN ('cancelled', 'closed')
-              AND NOT EXISTS (
-                  SELECT 1 FROM procurement_plan_po_items ppi
-                  WHERE ppi.created_po_id = po.id
-                    AND ppi.plan_id != ?
-                    AND ppi.status NOT IN ('pending', 'po_cancelled')
-              )
             ORDER BY po.id ASC
-            LIMIT 1
         ");
-        $stmt->execute([$partNo, $excludePlanId ?? 0]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result ?: null;
+        $stmt->execute([$partNo]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $currentPlanId = $excludePlanId ?? 0;
+
+        // Pick the first PO that has surplus qty (PO qty > qty committed to other PPs)
+        foreach ($candidates as $po) {
+            $committedToOthers = getCommittedQtyForPo($pdo, (int)$po['id'], $currentPlanId);
+            $surplus = (float)$po['qty'] - $committedToOthers;
+            if ($surplus > 0) {
+                $po['surplus_qty'] = $surplus;
+                return $po;
+            }
+        }
+
+        return null;
     } catch (Exception $e) {
         return null;
+    }
+}
+
+/**
+ * Get total qty already committed to other PPs for a specific PO.
+ * Used to calculate surplus: PO qty - committed = available for new PP.
+ */
+function getCommittedQtyForPo($pdo, int $poId, int $excludePlanId): float {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COALESCE(SUM(required_qty), 0)
+            FROM procurement_plan_po_items
+            WHERE created_po_id = ? AND plan_id != ? AND status NOT IN ('pending', 'po_cancelled')
+        ");
+        $stmt->execute([$poId, $excludePlanId]);
+        return (float)$stmt->fetchColumn();
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
+ * Get total qty already committed to other PPs for a specific WO.
+ */
+function getCommittedQtyForWo($pdo, int $woId, int $excludePlanId): float {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT COALESCE(SUM(required_qty), 0)
+            FROM procurement_plan_wo_items
+            WHERE created_wo_id = ? AND plan_id != ? AND status NOT IN ('pending', 'cancelled')
+        ");
+        $stmt->execute([$woId, $excludePlanId]);
+        return (float)$stmt->fetchColumn();
+    } catch (Exception $e) {
+        return 0;
     }
 }
 
@@ -1563,6 +1604,14 @@ function autoLinkExistingPOs($pdo, int $planId, array &$poItems): void {
         if (empty($poItem['created_po_id']) && ($poItem['status'] ?? '') === 'pending') {
             if (isset($planPoMap[$poItem['part_no']])) {
                 $linkedPo = $planPoMap[$poItem['part_no']];
+
+                // Check surplus: skip if PO qty is fully committed to other PPs
+                $committedToOthers = getCommittedQtyForPo($pdo, (int)$linkedPo['id'], $planId);
+                $surplus = (float)$linkedPo['qty'] - $committedToOthers;
+                if ($surplus <= 0) {
+                    continue; // No surplus — skip, don't link
+                }
+
                 updatePlanPoItemStatus(
                     $pdo, $planId, $poItem['part_no'],
                     (int)$linkedPo['id'], $linkedPo['po_no'], (float)$linkedPo['qty']
