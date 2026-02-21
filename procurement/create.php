@@ -249,6 +249,7 @@ if ($step == 2) {
 
     // Also detect work orders created outside the procurement page (from work_orders module)
     // Only pick up ACTIVE WOs - closed/cancelled WOs belong to completed SO cycles and should NOT be linked
+    // IMPORTANT: Skip WOs already fully committed to another procurement plan
     if (!empty($workOrderItems)) {
         foreach ($workOrderItems as $wi) {
             $partNo = $wi['part_no'];
@@ -258,12 +259,25 @@ if ($step == 2) {
             }
             // Only find active (not closed/cancelled) work orders for this part
             $extWoStmt = $pdo->prepare("
-                SELECT id, wo_no, qty, status FROM work_orders
+                SELECT id, wo_no, qty, status, plan_id FROM work_orders
                 WHERE part_no = ? AND status NOT IN ('closed', 'cancelled')
-                ORDER BY id DESC LIMIT 1
+                ORDER BY id DESC
             ");
             $extWoStmt->execute([$partNo]);
-            $extWo = $extWoStmt->fetch(PDO::FETCH_ASSOC);
+            $extWoCandidates = $extWoStmt->fetchAll(PDO::FETCH_ASSOC);
+            $extWo = null;
+            foreach ($extWoCandidates as $candidate) {
+                // Skip WOs that are already fully committed to another plan
+                if (!empty($candidate['plan_id']) && (int)$candidate['plan_id'] !== ($currentPlanId ?? 0)) {
+                    $committedQty = getCommittedQtyForWo($pdo, (int)$candidate['id'], $currentPlanId ?? 0);
+                    $surplus = (float)$candidate['qty'] - $committedQty;
+                    if ($surplus <= 0) {
+                        continue; // Fully committed to another PP — skip
+                    }
+                }
+                $extWo = $candidate;
+                break; // Use first available WO with surplus
+            }
             if ($extWo) {
                 // Link it to the tracking table if plan exists
                 if ($currentPlanId) {
