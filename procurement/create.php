@@ -267,14 +267,24 @@ if ($step == 2) {
             $extWoCandidates = $extWoStmt->fetchAll(PDO::FETCH_ASSOC);
             $extWo = null;
             foreach ($extWoCandidates as $candidate) {
-                // Skip WOs that are already fully committed to another plan
-                if (!empty($candidate['plan_id']) && (int)$candidate['plan_id'] !== ($currentPlanId ?? 0)) {
-                    $committedQty = getCommittedQtyForWo($pdo, (int)$candidate['id'], $currentPlanId ?? 0);
+                // Always check if this WO is already committed to another plan
+                // (via plan_id on work_orders OR via procurement_plan_wo_items linkage)
+                $woId = (int)$candidate['id'];
+                $thisPlanId = $currentPlanId ?? 0;
+
+                // Check 1: WO has plan_id set to a different plan — it belongs to another PP
+                $belongsToOtherPlan = (!empty($candidate['plan_id']) && (int)$candidate['plan_id'] !== $thisPlanId);
+
+                // Check 2: Any other PP has linked this WO in procurement_plan_wo_items
+                $committedQty = getCommittedQtyForWo($pdo, $woId, $thisPlanId);
+
+                if ($belongsToOtherPlan || $committedQty > 0) {
                     $surplus = (float)$candidate['qty'] - $committedQty;
                     if ($surplus <= 0) {
                         continue; // Fully committed to another PP — skip
                     }
                 }
+
                 $extWo = $candidate;
                 break; // Use first available WO with surplus
             }
