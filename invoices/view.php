@@ -848,9 +848,20 @@ include "../includes/sidebar.php";
                         <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.9em; color: <?= $info['color'] ?>;">
                             <?= $info['label'] ?> <?= empty($invoice[$field]) ? '<span style="color: #e74c3c;">*</span>' : '<span style="color:#27ae60;">(Replace)</span>' ?>
                         </label>
-                        <input type="file" name="<?= $field ?>" accept="image/*"
-                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 0.88em;"
-                               <?= empty($invoice[$field]) ? '' : '' ?>>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="file" name="<?= $field ?>" id="file_<?= $field ?>" accept="image/*" capture="environment"
+                                   style="display: none;"
+                                   onchange="showPhotoPreview(this, '<?= $field ?>')">
+                            <button type="button" onclick="document.getElementById('file_<?= $field ?>').removeAttribute('capture'); document.getElementById('file_<?= $field ?>').click();"
+                                    style="flex: 1; padding: 10px; border: 2px dashed #ddd; border-radius: 6px; background: #f8f9fa; cursor: pointer; font-size: 0.85em; color: #555;">
+                                &#128193; Gallery
+                            </button>
+                            <button type="button" onclick="document.getElementById('file_<?= $field ?>').setAttribute('capture','environment'); document.getElementById('file_<?= $field ?>').click();"
+                                    style="flex: 1; padding: 10px; border: 2px dashed #0d6efd; border-radius: 6px; background: #e8f0fe; cursor: pointer; font-size: 0.85em; color: #0d6efd; font-weight: 600;">
+                                &#128247; Camera
+                            </button>
+                        </div>
+                        <small id="fname_<?= $field ?>" style="display:none; margin-top:4px; color:#27ae60; font-size:0.8em;"></small>
                     </div>
                     <?php endforeach; ?>
                 </div>
@@ -1022,8 +1033,20 @@ include "../includes/sidebar.php";
                     <label for="eway_bill_file" style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">
                         E-Way Bill Attachment <span style="color: #e74c3c;">*</span>
                     </label>
-                    <input type="file" id="eway_bill_file" name="eway_bill_file" accept=".pdf,.jpg,.jpeg,.png,.gif"
-                           style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="file" id="eway_bill_file" name="eway_bill_file" accept=".pdf,.jpg,.jpeg,.png,.gif"
+                               style="display: none;"
+                               onchange="document.getElementById('eway_fname').textContent = this.files[0]?.name || ''; document.getElementById('eway_fname').style.display = this.files[0] ? 'block' : 'none';">
+                        <button type="button" onclick="document.getElementById('eway_bill_file').removeAttribute('capture'); document.getElementById('eway_bill_file').click();"
+                                style="flex: 1; padding: 10px; border: 2px dashed #ddd; border-radius: 6px; background: #f8f9fa; cursor: pointer; font-size: 0.85em; color: #555;">
+                            &#128193; Choose File
+                        </button>
+                        <button type="button" onclick="document.getElementById('eway_bill_file').setAttribute('accept','image/*'); document.getElementById('eway_bill_file').setAttribute('capture','environment'); document.getElementById('eway_bill_file').click(); setTimeout(function(){ document.getElementById('eway_bill_file').setAttribute('accept','.pdf,.jpg,.jpeg,.png,.gif'); },500);"
+                                style="flex: 1; padding: 10px; border: 2px dashed #0d6efd; border-radius: 6px; background: #e8f0fe; cursor: pointer; font-size: 0.85em; color: #0d6efd; font-weight: 600;">
+                            &#128247; Camera
+                        </button>
+                    </div>
+                    <small id="eway_fname" style="display:none; margin-top:4px; color:#27ae60;">Selected file</small>
                     <small style="color: #666; display: block; margin-top: 5px;">Upload E-Way Bill document (PDF or Image - Max 10MB)</small>
 
                     <?php if ($invoice['eway_bill_attachment'] ?? null): ?>
@@ -1064,6 +1087,13 @@ include "../includes/sidebar.php";
 </div>
 
 <script>
+function showPhotoPreview(input, field) {
+    var fname = document.getElementById('fname_' + field);
+    if (input.files && input.files[0]) {
+        fname.textContent = input.files[0].name;
+        fname.style.display = 'block';
+    }
+}
 function exportToExcel() {
     const table = document.getElementById('itemsTable');
     const wb = XLSX.utils.table_to_book(table, { sheet: "Tax Invoice" });

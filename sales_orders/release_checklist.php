@@ -1248,7 +1248,20 @@ include "../includes/sidebar.php";
                         </div>
                         <div>
                             <label style="display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9em;">Select File <span style="color: #dc3545;">*</span></label>
-                            <input type="file" name="attachment" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; background: white;">
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="file" name="attachment" id="so_attachment_file" required
+                                       style="display: none;"
+                                       onchange="var n=document.getElementById('so_att_fname'); n.textContent=this.files[0]?.name||''; n.style.display=this.files[0]?'block':'none';">
+                                <button type="button" onclick="document.getElementById('so_attachment_file').removeAttribute('capture'); document.getElementById('so_attachment_file').setAttribute('accept','*/*'); document.getElementById('so_attachment_file').click();"
+                                        style="flex: 1; padding: 10px; border: 2px dashed #ddd; border-radius: 6px; background: #f8f9fa; cursor: pointer; font-size: 0.85em; color: #555;">
+                                    &#128193; Choose File
+                                </button>
+                                <button type="button" onclick="document.getElementById('so_attachment_file').setAttribute('accept','image/*'); document.getElementById('so_attachment_file').setAttribute('capture','environment'); document.getElementById('so_attachment_file').click();"
+                                        style="flex: 1; padding: 10px; border: 2px dashed #0d6efd; border-radius: 6px; background: #e8f0fe; cursor: pointer; font-size: 0.85em; color: #0d6efd; font-weight: 600;">
+                                    &#128247; Camera
+                                </button>
+                            </div>
+                            <small id="so_att_fname" style="display:none; margin-top:4px; color:#27ae60; font-size:0.8em;"></small>
                         </div>
                     </div>
                     <div style="margin-top: 15px;">

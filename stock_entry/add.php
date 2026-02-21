@@ -285,12 +285,28 @@ if (toggle) {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                 <div class="form-group" style="margin-bottom: 0;">
                     <label>Invoice Attachment</label>
-                    <input type="file" name="invoice_attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+                    <div style="display: flex; gap: 6px;">
+                        <input type="file" name="invoice_attachment" id="se_invoice_file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" style="display: none;"
+                               onchange="var n=document.getElementById('se_inv_fname'); n.textContent=this.files[0]?.name||''; n.style.display=this.files[0]?'block':'none';">
+                        <button type="button" onclick="document.getElementById('se_invoice_file').removeAttribute('capture'); document.getElementById('se_invoice_file').click();"
+                                style="flex: 1; padding: 8px; border: 2px dashed #ddd; border-radius: 6px; background: #f8f9fa; cursor: pointer; font-size: 0.85em; color: #555;">&#128193; File</button>
+                        <button type="button" onclick="document.getElementById('se_invoice_file').setAttribute('accept','image/*'); document.getElementById('se_invoice_file').setAttribute('capture','environment'); document.getElementById('se_invoice_file').click(); setTimeout(function(){ document.getElementById('se_invoice_file').setAttribute('accept','.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx'); },500);"
+                                style="flex: 1; padding: 8px; border: 2px dashed #0d6efd; border-radius: 6px; background: #e8f0fe; cursor: pointer; font-size: 0.85em; color: #0d6efd; font-weight: 600;">&#128247; Camera</button>
+                    </div>
+                    <small id="se_inv_fname" style="display:none; margin-top:4px; color:#27ae60; font-size:0.8em;"></small>
                     <small style="color: #888; display: block; margin-top: 4px;">PDF, Image, or Document (max 10MB)</small>
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label>Material Photo</label>
-                    <input type="file" name="material_photo" accept="image/*" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;">
+                    <div style="display: flex; gap: 6px;">
+                        <input type="file" name="material_photo" id="se_material_photo" accept="image/*" style="display: none;"
+                               onchange="var n=document.getElementById('se_mat_fname'); n.textContent=this.files[0]?.name||''; n.style.display=this.files[0]?'block':'none';">
+                        <button type="button" onclick="document.getElementById('se_material_photo').removeAttribute('capture'); document.getElementById('se_material_photo').click();"
+                                style="flex: 1; padding: 8px; border: 2px dashed #ddd; border-radius: 6px; background: #f8f9fa; cursor: pointer; font-size: 0.85em; color: #555;">&#128193; Gallery</button>
+                        <button type="button" onclick="document.getElementById('se_material_photo').setAttribute('capture','environment'); document.getElementById('se_material_photo').click();"
+                                style="flex: 1; padding: 8px; border: 2px dashed #0d6efd; border-radius: 6px; background: #e8f0fe; cursor: pointer; font-size: 0.85em; color: #0d6efd; font-weight: 600;">&#128247; Camera</button>
+                    </div>
+                    <small id="se_mat_fname" style="display:none; margin-top:4px; color:#27ae60; font-size:0.8em;"></small>
                     <small style="color: #888; display: block; margin-top: 4px;">JPG, PNG, or WebP (max 10MB)</small>
                 </div>
             </div>
