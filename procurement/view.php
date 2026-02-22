@@ -442,7 +442,7 @@ if ($planDetails) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Procurement Plan - <?= htmlspecialchars($planDetails['plan_no'] ?? '') ?></title>
+    <title>PPP - <?= htmlspecialchars($planDetails['plan_no'] ?? '') ?></title>
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>

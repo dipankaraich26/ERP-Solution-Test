@@ -20,7 +20,8 @@ function _canView(string $module): bool {
 $_isAdmin = (function_exists('getUserRole') && getUserRole() === 'admin');
 
 $showSales = $_isAdmin || _canView('crm') || _canView('customers') || _canView('quotes') || _canView('proforma') || _canView('customer_po') || _canView('sales_orders') || _canView('invoices') || _canView('installations');
-$showPurchase = $_isAdmin || _canView('suppliers') || _canView('purchase') || _canView('procurement');
+$showPurchase = $_isAdmin || _canView('suppliers') || _canView('purchase');
+$showProduction = $_isAdmin || _canView('procurement');
 $showInventory = $_isAdmin || _canView('part_master') || _canView('stock_entry') || _canView('depletion') || _canView('inventory') || _canView('reports');
 $showOperations = $_isAdmin || _canView('bom') || _canView('work_orders');
 $showHR = $_isAdmin || _canView('hr_employees') || _canView('hr_attendance') || _canView('hr_payroll');
@@ -396,8 +397,8 @@ $showStrategy = $_isAdmin || _canView('strategy');
 
     <!-- Purchase & Procurement -->
     <?php if ($showPurchase): ?>
-    <div class="sidebar-group <?= in_array($currentDir, ['suppliers', 'purchase', 'procurement']) ? 'open' : '' ?>">
-        <div class="sidebar-group-header <?= in_array($currentDir, ['suppliers', 'purchase', 'procurement']) ? 'active' : '' ?>">
+    <div class="sidebar-group <?= in_array($currentDir, ['suppliers', 'purchase']) ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= in_array($currentDir, ['suppliers', 'purchase']) ? 'active' : '' ?>">
             <a href="/purchase/dashboard.php" class="module-link">Purchase & SCM</a>
             <span class="arrow" onclick="toggleGroup(this.parentElement)">&#9654;</span>
         </div>
@@ -410,8 +411,20 @@ $showStrategy = $_isAdmin || _canView('strategy');
             <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' ? 'active' : '' ?>">Purchase Orders</a>
             <a href="/purchase/matrix.php" class="<?= $currentDir === 'purchase' && $current === 'matrix.php' ? 'active' : '' ?>">LT vs Value Matrix</a>
             <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Production Planning -->
+    <?php if ($showProduction): ?>
+    <div class="sidebar-group <?= in_array($currentDir, ['procurement']) ? 'open' : '' ?>">
+        <div class="sidebar-group-header <?= in_array($currentDir, ['procurement']) ? 'active' : '' ?>">
+            <a href="/procurement/index.php" class="module-link">Production Planning</a>
+            <span class="arrow" onclick="toggleGroup(this.parentElement)">&#9654;</span>
+        </div>
+        <div class="sidebar-group-items">
             <?php if (_canView('procurement')): ?>
-            <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">Procurement Planning</a>
+            <a href="/procurement/index.php" class="<?= $currentDir === 'procurement' ? 'active' : '' ?>">PPP (Production & Procurement Planning)</a>
             <?php endif; ?>
         </div>
     </div>

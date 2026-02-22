@@ -123,7 +123,7 @@ if (!empty($allSoNos)) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Procurement Planning</title>
+    <title>Production & Procurement Planning (PPP)</title>
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
@@ -132,7 +132,7 @@ if (!empty($allSoNos)) {
 
 <div class="content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>Procurement Planning</h2>
+        <h2>Production & Procurement Planning (PPP)</h2>
         <a href="create.php" class="btn btn-primary">+ Create New Plan</a>
     </div>
 

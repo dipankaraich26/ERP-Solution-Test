@@ -580,7 +580,7 @@ if ($step == 3 && $planId) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Procurement Planning - Create Plan</title>
+    <title>PPP - Create Plan</title>
     <link rel="stylesheet" href="/assets/style.css">
     <script>
         function selectAll(checkbox) {
@@ -619,7 +619,7 @@ if ($step == 3 && $planId) {
 <?php include '../includes/sidebar.php'; ?>
 
 <div class="content">
-    <h2>Create Procurement Plan</h2>
+    <h2>Create Production & Procurement Plan</h2>
 
     <?php if ($error): ?>
         <div class="alert error"><?= htmlspecialchars($error) ?></div>
