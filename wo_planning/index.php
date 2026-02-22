@@ -12,14 +12,14 @@ $offset = ($page - 1) * $per_page;
 
 // Auto-close plans where all SOs are released
 try {
-    $activePlans = $pdo->query("SELECT id FROM procurement_plans WHERE status NOT IN ('completed', 'cancelled') AND plan_type = 'wo_planning'")->fetchAll(PDO::FETCH_COLUMN);
+    $activePlans = $pdo->query("SELECT pp.id FROM procurement_plans pp WHERE pp.status NOT IN ('completed', 'cancelled') AND (pp.plan_type = 'procurement' OR pp.plan_type IS NULL OR pp.plan_type = 'wo_planning') AND EXISTS (SELECT 1 FROM procurement_plan_wo_items pwi WHERE pwi.plan_id = pp.id)")->fetchAll(PDO::FETCH_COLUMN);
     foreach ($activePlans as $apId) {
         autoClosePlanIfAllSOsReleased($pdo, (int)$apId);
     }
 } catch (Exception $e) {}
 
 // Get total count (only WO planning plans)
-$total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans WHERE plan_type = 'wo_planning'")->fetchColumn();
+$total_count = $pdo->query("SELECT COUNT(*) FROM procurement_plans pp WHERE (pp.plan_type = 'procurement' OR pp.plan_type IS NULL OR pp.plan_type = 'wo_planning') AND EXISTS (SELECT 1 FROM procurement_plan_wo_items pwi WHERE pwi.plan_id = pp.id)")->fetchColumn();
 $total_pages = ceil($total_count / $per_page);
 
 // Fetch plans with summary
@@ -34,7 +34,8 @@ $stmt = $pdo->prepare("
         (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id) AS wo_total,
         (SELECT COUNT(*) FROM procurement_plan_wo_items WHERE plan_id = pp.id AND status IN ('completed', 'closed')) AS wo_done
     FROM procurement_plans pp
-    WHERE pp.plan_type = 'wo_planning'
+    WHERE (pp.plan_type = 'procurement' OR pp.plan_type IS NULL OR pp.plan_type = 'wo_planning')
+    AND EXISTS (SELECT 1 FROM procurement_plan_wo_items pwi WHERE pwi.plan_id = pp.id)
     ORDER BY pp.plan_date DESC, pp.id DESC
     LIMIT :limit OFFSET :offset
 ");
@@ -118,7 +119,7 @@ if (!empty($allSoNos)) {
 <div class="content">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h2>Work Order Planning</h2>
-        <a href="create.php" class="btn btn-primary">+ Create New WO Plan</a>
+        <a href="/procurement/create.php" class="btn btn-primary">+ Create New Plan (PPP)</a>
     </div>
 
     <!-- Summary Cards -->
@@ -130,8 +131,9 @@ if (!empty($allSoNos)) {
                 COUNT(CASE WHEN status = 'approved' THEN 1 END) AS approved_count,
                 COUNT(CASE WHEN status = 'partiallyordered' THEN 1 END) AS ordered_count,
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed_count
-            FROM procurement_plans
-            WHERE plan_type = 'wo_planning'
+            FROM procurement_plans pp
+            WHERE (pp.plan_type = 'procurement' OR pp.plan_type IS NULL OR pp.plan_type = 'wo_planning')
+            AND EXISTS (SELECT 1 FROM procurement_plan_wo_items pwi WHERE pwi.plan_id = pp.id)
         ")->fetch(PDO::FETCH_ASSOC);
         ?>
 
@@ -175,8 +177,8 @@ if (!empty($allSoNos)) {
                 <?php if (empty($plans)): ?>
                     <tr>
                         <td colspan="8" style="text-align: center; padding: 20px; color: #666;">
-                            No WO plans yet.
-                            <a href="create.php" style="color: #0284c7;">Create one now</a>
+                            No plans with WO items yet.
+                            <a href="/procurement/create.php" style="color: #0284c7;">Create a plan in PPP</a>
                         </td>
                     </tr>
                 <?php else: ?>
@@ -262,7 +264,7 @@ if (!empty($allSoNos)) {
                             <td>
                                 <a href="view.php?id=<?= $plan['id'] ?>" class="btn btn-small">View</a>
                                 <?php if ($plan['status'] === 'draft'): ?>
-                                    <a href="create.php?edit=<?= $plan['id'] ?>" class="btn btn-small btn-warning">Edit</a>
+                                    <a href="/procurement/create.php?edit=<?= $plan['id'] ?>" class="btn btn-small btn-warning">Edit</a>
                                 <?php endif; ?>
                             </td>
                         </tr>

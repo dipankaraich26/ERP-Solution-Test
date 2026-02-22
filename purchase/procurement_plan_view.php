@@ -1,10 +1,16 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require '../db.php';
 require '../includes/auth.php';
 requireLogin();
 require '../includes/procurement_helper.php';
 
 $planId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$error = '';
+$success = '';
 
 if (!$planId) {
     die("Plan ID is required");
@@ -13,6 +19,102 @@ if (!$planId) {
 $planDetails = getProcurementPlanDetails($pdo, $planId);
 if (!$planDetails) {
     die("Plan not found");
+}
+
+// Handle POST actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $action = $_POST['action'];
+
+    if ($action === 'create_po') {
+        $poPartNo = $_POST['po_part_no'] ?? '';
+        $purchaseDate = $_POST['purchase_date'] ?? date('Y-m-d');
+        if ($poPartNo && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            try {
+                $poItemStmt = $pdo->prepare("SELECT * FROM procurement_plan_po_items WHERE plan_id = ? AND part_no = ?");
+                $poItemStmt->execute([$planId, $poPartNo]);
+                $poItemData = $poItemStmt->fetch(PDO::FETCH_ASSOC);
+                if ($poItemData) {
+                    $supplierId = $poItemData['supplier_id'] ?? null;
+                    $qty = $poItemData['required_qty'] ?? 0;
+                    if (!$supplierId) {
+                        $bestSupplier = getBestSupplier($pdo, $poPartNo);
+                        $supplierId = $bestSupplier ? $bestSupplier['supplier_id'] : null;
+                    }
+                    if ($supplierId && $qty > 0) {
+                        $subletItems = [['part_no' => $poPartNo, 'qty' => $qty, 'supplier_id' => $supplierId]];
+                        $result = createSubletPurchaseOrdersWithTracking($pdo, $planId, $subletItems, $purchaseDate);
+                        if ($result['success']) {
+                            $createdPoNos = $result['created_pos'] ?? [];
+                            $success = "PO created: " . implode(', ', $createdPoNos) . " for " . $poPartNo;
+                            $planDetails = getProcurementPlanDetails($pdo, $planId);
+                        } else {
+                            $error = $result['error'] ?? 'Failed to create PO';
+                        }
+                    } else {
+                        $error = "No supplier or quantity found for " . $poPartNo;
+                    }
+                } else {
+                    $error = "PO item not found for " . $poPartNo;
+                }
+            } catch (Exception $e) {
+                $error = "Error creating PO: " . $e->getMessage();
+            }
+        } else {
+            $error = "Plan must be approved or partially ordered to create PO";
+        }
+    }
+
+    if ($action === 'regenerate_po') {
+        $regenPartNo = $_POST['regen_part_no'] ?? '';
+        $purchaseDate = $_POST['purchase_date'] ?? date('Y-m-d');
+        if ($regenPartNo && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            try {
+                // Reset the cancelled item to pending first
+                $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'pending', created_po_id = NULL, created_po_no = NULL, ordered_qty = NULL WHERE plan_id = ? AND part_no = ? AND status = 'po_cancelled'")
+                     ->execute([$planId, $regenPartNo]);
+
+                $poItemStmt = $pdo->prepare("SELECT * FROM procurement_plan_po_items WHERE plan_id = ? AND part_no = ?");
+                $poItemStmt->execute([$planId, $regenPartNo]);
+                $poItemData = $poItemStmt->fetch(PDO::FETCH_ASSOC);
+                if ($poItemData) {
+                    $supplierId = $poItemData['supplier_id'] ?? null;
+                    $qty = $poItemData['required_qty'] ?? 0;
+                    if (!$supplierId) {
+                        $bestSupplier = getBestSupplier($pdo, $regenPartNo);
+                        $supplierId = $bestSupplier ? $bestSupplier['supplier_id'] : null;
+                    }
+                    if ($supplierId && $qty > 0) {
+                        $subletItems = [['part_no' => $regenPartNo, 'qty' => $qty, 'supplier_id' => $supplierId]];
+                        $result = createSubletPurchaseOrdersWithTracking($pdo, $planId, $subletItems, $purchaseDate);
+                        if ($result['success']) {
+                            $success = "New PO created for " . $regenPartNo;
+                            $planDetails = getProcurementPlanDetails($pdo, $planId);
+                        } else {
+                            $error = $result['error'] ?? 'Failed to create PO';
+                        }
+                    } else {
+                        $error = "No supplier found for " . $regenPartNo;
+                    }
+                }
+            } catch (Exception $e) {
+                $error = "Error: " . $e->getMessage();
+            }
+        }
+    }
+
+    if ($action === 'cancel_linked_po') {
+        $cancelPoNo = $_POST['cancel_po_no'] ?? '';
+        if ($cancelPoNo && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            try {
+                $pdo->prepare("UPDATE purchase_orders SET status = 'cancelled' WHERE po_no = ?")->execute([$cancelPoNo]);
+                $pdo->prepare("UPDATE procurement_plan_po_items SET status = 'po_cancelled' WHERE plan_id = ? AND created_po_no = ?")->execute([$planId, $cancelPoNo]);
+                $success = "PO " . $cancelPoNo . " cancelled.";
+                $planDetails = getProcurementPlanDetails($pdo, $planId);
+            } catch (Exception $e) {
+                $error = "Error cancelling PO: " . $e->getMessage();
+            }
+        }
+    }
 }
 
 $poItems = getPlanPurchaseOrderItems($pdo, $planId);
@@ -181,6 +283,13 @@ if (!empty($viewSoNos)) {
         <span style="color: #ccc; margin: 0 8px;">|</span>
         <a href="/procurement/view.php?id=<?= $planId ?>" style="color: #9333ea; text-decoration: none; font-size: 0.9em;">View Full Plan in PPP &rarr;</a>
     </div>
+
+    <?php if ($error): ?>
+        <div class="alert error"><?= htmlspecialchars($error) ?></div>
+    <?php endif; ?>
+    <?php if ($success): ?>
+        <div class="alert success"><?= htmlspecialchars($success) ?></div>
+    <?php endif; ?>
 
     <!-- Header -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -460,11 +569,46 @@ if (!empty($viewSoNos)) {
                             <td>
                                 <?php if ($planIsCompleted): ?>
                                     <span style="color: #16a34a;">Done</span>
-                                <?php elseif ($isPOClosed || $hasPO): ?>
+                                <?php elseif ($isCancelled && in_array($planDetails['status'], ['approved', 'partiallyordered'])): ?>
+                                    <form method="post" style="display: inline;">
+                                        <input type="hidden" name="action" value="regenerate_po">
+                                        <input type="hidden" name="regen_part_no" value="<?= htmlspecialchars($item['part_no']) ?>">
+                                        <input type="hidden" name="purchase_date" value="<?= date('Y-m-d') ?>">
+                                        <button type="submit" class="btn btn-sm" style="background: #dc2626; color: white; padding: 4px 10px; font-size: 0.85em;"
+                                                onclick="return confirm('Generate new PO for <?= htmlspecialchars($item['part_no']) ?>?');">
+                                            New PO
+                                        </button>
+                                    </form>
+                                <?php elseif ($isPOClosed): ?>
                                     <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
                                        class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
                                         View PO
                                     </a>
+                                <?php elseif ($hasPO): ?>
+                                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                        <a href="/purchase/view.php?po_no=<?= urlencode($item['created_po_no']) ?>"
+                                           class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
+                                            View PO
+                                        </a>
+                                        <form method="post" style="display: inline;">
+                                            <input type="hidden" name="action" value="cancel_linked_po">
+                                            <input type="hidden" name="cancel_po_no" value="<?= htmlspecialchars($item['created_po_no']) ?>">
+                                            <button type="submit" class="btn btn-sm" style="background: #dc2626; color: white; padding: 4px 10px; font-size: 0.85em;"
+                                                    onclick="return confirm('Cancel PO <?= htmlspecialchars($item['created_po_no']) ?>?');">
+                                                Cancel
+                                            </button>
+                                        </form>
+                                    </div>
+                                <?php elseif ($item['shortage'] > 0 && in_array($planDetails['status'], ['approved', 'partiallyordered'])): ?>
+                                    <form method="post" style="display: inline;">
+                                        <input type="hidden" name="action" value="create_po">
+                                        <input type="hidden" name="po_part_no" value="<?= htmlspecialchars($item['part_no']) ?>">
+                                        <input type="hidden" name="purchase_date" value="<?= date('Y-m-d') ?>">
+                                        <button type="submit" class="btn btn-sm" style="background: #f59e0b; color: white; padding: 4px 10px; font-size: 0.85em;"
+                                                onclick="return confirm('Create PO for <?= htmlspecialchars($item['part_no']) ?>?');">
+                                            Create PO
+                                        </button>
+                                    </form>
                                 <?php elseif ($item['shortage'] > 0): ?>
                                     <span style="color: #f59e0b;">Needs PO</span>
                                 <?php else: ?>

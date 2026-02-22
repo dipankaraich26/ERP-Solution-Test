@@ -5,6 +5,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require '../db.php';
+require '../includes/auth.php';
+requireLogin();
 require '../includes/procurement_helper.php';
 
 $planId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -68,6 +70,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         } else {
             $error = "Only draft, approved, or in-progress plans can be cancelled";
+        }
+    }
+
+    if ($action === 'create_wo') {
+        $woPartNo = $_POST['wo_part_no'] ?? '';
+        $woQty = (float)($_POST['wo_qty'] ?? 0);
+        if ($woPartNo && $woQty > 0 && $planId && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            $woResult = createWorkOrderWithTracking($pdo, $planId, $woPartNo, $woQty);
+            if ($woResult['success']) {
+                $success = $woResult['message'];
+                $planDetails = getProcurementPlanDetails($pdo, $planId);
+            } else {
+                $error = $woResult['error'] ?? 'Failed to create Work Order';
+            }
+        } else {
+            $error = "Invalid Work Order data or plan not in correct status";
+        }
+    }
+
+    if ($action === 'create_all_wo_for_so') {
+        $targetSO = $_POST['target_so'] ?? '';
+        if ($targetSO && $planId && in_array($planDetails['status'], ['approved', 'partiallyordered'])) {
+            $freshWoItems = getPlanWorkOrderItems($pdo, $planId);
+            foreach ($freshWoItems as &$fwi) {
+                try {
+                    $fwi['current_stock'] = (int)getAvailableStock($pdo, $fwi['part_no'], $planId);
+                    $fwi['shortage'] = max(0, $fwi['required_qty'] - $fwi['current_stock']);
+                } catch (Exception $e) {}
+            }
+            unset($fwi);
+            $woResult = createAllWorkOrdersForSO($pdo, $planId, $targetSO, $freshWoItems);
+            if ($woResult['success']) {
+                $success = $woResult['message'];
+                $planDetails = getProcurementPlanDetails($pdo, $planId);
+            } else {
+                $error = $woResult['error'] ?? 'Failed to create Work Orders';
+            }
+        } else {
+            $error = "Invalid SO or plan not in correct status";
         }
     }
 }
@@ -174,6 +215,13 @@ if ($planDetails) {
     <?php endif; ?>
 
     <?php if ($planDetails): ?>
+
+    <!-- Navigation -->
+    <div style="margin-bottom: 15px;">
+        <a href="index.php" style="color: #059669; text-decoration: none; font-size: 0.9em;">&larr; Back to Work Order Planning</a>
+        <span style="color: #ccc; margin: 0 8px;">|</span>
+        <a href="/procurement/view.php?id=<?= $planId ?>" style="color: #9333ea; text-decoration: none; font-size: 0.9em;">View Full Plan in PPP &rarr;</a>
+    </div>
 
     <!-- Header -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -494,6 +542,16 @@ if ($planDetails) {
                                        class="btn btn-sm" style="background: #6366f1; color: white; padding: 4px 10px; font-size: 0.85em;">
                                         View WO
                                     </a>
+                                <?php elseif ($item['shortage'] > 0 && in_array($planDetails['status'], ['approved', 'partiallyordered'])): ?>
+                                    <form method="post" style="display: inline;">
+                                        <input type="hidden" name="action" value="create_wo">
+                                        <input type="hidden" name="wo_part_no" value="<?= htmlspecialchars($item['part_no']) ?>">
+                                        <input type="hidden" name="wo_qty" value="<?= $item['shortage'] ?>">
+                                        <button type="submit" class="btn btn-sm" style="background: #10b981; color: white; padding: 4px 10px; font-size: 0.85em;"
+                                                onclick="return confirm('Create Work Order for <?= htmlspecialchars($item['part_no']) ?> (qty: <?= $item['shortage'] ?>)?');">
+                                            Create WO
+                                        </button>
+                                    </form>
                                 <?php elseif ($item['shortage'] > 0): ?>
                                     <span style="color: #f59e0b;">Needs WO</span>
                                 <?php else: ?>
@@ -551,6 +609,43 @@ if ($planDetails) {
                             <span style="color: #10b981;"><?= $soInStock ?> in stock</span>
                         <?php endif; ?>
                     </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- SO-wise Bulk WO Creation -->
+        <?php if (!$planIsCompleted && in_array($planDetails['status'], ['approved', 'partiallyordered']) && !empty($woItemsBySO)): ?>
+        <div style="padding: 15px; background: #f0fdf4; border-radius: 8px; border: 1px solid #86efac; margin-top: 15px;">
+            <h4 style="margin: 0 0 15px 0; color: #059669;">Create Work Orders by Sales Order</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;">
+                <?php foreach ($woItemsBySO as $soNo => $soItems):
+                    $soPending = 0;
+                    $soTotal = count($soItems);
+                    foreach ($soItems as $si) {
+                        if (empty($si['created_wo_id']) && ($si['shortage'] ?? 0) > 0) {
+                            $soPending++;
+                        }
+                    }
+                ?>
+                <div style="background: white; padding: 12px; border-radius: 6px; border: 1px solid <?= $soPending > 0 ? '#f59e0b' : '#10b981' ?>;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <strong><?= htmlspecialchars($soNo) ?></strong>
+                        <span style="font-size: 0.8em; color: #666;"><?= $soTotal ?> parts, <?= $soPending ?> pending</span>
+                    </div>
+                    <?php if ($soPending > 0): ?>
+                    <form method="post">
+                        <input type="hidden" name="action" value="create_all_wo_for_so">
+                        <input type="hidden" name="target_so" value="<?= htmlspecialchars($soNo) ?>">
+                        <button type="submit" class="btn btn-sm" style="background: #10b981; color: white; padding: 6px 14px; font-size: 0.85em; width: 100%;"
+                                onclick="return confirm('Create Work Orders for all <?= $soPending ?> pending items in <?= htmlspecialchars($soNo) ?>?');">
+                            Create All WOs for <?= htmlspecialchars($soNo) ?> (<?= $soPending ?> items)
+                        </button>
+                    </form>
+                    <?php else: ?>
+                    <span style="color: #10b981; font-size: 0.85em;">All WOs created or in stock</span>
+                    <?php endif; ?>
                 </div>
                 <?php endforeach; ?>
             </div>
