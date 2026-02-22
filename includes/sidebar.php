@@ -20,7 +20,7 @@ function _canView(string $module): bool {
 $_isAdmin = (function_exists('getUserRole') && getUserRole() === 'admin');
 
 $showSales = $_isAdmin || _canView('crm') || _canView('customers') || _canView('quotes') || _canView('proforma') || _canView('customer_po') || _canView('sales_orders') || _canView('invoices') || _canView('installations');
-$showPurchase = $_isAdmin || _canView('suppliers') || _canView('purchase');
+$showPurchase = $_isAdmin || _canView('suppliers') || _canView('purchase') || _canView('procurement');
 $showProduction = $_isAdmin || _canView('procurement');
 $showInventory = $_isAdmin || _canView('part_master') || _canView('stock_entry') || _canView('depletion') || _canView('inventory') || _canView('reports');
 $showOperations = $_isAdmin || _canView('bom') || _canView('work_orders');
@@ -410,6 +410,9 @@ $showStrategy = $_isAdmin || _canView('strategy');
             <a href="/purchase/supplier_pricing.php" class="<?= $currentDir === 'purchase' && $current === 'supplier_pricing.php' ? 'active' : '' ?>">Supplier Pricing</a>
             <a href="/purchase/index.php" class="<?= $currentDir === 'purchase' ? 'active' : '' ?>">Purchase Orders</a>
             <a href="/purchase/matrix.php" class="<?= $currentDir === 'purchase' && $current === 'matrix.php' ? 'active' : '' ?>">LT vs Value Matrix</a>
+            <?php endif; ?>
+            <?php if (_canView('procurement')): ?>
+            <a href="/purchase/procurement_planning.php" class="<?= $currentDir === 'purchase' && $current === 'procurement_planning.php' ? 'active' : '' ?>">Procurement Planning</a>
             <?php endif; ?>
         </div>
     </div>
